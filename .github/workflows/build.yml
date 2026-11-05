@@ -30,11 +30,11 @@ on:
 # Only a pull request's superseded runs are canceled, and its group is the PR
 # number, so same-named branches from forks cannot collide. Every other event
 # (a push to main, the weekly schedule, a release, a manual run) keys on the
-# run id and so has a group to itself: each commit main takes is built and
-# tested as merged, even when several merges land close together. One group
-# shared by all main commits would not do, because a run still waiting for a
-# runner is canceled as soon as a newer run joins its group, whatever
-# cancel-in-progress says, and that commit would go unbuilt.
+# run id and so has a group to itself, which is what gets each commit main
+# takes built and tested as merged when several merges land close together.
+# One group for all of them would not do: a run that group is holding back has
+# not started, so cancel-in-progress does not protect it and the next run to
+# join the group drops it, leaving that commit unbuilt.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
