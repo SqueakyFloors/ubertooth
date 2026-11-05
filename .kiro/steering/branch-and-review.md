@@ -127,22 +127,10 @@ Speed matters. Do not wait for every job.
   each has reported green or skipped. `CONTRIBUTING.md` names them, under
   "They are required". The rule does not apply to the repository owner, which
   is there for the one case where the maintainer has looked at a red check and
-  decided to merge anyway: a check the maintainer has allowed to be red is the
-  maintainer's merge, not yours. Say on the PR why you think it should not
-  block, and leave it. The one `--admin` merge an agent may make is the macOS
-  delay rule below.
-- **A macOS leg pending more than 7 minutes may be merged past.** The macOS
-  runners queue far longer than the rest, so the maintainer's standing
-  direction is: once every Linux and platform-independent required check has
-  passed, and the only unfinished required checks left are `macos-26` legs --
-  or `image-revision` or `dfu-package` waiting on `firmware (macos-26)` --
-  that have been queued or running for more than 7 minutes, merge with
-  `gh pr merge <PR> --squash --admin --match-head-commit <sha>`. Say on the PR
-  which macOS checks were still pending and for how long. Then watch those
-  legs of `main`'s push run, and file an issue at once if one fails. A macOS
-  leg that has COMPLETED with a failure still blocks: fix it or ask. The
-  release candidate is held to the full run, macOS included, before it is
-  named. This is the only case where `--admin` is allowed.
+  decided to merge anyway. **Never use `--admin`**: a check the maintainer has
+  allowed to be red is the maintainer's merge, not yours, and a required check
+  that is stuck or still pending is the same call. Say on the PR why you think
+  it should not block, and leave it.
 - **Gating set: one Linux and one Mac.** A code change is good to merge once
   `host (ubuntu-24.04)` and `host (macos-26)` have passed and nothing has
   failed. A change under `host/` also needs `host-installed-libubertooth`,
@@ -403,8 +391,7 @@ label and one line saying what to decide, when it:
 
 If classification is uncertain, MUST treat it as requiring maintainer review.
 A red required check is never a maintainer question: fix it, or wait for the
-fix. Never use `--admin` outside the macOS delay rule above, and never change
-branch protection.
+fix. Never use `--admin`, and never change branch protection.
 
 Some questions are settled for every change and MUST NOT be asked again: a bad
 or meaningless request is an error, never silently accepted; the least
