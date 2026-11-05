@@ -63,20 +63,20 @@ glibc a hosted runner offers, and 24.04 -- and one macOS runner; `firmware`
 and `scripts` run on one Ubuntu and one macOS runner; `install-sh` on Ubuntu
 24.04, macOS 15, and a Fedora container. Each reports once per runner:
 `host (ubuntu-22.04)`, `host (ubuntu-24.04)`, `host (macos-26)`. The weekly,
-release and on-request runs are a fuller tier: those jobs cover more runners,
-and three more jobs (`host-ubuntu-20_04`, `firmware-ubuntu-20_04`,
-`host-fedora`) build on the oldest supported Ubuntu and on Fedora. None of
-the extra tier gates a pull request.
+release and on-request runs are a fuller tier: `host` and `firmware` cover
+more runners there, and three more jobs (`host-ubuntu-20_04`,
+`firmware-ubuntu-20_04`, `host-fedora`) build on the oldest supported Ubuntu
+and on Fedora. None of the extra tier gates a pull request.
 
 A change to documentation only builds nothing, but every `Build` name still
-reports, and the whole required set is green about a minute after the run
-starts. The `changes` job sees that each changed file is a Markdown file,
+reports, and the whole required set is usually green a minute or two after the
+run starts. The `changes` job sees that each changed file is a Markdown file,
 under `docs/` or `.kiro/`, or a generated man page, and skips `host`,
 `host-installed-libubertooth`, `firmware` and `scripts`; `image-revision` and
 `dfu-package` skip with the firmware job whose images they read. The cheap
 Linux checks (`issue-references`, `api-version`, `libbtbb-pin` and
 `doc-api-version`) run as they always do, and `Man pages` runs whenever
-`host/doc/` changes, which is where the man page sources live. `install.sh`
+`host/doc/`, where the man page sources live, changes. `install.sh`
 asks for its own two paths and is not reached.
 
 One man page is an exception. `host/doc/ubertooth-btbr.md` states the
@@ -100,16 +100,17 @@ the matrix of a job it skips: a skipped `host` would report once, as `host`,
 while the rule on `main` asks for `host (ubuntu-24.04)` and
 `host (macos-26)`, which nothing would then report. So adding or renaming a
 runner in the pull-request matrix means editing the stand-in's matrix, the
-protection rule on `main`, and the names above, together. It is also why
-`gh pr checks` lists entries under a bare name (`host`) or an unevaluated one
-(`host (${{ matrix.os }})`): GitHub does not evaluate the name of a job it
-skips either. Neither is required, and neither means anything went wrong. Each
-check name is reported by exactly one job per pull request, which keeps a
-stand-in from ever masking a real failure. A pull request whose last run
-predates the stand-in jobs is the one case where that breaks down: it reports
-a skipped matrix job under the bare name, nothing reports the leg names the
-rule asks for, and it sits blocked until a rebase onto `main` and a fresh run
-clear it.
+protection rule on `main`, and the names above, together.
+
+It is also why `gh pr checks` lists entries under a bare name (`host`) or an
+unevaluated one (`host (${{ matrix.os }})`): GitHub does not evaluate the name
+of a job it skips either. Neither is required, and neither means anything went
+wrong. Each check name is reported by exactly one job per pull request, which
+keeps a stand-in from ever masking a real failure. The one case where that
+breaks down is a pull request whose last run predates the stand-in jobs: it
+reports a skipped matrix job under the bare name, nothing reports the leg
+names the rule asks for, and it sits blocked until a rebase onto `main` and a
+fresh run clear it.
 
 ### They are required
 
@@ -128,19 +129,20 @@ report like the rest but do not gate a merge.
 The rule is not strict, so a branch need not be up to date with `main` to
 merge, and it requires no reviews: the project's own rules say who reviews
 what and who may merge. It does not apply to the repository owner
-(`enforce_admins` is off).
+(`enforce_admins` is off), whose admin override is the only way a pull request
+merges with a required check outstanding.
 
-So a red required check is a stop, for everyone: say on the pull request why
-you think it should not block, and leave it to the maintainer. The one
-standing exception is for the macOS runners, which queue far longer than the
-rest. Once every Linux and platform-independent required check has passed, a
-pull request whose only unfinished required checks are `macos-26` legs -- or
+The policy is not to use it. A red required check is a stop: say on the pull
+request why you think it should not block, and leave it to the maintainer. The
+one standing exception is for the macOS runners, which queue far longer than
+the rest. Once every Linux and platform-independent required check has passed,
+a pull request whose only unfinished required checks are `macos-26` legs -- or
 `image-revision` or `dfu-package` waiting on `firmware (macos-26)` -- and that
-has been waiting on them for more than seven minutes may be merged past them,
-with the pending checks and the wait named on the pull request and the same
-legs of `main`'s own run watched afterwards. A macOS leg that has finished and
-failed still blocks. A release candidate is held to the full run, macOS
-included, before it is named.
+has been waiting on them for more than seven minutes may be merged past them
+with that override, with the pending checks and the wait named on the pull
+request and the same legs of `main`'s own run watched afterwards. A macOS leg
+that has finished and failed still blocks. A release candidate is held to the
+full run, macOS included, before it is named.
 
 What the rule does not fix is that GitHub reads workflow files from the branch
 under review, so a branch can still weaken an `if:` condition, drop a step or
