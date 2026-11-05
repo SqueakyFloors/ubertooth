@@ -55,14 +55,12 @@
 
 /*
  * How long the buffer is that the USB stack fills from a vendor request's
- * data stage, and so the most a handler may read out of it. A case whose body
- * is a count of items works out from this how many of them it may read.
+ * data stage, and so the most a handler may read out of it.
  *
- * It is also what the USB stack will accept: the registration passes this
- * length to USBRegisterRequestHandler(), and a host-to-device request
- * declaring more than it is stalled rather than collected past the end of the
- * buffer. A handler still has to read no more than data_in_len says arrived,
- * which is a separate matter -- see the next comment.
+ * It is also what the stack will accept: the registration passes this length
+ * to USBRegisterRequestHandler(), so a host-to-device request declaring more
+ * is stalled rather than collected past the end of the buffer. A handler
+ * still has to read no more than data_in_len says arrived; see below.
  */
 #define VENDOR_REQ_DATA_LEN 258
 
@@ -75,11 +73,10 @@
  * case that reads `data` may read `data_in_len` bytes of it and no more.
  *
  * The stack also calls at SETUP time for a host-to-device request of no
- * length, so an empty data stage and no data stage at all arrive the same way,
- * with data_in_len zero. `data_from_host` is what tells them apart, and for a
- * request whose body may legitimately be empty that is the only difference
- * between the host asking for something and a read of the same number asking
- * for nothing.
+ * length, so an empty data stage and no data stage at all both arrive with
+ * data_in_len zero. `data_from_host` is what tells them apart, and for a
+ * request whose body may legitimately be empty it is the only difference
+ * between the host asking for something and a read of the same number.
  */
 typedef int (VendorRequestHandler)(u8 request, u16 *request_params, u8 *data,
                                    int data_from_host, unsigned data_in_len,
@@ -90,13 +87,10 @@ typedef int (VendorRequestHandler)(u8 request, u16 *request_params, u8 *data,
  * helpers do.
  *
  * Six modes service USB from the USB interrupt rather than from their loop
- * (bt_generic_le(), bt_le_sync(), bt_peripheral_le(), ego, xmas, identify), so
- * while those run, USBHwISR() -- and the vendor request handler with it --
+ * (bt_generic_le(), bt_le_sync(), bt_peripheral_le(), ego, xmas, identify),
+ * so while those run USBHwISR() -- and the vendor request handler with it --
  * can land anywhere. Code that drives the USB controller or touches the
- * packet queue has to keep it out for the duration. Where that code also
- * runs inside one of those modes, as the queue does, this is what makes it
- * safe; where it does not, as in handle_usb(), this is what keeps it safe if
- * a mode ever does both.
+ * packet queue has to keep it out for the duration.
  *
  * The helpers themselves are shared with the btbr image.
  */
@@ -131,15 +125,15 @@ typedef struct {
  * is longer than the 50 bytes one record holds.
  *
  * The packet is the four bytes of the access address at `aa` followed by
- * `rest_len` bytes at `rest` -- the PDU header, the payload and the CRC. The
- * two are separate because the capture loops keep them apart: the access
- * address is what the board synchronized on, not something it received.
+ * `rest_len` bytes at `rest`. The two are separate because the capture loops
+ * keep them apart: the access address is what the board synchronized on, not
+ * something it received.
  *
  * A long packet goes out as one LE_PACKET_START record and ordered
- * LE_PACKET_CONT records, and all of them are queued or none: half a packet
- * is worse than none, because the host throws an incomplete chain away.
- * Returns 1 when the packet was queued, 0 when it was not -- a ring without
- * room for every record, or a packet longer than the host can hold. */
+ * LE_PACKET_CONT records, and all of them are queued or none, because the
+ * host throws an incomplete chain away. Returns 1 when the packet was
+ * queued, 0 when the ring had no room for every record or the packet is
+ * longer than the host can hold. */
 int usb_enqueue_le_packet(const le_pkt_meta *meta, const uint8_t *aa,
                           const uint8_t *rest, unsigned rest_len);
 
@@ -150,10 +144,10 @@ void handle_usb(u32 clkn);
  * those hand queued packets to the bulk IN endpoint, which no poll-read host
  * reads, so the packets are lost rather than delivered.
  *
- * And the other way round, which is the quieter failure: a mode whose host
- * does read that endpoint must not call this. Nothing would reach the endpoint
- * at all, not even the keep-alive, so the host would wait out its read
- * timeouts and report an empty capture rather than an error. */
+ * And the other way round: a mode whose host does read that endpoint must not
+ * call this, or nothing reaches the endpoint at all, not even the keep-alive,
+ * and the host waits out its read timeouts and reports an empty capture
+ * rather than an error. */
 void handle_usb_control(void);
 
 /* handle_usb() with the bulk stream's keep-alive timestamp filled in, for the

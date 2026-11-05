@@ -52,10 +52,10 @@ extern volatile uint16_t clk_drift_correction;
  * way.
  *
  * The correction adds or removes one 100 ns tick every clk_drift_correction
- * CLKN ticks, and that interval is CLK_DRIFT_PPM_MAX divided by the drift: at
- * the bound the interval is one tick, which is as often as the tick handler
- * runs. A larger figure cannot be corrected any faster, so the handler of
- * UBERTOOTH_FIX_CLOCK_DRIFT keeps the running figure within it.
+ * CLKN ticks, and that interval is CLK_DRIFT_PPM_MAX divided by the drift, so
+ * at the bound it is one tick -- as often as the tick handler runs. A larger
+ * figure cannot be corrected any faster, so UBERTOOTH_FIX_CLOCK_DRIFT keeps
+ * the running figure within it.
  */
 #define CLK_DRIFT_PPM_MAX 320
 
@@ -70,34 +70,27 @@ extern volatile uint32_t clkn_next_drift_fix;
  * of T0TC, which a wait adds up as it polls.
  *
  * Waits are written that way, rather than by comparing CLK100NS against a
- * deadline, because CLK100NS does not only count up. It is
- * CLK100NS_PER_CLKN * (clkn & 0xfffff) + T0TC, timer 0 resets at the end of
- * each period, and clkn is advanced by the timer's own interrupt handler:
- * between the reset and the handler running, every reading is about one whole
- * clkn tick lower than the one before it. A deadline compared against that
- * would be met in that window, every 312.5 us, and the wait would give up on
- * a packet that was arriving normally.
+ * deadline, because CLK100NS does not only count up: timer 0 resets at the
+ * end of each period and clkn is advanced by the timer's own interrupt
+ * handler, so between the reset and the handler running every reading is
+ * about one whole clkn tick lower than the one before. A deadline would be
+ * met in that window, every 312.5 us, and the wait would give up on a packet
+ * that was arriving normally.
  *
- * A reading lower than the one before it means the timer reset in between, and
- * how much of that period was left is only known if the period was the usual
- * CLK100NS_PER_CLKN ticks. Often it is not. The clock interrupt lengthens one
- * period to correct for clock drift, and UBERTOOTH_TRIM_CLOCK and
+ * The step is taken from the sign of the difference and not modulo a fixed
+ * period, because the period's length varies: the clock interrupt lengthens
+ * one period to correct for drift, and UBERTOOTH_TRIM_CLOCK and
  * UBERTOOTH_START_HOPPING let the host put a length of its own in the match
- * register, which the timer keeps until the next clock interrupt writes the
- * usual value back.
+ * register. A reading that went down counts only how far into the new period
+ * the wait is, which is never more than the time that really passed, because
+ * a period is never shorter than CLK100NS_PER_CLKN. A fixed modulus has no
+ * such bound and for some lengths returns more than the step took, which
+ * would end a wait early.
  *
- * So the step is taken from the sign of the difference and not modulo a fixed
- * period. A reading that went down counts only how far into the new period the
- * wait is, which is never more than the time that really passed, whatever the
- * period's length -- a period is never shorter than CLK100NS_PER_CLKN, because
- * the match value is that minus one plus an unsigned offset. A fixed modulus
- * has no such bound: for some lengths it returns a figure much larger than the
- * step took, and a wait that counted one of those would end early.
- *
- * Undercounting is the safe direction for a deadline: the wait runs a little
- * longer than its budget rather than ending early on a packet that was still
- * arriving. A gap longer than one period is undercounted for the same reason,
- * because nothing here can tell how many resets it spanned.
+ * Undercounting is the safe direction: the wait runs a little longer than its
+ * budget rather than ending early on a packet that was still arriving. A gap
+ * longer than one period is undercounted for the same reason, because nothing
+ * here can tell how many resets it spanned.
  */
 static inline uint32_t clk100ns_step(uint32_t last, uint32_t now)
 {

@@ -172,8 +172,7 @@ int le_same_span(u32 a, u32 b);
  * This is what tells a packet of the event now running from the first packet
  * of the next one, which is what a sighting has to be. It cannot be the
  * shortest connection interval: a busy event runs longer than that, so part
- * way through one such event a packet would be taken for the start of the
- * next.
+ * way through one a packet would be taken for the start of the next.
  */
 #define LE_SAME_EVENT_GAP 25000u
 /* 261 bytes is the longest packet the 1M PHY carries -- preamble, access
@@ -188,42 +187,31 @@ _Static_assert(LE_SAME_EVENT_GAP >= 261u * 80u + 1500u,
  * belongs to, in the same ticks.
  *
  * A sighting is stamped when the four bytes after a packet's access address
- * have arrived, which is 72 microseconds into the packet on the 1M PHY: one
- * byte of preamble, four of access address, and those four. So what sets this
- * figure is which packet of an event the board heard, not how long that
- * packet is.
+ * have arrived, 72 microseconds into the packet on the 1M PHY, so what sets
+ * this figure is which packet of an event the board heard. The central's
+ * packet starts the event, so a sighting on it is 0.07 ms late; the
+ * peripheral's answer starts 150 microseconds after a central's packet up to
+ * 2.1 ms long, so a sighting on the answer is up to 2.32 ms late. 2.5 ms
+ * covers both, which is why it matches LE_SAME_EVENT_GAP above.
  *
- * The central's packet starts the event, so a sighting on it is 0.07 ms late.
- * The peripheral's answer starts 150 microseconds after the central's packet
- * ends, and the central's packet is up to 2.1 ms long, so a sighting on the
- * answer is up to 2.32 ms late. 2.5 ms covers both, which is why it is the
- * same number as LE_SAME_EVENT_GAP above.
+ * It is not a bound the collector can guarantee. The board may have missed
+ * the packets before the one it heard -- a length the capture refused, a
+ * failed CRC, a packet the radio was not ready for -- and the sighting is
+ * then as deep into its event as those went. That degrades the search rather
+ * than making it answer wrongly: the allowances below take such a gap for a
+ * whole number of intervals, every older sighting's offset shifts, and the
+ * winning score falls below the bar.
  *
- * It is not a bound the collector can guarantee, and nothing here claims one.
- * A sighting is the first packet of its event that the board heard, and the
- * board may have missed the ones before it -- a length the capture refused, a
- * CRC that failed, or simply a packet the radio was not ready for. Then the
- * sighting is as deep into its event as those packets went. What follows is
- * degradation, not a wrong answer. The allowances below are wide enough that
- * such a gap is usually taken for a whole number of connection intervals
- * rather than refused, so every older sighting's offset shifts and the winning
- * score falls: a wrong counter still cannot reach the bar, and the search
- * declines instead. And a follow anchored that deep into an event misses the
- * start of every event it then hops to. Open findings on the pull request
- * track the second of those.
+ * Two things rest on the figure: the search allows for it on top of the
+ * clock's own error, and the follow it hands over to is anchored on the
+ * newest sighting.
  *
- * Two things rest on the figure. The gap between two sightings is not an exact
- * number of connection intervals even with a clock that keeps perfect time, so
- * the search allows for the difference on top of the clock's own; and the
- * follow the search hands over to is anchored on the newest sighting.
- *
- * It has to stay under half the shortest interval, 3.75 ms. Two sightings each
- * this late can put a gap that much either side of a whole number of
- * connection intervals, and past half an interval the whole number nearest the
- * gap is no longer the number of events it really spans -- which is the one
- * step of the search that has no way of noticing it went wrong. Nothing else
- * in the arithmetic would complain, so the bound is checked here rather than
- * left as a remark.
+ * It has to stay under half the shortest interval, 3.75 ms. Two sightings
+ * each this late can put a gap that much either side of a whole number of
+ * intervals, and past half an interval the nearest whole number is no longer
+ * the number of events the gap spans -- the one step of the search that
+ * cannot notice it went wrong, so the bound is asserted rather than remarked
+ * on.
  */
 #define LE_CSA2_SIGHTING_SPREAD 25000u
 _Static_assert(2 * LE_CSA2_SIGHTING_SPREAD <
@@ -237,25 +225,25 @@ _Static_assert(LE_SAME_EVENT_GAP <= LE_CSA2_SIGHTING_SPREAD,
  * algorithm 2 (Core 5.4, Vol 6, Part B, 4.5.8.3), from packets heard on one
  * data channel.
  *
- * Algorithm 1 is a running sum of a hop increment, so a listener can work the
- * increment out by timing one hop. Algorithm 2 has no increment: the channel
- * of a connection event is a hash of the access address and the 16-bit event
- * counter, reduced to one of the channels the map keeps. The access address
- * is known by the time this runs, so what is left to find is the connection
- * interval and where in the counter's range the connection is.
+ * Algorithm 1 is a running sum of a hop increment, which a listener can work
+ * out by timing one hop. Algorithm 2 has no increment: the channel of an
+ * event is a hash of the access address and the 16-bit event counter, reduced
+ * to one of the channels the map keeps. The access address is known by the
+ * time this runs, so what is left to find is the connection interval and
+ * where in the counter's range the connection is.
  *
  * Both come from the times the connection was heard on the one channel the
  * mode listens to. Every gap between two sightings is a whole number of
  * connection intervals, which pins the interval; the gaps then say how many
  * events apart the sightings are, and the counter is the value that puts the
- * algorithm's channel on this channel at those events.
+ * algorithm's channel here at those events.
  *
- * The counter is scored rather than solved. A sighting the predicted sequence
- * does not account for is a point not scored, not a candidate ruled out: on a
- * connection using fewer than the 37 channels a sighting may be a visit the
- * map moved here from a channel it dropped, and those cannot be predicted
- * without knowing the map. About a map's worth of sightings are still direct
- * visits, so the right counter outscores every other by a wide margin.
+ * The counter is scored rather than solved: a sighting the predicted sequence
+ * does not account for is a point not scored, not a candidate ruled out,
+ * because on a connection using fewer than 37 channels a sighting may be a
+ * visit the map moved here from a channel it dropped, which cannot be
+ * predicted without the map. Enough sightings are still direct visits that
+ * the right counter outscores every other by a wide margin.
  */
 
 /* How many sightings the search works from: the more it has, the further the
@@ -286,26 +274,23 @@ _Static_assert(LE_SAME_EVENT_GAP <= LE_CSA2_SIGHTING_SPREAD,
  * given before the connection is taken to be over.
  *
  * Such a follow has no channel map, so it lands on the right channel only for
- * the events whose channel the map did not move, and a run of events it cannot
- * hear says nothing about whether the connection is still there. The runs are
- * not short: they are a property of the access address and the map rather than
- * chance. This figure is above the longest such run counted on the real
- * channel sequences of the connections this search adopts an answer for, with
- * room to spare (test_promisc_csa2.c counts them again and fails if a run
- * reaches it).
+ * the events whose channel the map did not move, and a run of events it
+ * cannot hear says nothing about whether the connection is still there. Those
+ * runs are a property of the access address and the map rather than chance,
+ * and this figure is above the longest counted on the real channel sequences
+ * this search adopts answers for (test_promisc_csa2.c counts them again and
+ * fails if a run reaches it).
  *
  * So this is what the mode waits on a connection that really has gone: a few
  * seconds at a short interval, where the five-second floor wins anyway, and
- * about two minutes at the longest interval a connection can be recovered at.
- * Waiting is the cheaper mistake -- recovering a connection again from the
- * access address takes longer than that.
+ * about two minutes at the longest interval a connection can be recovered
+ * at. Waiting is the cheaper mistake, because recovering from the access
+ * address takes longer than that.
  *
  * It is not the cheaper mistake for a connection that is still there and that
  * the follow has gone deaf to, which nothing in the follow corrects: two
  * clocks a few tens of parts per million apart cover a millisecond of an
- * event in under a minute. The mode then holds a follow that will hear
- * nothing again for this long before starting over. An open finding on the
- * pull request tracks the re-anchoring that would stop it happening.
+ * event in under a minute.
  */
 #define LE_CSA2_SILENCE_EVENTS 64
 
@@ -339,12 +324,10 @@ int le_csa2_handoff(const le_csa2_recovery_t *rec, u32 elapsed,
  *
  * LE_MAX_PAYLOAD_LEGACY is the most any PDU carried before that: 37, from an
  * advertising PDU's 6-bit length field. A data channel PDU's own legacy
- * maximum is lower, 31 (27 payload bytes and a 4-byte message integrity check
- * when the connection is encrypted), but the looser number is the one to
- * compare against, because a mode following a host-supplied target starts on
- * the advertising access address and sees advertising PDUs. Being 6 bytes
- * loose costs about 48 microseconds of waiting; being tight would drop
- * packets that are really there. */
+ * maximum is 31, but the looser number is the one to compare against, because
+ * a mode following a host-supplied target starts on the advertising access
+ * address and sees advertising PDUs. Being 6 bytes loose costs about 48
+ * microseconds of waiting; being tight would drop real packets. */
 #define LE_MAX_PAYLOAD 251
 #define LE_MAX_PAYLOAD_LEGACY 37
 
@@ -374,9 +357,8 @@ static inline int le_length_is_possible(uint8_t length, int crc_verify)
  *
  * The slack covers the radio and the DMA controller between the last bit on
  * the air and the last byte in memory. It is generous on purpose: giving up
- * too early would drop a packet that was really there, while giving up too
- * late only costs that much more blind time in the rare case where the radio
- * synchronized on noise.
+ * early would drop a real packet, while giving up late only costs more blind
+ * time in the rare case where the radio synchronized on noise.
  */
 #define LE_1M_BYTE_CLK100NS 80
 #define LE_RX_BYTE_WAIT_SLACK_CLK100NS 2000   /* 200 microseconds */

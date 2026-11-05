@@ -158,14 +158,14 @@ static int8_t rssi_window_ref = INT8_MIN;
  * reading by, which belongs to one receive window. The mode loops call this
  * once per DMA bank.
  *
- * The per-channel average does not: it is an infinite impulse response filter
- * that blends 3/256 of each bank's average into the channel's running value,
- * so it needs hundreds of banks to reach what the radio is hearing. Clearing
- * it here left it one bank old forever, and 3/256 of one bank rounds back to
- * zero for every raw reading from -42 to 42, which covers the whole range the
- * radio reports in the band. Every Classic record therefore carried the same
- * noise figure -- the host reads a zero average as -55 dBm -- whatever the
- * radio heard. rssi_iir_reset() clears it where a capture ends instead.
+ * The per-channel average must not be cleared here: it is an infinite impulse
+ * response filter blending 3/256 of each bank's average into the channel's
+ * running value, so it needs hundreds of banks to reach what the radio is
+ * hearing. Cleared once a bank it would stay one bank old, and 3/256 of one
+ * bank rounds back to zero for every raw reading from -42 to 42 -- the whole
+ * range the radio reports in this band -- so every record would carry the
+ * same figure whatever the radio heard. rssi_iir_reset() clears it where a
+ * capture ends instead.
  */
 void rssi_reset(void)
 {
@@ -199,16 +199,13 @@ void rssi_add(int8_t v)
 	 * The estimate of the background: the readings that sit more than
 	 * RSSI_POWER_SPAN dB below the loudest taken so far on this channel in
 	 * this window, which is as close to "nothing was being received" as
-	 * this radio can get. It cannot time the quiet, and the carrier-sense
+	 * this radio can get: it cannot time the quiet, and the carrier-sense
 	 * line cannot say either, because the squelch it shares defaults to the
 	 * bottom of the radio's range, where carrier sense is asserted the
-	 * whole time. ubertooth_rssi.h says what the figure that comes out is
-	 * worth.
+	 * whole time. ubertooth_rssi.h says what the figure is worth.
 	 *
 	 * The reference is the readings' own loudest, not a fixed level, so a
-	 * channel that is simply loud still yields an estimate. It is a running
-	 * loudest, so quiet taken before the window's packet is not admitted: a
-	 * window whose packet arrives last contributes nothing.
+	 * channel that is simply loud still yields an estimate.
 	 */
 	if (v > rssi_window_ref)
 		rssi_window_ref = v;

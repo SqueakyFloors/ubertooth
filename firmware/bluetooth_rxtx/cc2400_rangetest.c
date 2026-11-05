@@ -57,16 +57,12 @@ rangetest_result rr;
 /*
  * Hold the CC2400's receive gain amplifier out of reset.
  *
- * Neither of these two modes used to write this, and neither could decode the
- * other: on the bench both receivers reported a strong signal, hundreds of
- * valid RSSI readings, and not one sync word. With this write the exchange
- * completes in under a second.
+ * Without it a receiver reports a strong signal and hundreds of valid RSSI
+ * readings but never matches a sync word.
  *
- * There is no write at boot to inherit. One used to sit in cc2400_init(), and
- * clock_start() reset the CC2400 a few microseconds later and took the
- * register back to the chip's 0xffff, so a board that had just booted read
- * 0xffff and never 0x7fff. Every receive path in this firmware writes it
- * itself, and these two now do the same.
+ * There is no write at boot to inherit: clock_start() resets the CC2400,
+ * which takes this register back to the chip's 0xffff, so every receive path
+ * in this firmware writes it itself.
  */
 #define RANGETEST_MANAND 0x7fff
 
@@ -79,47 +75,30 @@ rangetest_result rr;
  * over before the sender is listening, and the sender waits for a reply that
  * has already been and gone.
  *
- * The burst is 8 amplifier levels times 16 packets of 32 bytes on air at
- * 1 Mbit/s: 256 us of air time each, so about 33 ms. The rest of its length is
- * the sender writing 128 packets into the radio, waiting on the state machine
- * between them and servicing USB as it goes, so it varies with what the host
- * is doing and is not measured here.
+ * The burst is 8 amplifier levels times 16 packets of 32 bytes at 1 Mbit/s,
+ * about 33 ms of air time, plus however long the sender spends writing 128
+ * packets into the radio and servicing USB between them.
  *
- * Waiting too long costs nothing -- the sender listens until it is stopped --
- * and waiting too little costs the whole test: the reply lands while the
- * sender is still transmitting, the sender then listens for a reply that has
- * been and gone, and that is the "no result in either direction" this is here
- * to fix. So this takes the generous end: a second, thirty times the air time.
- * A reply in a second is still immediate to anyone watching.
+ * Waiting too long costs nothing, because the sender listens until it is
+ * stopped, while waiting too little costs the whole test. So this takes the
+ * generous end: a second, thirty times the air time.
  */
 /*
- * Why these two modes reach the radio's FIFO through cc2400_fifo_write() and
- * cc2400_fifo_read(), like every other mode, and not a byte at a time.
+ * These two modes reach the radio's FIFO through cc2400_fifo_write() and
+ * cc2400_fifo_read(), not a byte at a time through FIFOREG.
  *
- * They used to reach the FIFO one byte at a time, through a loop of
- * single-register writes or reads of FIFOREG. Each of those is a separate SPI
- * transfer: CSN drops, the FIFO's address goes out, one byte of data follows,
- * CSN rises again. Neither direction works that way, and both failures were
- * measured on a pair of boards.
+ * A per-byte loop is a separate SPI transfer each time -- CSN drops, the
+ * address goes out, one data byte follows, CSN rises -- and neither direction
+ * works that way. The radio needs the address once and then the data bytes
+ * while CSN stays low, held low for a moment after the last clock (the
+ * datasheet's t_ps), or the FIFO stays empty. And a read at the speed
+ * cc2400_spi() clocks at returns wrong bytes whatever the framing; only the
+ * slower clock cc2400_fifo_read() uses gets them right.
  *
- * The write put nothing in the FIFO at all. The radio needs the address once
- * and then the data bytes while CSN stays low, and it needs CSN held low for
- * a moment after the last clock (the datasheet's t_ps). A per-byte transfer
- * gives it neither, so the FIFO stayed empty and each packet went out as
- * preamble, sync word and CRC with no data in between.
- *
- * The read came back as 22 zeros -- not the data, and not even the FIFO's
- * real contents: a read at the speed cc2400_spi() clocks at returns wrong
- * bytes whatever the framing, and only the slower clock cc2400_fifo_read()
- * uses gets them right.
- *
- * The two faults hid each other, and hid behind the CRC. The radio's CRC_OK
- * flag does not mean "a good packet arrived": the datasheet defines it as
- * "the next two bytes in the FIFO equal the CRC16 over the bytes already read
- * from the FIFO". Reading 22 zeros out of an empty FIFO gives a CRC of zero,
- * and the next two bytes read as zero too, so the flag came up set. Both
- * boards therefore believed they had a valid packet, exchanged one, and the
- * sender compared 22 zeros against its own 22 bytes.
+ * Such a fault hides behind the radio's CRC, which does not mean "a good
+ * packet arrived": the datasheet defines CRC_OK as the next two bytes in the
+ * FIFO equalling the CRC16 over the bytes already read out of it, so reading
+ * zeros out of an empty FIFO sets it.
  */
 
 #define REPEATER_TURNAROUND_MS 1000
@@ -129,14 +108,10 @@ rangetest_result rr;
  * Sit out the turnaround delay, servicing USB, and report whether the host
  * asked for another mode while it ran.
  *
- * This was `i = 2000000; while (--i);` with a comment saying it allowed time
- * for the requester to switch to receive. It did not: i is a plain local and
- * the loop has no side effects, so the compiler deleted it -- confirmed in the
- * disassembly -- and the built firmware replied immediately.
- *
- * clkn is the Bluetooth native clock, 3200 ticks per second. The deadline is
- * absolute, so servicing USB inside the wait cannot stretch it the way a
- * counted delay loop would.
+ * Timed against clkn, the Bluetooth native clock at 3200 ticks per second,
+ * rather than by counting down a local: the deadline is absolute, so
+ * servicing USB inside the wait cannot stretch it, and a counted delay loop
+ * with no side effects is deleted by the compiler.
  *
  * Returns 1 if the delay ran to its end, 0 if the mode was stopped during it.
  */
@@ -179,10 +154,9 @@ static void rangetest_radio_off(void)
  *
  * Nothing else is part of this. The length and type bytes before the serial
  * number, and the levels after it, are checked once the packet has been taken
- * as the reply -- a packet with this board's serial number is this test's
- * answer, and a wrong byte in it means that answer arrived corrupted, which is
- * reported as a mismatch rather than discarded. That is the diagnosis a FIFO
- * read that started a byte early was found with.
+ * as the reply: a packet carrying this board's serial number is this test's
+ * answer, and a wrong byte in it means the answer arrived corrupted, which is
+ * reported as a mismatch rather than discarded.
  *
  * Returns -1 when the packet is this board's, otherwise the index of the first
  * serial-number byte that is not.

@@ -59,17 +59,15 @@ volatile int access_code_len = EGO_DEFAULT_ACCESS_CODE_LEN;
  * Put the access code and the capture length back to the ones
  * ubertooth-ego(1) documents.
  *
- * The mode dispatch calls this as a mode starts, for the reason it forgets the
- * AFH map there: both belong to the capture that asked for them. They used to
- * be set once at boot and kept until the board was reset, so an
- * `ubertooth-ego -a 11223344` left 11223344 on the board and the next run
- * captured with it while reporting nothing -- a capture that looks like a
- * default-access-code run and is not one.
+ * The mode dispatch calls this as a mode starts, for the reason it forgets
+ * the AFH map there: both belong to the capture that asked for them. Without
+ * it an `ubertooth-ego -a 11223344` would leave 11223344 on the board and the
+ * next run would capture with it while reporting a default-access-code run.
  *
- * The length does not show that way today, because ubertooth-ego states one on
- * every run, but any program can send these requests over USB: one that sets a
- * length and a later one that does not would otherwise capture at the length
- * the first asked for.
+ * The length is reset for the same reason even though ubertooth-ego states
+ * one on every run, because any program can send these requests: one that
+ * sets a length and a later one that does not would otherwise capture at the
+ * first one's length.
  */
 void ego_capture_reset(void)
 {
