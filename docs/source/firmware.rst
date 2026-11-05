@@ -175,7 +175,7 @@ Then run the DFU command immediately.
 
 .. _what-version-am-i-running:
 
-What Version Am I Running? 
+What Version Am I Running?
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 In non-DFU mode, you can obtain firmware information with ``ubertooth-util -V``. Note that the version shown should match the one you just installed:

@@ -87,7 +87,7 @@ Install the Xcode command line tools (``xcode-select --install``) and
 
 	.. code-block:: sh
 
-		brew install cmake pkg-config libusb wget fftw
+		brew install git cmake pkg-config libusb wget fftw
 		# firmware build and flashing (optional):
 		brew install --cask gcc-arm-embedded
 		brew install dfu-util
@@ -203,11 +203,13 @@ mix the two trees.
 Wireshark plugins
 ^^^^^^^^^^^^^^^^^
 
-Users of Wireshark version 2.2+ do not need to build any plugins at all and may skip this section (see `this comment <https://github.com/greatscottgadgets/libbtbb/issues/50#issuecomment-284128258>`__). This includes users of Debian 10+, Ubuntu 20.04+, Fedora 33+, RHEL 8.3+, and most other Linux distributions. You can check your version by clicking on Help --> About Wireshark.
-
-Wireshark version 1.12 and newer includes the Ubertooth BLE plugin by
-default. It is also possible to :doc:`capture BLE from Ubertooth directly into
-Wireshark <capturing_BLE_Wireshark>`.
+Wireshark 1.12 and newer ships the Ubertooth BLE plugin, and 2.2 and newer
+needs none of the plugins below built by hand (see `this comment
+<https://github.com/greatscottgadgets/libbtbb/issues/50#issuecomment-284128258>`__),
+so users of Debian 10+, Ubuntu 20.04+, Fedora 33+, RHEL 8.3+, and most other
+Linux distributions can skip this section. Help --> About Wireshark says which
+version you have. It is also possible to :doc:`capture BLE from Ubertooth
+directly into Wireshark <capturing_BLE_Wireshark>`.
 
 The Wireshark Bluetooth Baseband (BTBB) and Basic Rate/Enhanced Data Rate
 (BR/EDR) plugins allow Bluetooth baseband traffic captured with Kismet to be
@@ -224,7 +226,7 @@ The directory passed to cmake as ``CMAKE_INSTALL_LIBDIR`` varies from system to 
 		cd build
 		cmake -DCMAKE_INSTALL_LIBDIR=/usr/lib/x86_64-linux-gnu/wireshark/libwireshark3/plugins ..
 		make
-		sudo make install	
+		sudo make install
 
 Then repeat for the BT BR/EDR plugin:
 
@@ -250,4 +252,4 @@ There are a number of pieces of :doc:`third party software <third_party_software
 Firmware
 ~~~~~~~~
 
-This completes the install of the Ubertooth tools, and the next step is :doc:`firmware`. The host tools require firmware of their own API version, so flash the firmware built from the same tree before you use them; a board carrying any other version is refused. ``./install.sh --flash-device <index|serial|all>`` builds and writes it for you.
+This completes the install of the Ubertooth tools, and the next step is :doc:`firmware`. The host tools require firmware of their own API version, so flash the firmware built from the same commit before you use them. Tools built from a tagged commit, or from a source archive with no git history, refuse a board reporting any other version; tools built from a checkout that is not on a tag warn and carry on, and ``UBERTOOTH_ALLOW_API_MISMATCH`` sets either answer whatever the build. ``./install.sh --flash-device <index|serial|all>`` builds and writes it for you.

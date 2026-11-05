@@ -46,9 +46,9 @@ See [COMPATIBILITY.md](COMPATIBILITY.md) for supported OS / toolchain / Python *
 
 ## Installed but not needed
 
-**FFTW3** is installed by `install.sh`, by both build guides, and by the
-by-hand commands below; **dfu-util** by `install.sh --with-firmware` and by the
-build guide's Homebrew line. Nothing in this tree uses either: the spectrum GUI
+**FFTW3** is installed by `install.sh`, by the build guide, and by the by-hand
+commands below; **dfu-util** by `install.sh --with-firmware` and by the build
+guide's Homebrew line. Nothing in this tree uses either: the spectrum GUI
 needs NumPy and a Qt binding, not an FFT library, and `firmware/common.mk`
 flashes with `ubertooth-dfu`. They are kept in those lists so that a machine
 set up by hand matches one set up by the script, not because a build or a tool
