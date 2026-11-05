@@ -14,9 +14,11 @@ ToDo List
 PCAP
 ~~~~
 
-* Obtain DLT/linktype from libPCAP devs for BTBB, see `here <https://ubertooth.readthedocs.io/en/latest/bluetooth_captures_PCAP.html>`__.
+* Obtain DLT/linktype from libPCAP devs for BTBB, see
+  :doc:`bluetooth_captures_PCAP`.
 
-* Define format for including meta-data (using PPI), see `here <https://ubertooth.readthedocs.io/en/latest/bluetooth_captures_PCAP.html>`__.
+* Define format for including meta-data (using PPI), see
+  :doc:`bluetooth_captures_PCAP`.
 
 * Move Wireshark plugins to Wireshark repo.
 
@@ -27,7 +29,7 @@ PCAP
 Basic rate / libbtbb
 ~~~~~~~~~~~~~~~~~~~~
 
-* Better handling of AFH maps when trying clock values. The code currently makes the assumption that AFH is enabled but all channels are in use. (See also the AFH ``FIXME`` in ``firmware/btbr/src/btphy/hop.c``.)
+* Better handling of AFH maps when trying clock values. The code currently makes the assumption that AFH is enabled but all channels are in use.
 
 * Detect syncword on Ubertooth for known piconets.
 
@@ -47,7 +49,10 @@ Releases
 Bigger / more vague projects
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-* Transmit basic rate packets - inquiry scan to start with. (Note: ``ubertooth-tx`` is currently non-functional.)
+* Transmit basic rate packets - inquiry scan to start with. (Note:
+  ``ubertooth-tx -g`` transmits generic packets, up to 65535 of them with
+  ``-n``; retransmitting symbols dumped with ``ubertooth-dump`` is still
+  non-functional.)
 
 * Implement full BTLE device in firmware.
 
