@@ -14,14 +14,13 @@ demodulate Classic Bluetooth with `-c` (default), or Bluetooth Low
 Energy (BLE) with `-l`. Optionally it can decode the binary data and
 print ASCII 0 and 1 using `-b`.
 
-`-g` is experimental: see THE GENERIC RECEIVE below for what it asks of a
-configuration, and expect the option and its output to change.
-
 `-g` runs the board's generic receive instead. That mode programs no
 demodulator of its own: it receives with whatever CC2400 configuration is
-already in the radio, which `ubertooth-debug -w` is how you put there. It is
-what the board has for a 2.4 GHz protocol that is not Bluetooth, and
-ubertooth(7), GENERIC RADIO MODE is the worked example.
+already in the radio, which `ubertooth-debug -w` writes. It is what the board
+has for a 2.4 GHz protocol that is not Bluetooth, and ubertooth(7), GENERIC
+RADIO MODE is the worked example. It is experimental: see THE GENERIC RECEIVE
+below for what it asks of a configuration, and expect the option and its
+output to change.
 
 The dump is one record per block of symbols the board sends. Without `-b` a
 record is 68 bytes: the host time the block arrived, as Unix epoch seconds in 4
@@ -80,7 +79,7 @@ difference.
 The board demodulates one modulation at a time, so `-c` and `-l` in one
 command are refused before any device is opened:
 `error: -l cannot be combined with -c; a capture uses one modulation`. The
-second one used to be the one used, and the other was dropped without a word.
+same letter twice asks for one modulation twice and is accepted.
 
 `-g` and a modulation ask for two different things, so they are refused
 together as well: `error: -g cannot be combined with -c; the generic receive
@@ -117,9 +116,6 @@ on standard error, with no usage text after it: the line describes the
 problem, and `-h` prints the usage text for a reader who wants it. An option
 the tool does not know reads `error: unrecognized option '-Z'`; one whose
 value is missing reads `error: option '-d' requires a value`.
-
-`-h` is what the user asked for, so the usage text goes to standard output and
-nothing goes to standard error.
 
 ## GAPS IN A CAPTURE
 
@@ -204,21 +200,17 @@ Also 1 when the board refuses the modulation `-c` or `-l` asks for, with
 libubertooth's own line for the refused request on standard error and nothing
 of the dump on standard output: a dump that went ahead would hold whatever
 modulation the board had been left in, and nothing in its records says which
-that was.
-
-The dump states it on either side of the request that starts its capture, for
-the reason ubertooth-util(1), CARRY-OVER BETWEEN RUNS gives; that page also
-says what `-l` can hold at the very start of a dump on a board another run
-left in a mode. Nothing is asked of the radio until then, which is after a
-`-d` file has been opened, so a refusal leaves that file there and empty, as a
-board that will not start the capture does, and a `-d` the tool cannot open
-leaves the board as it was found.
+that was. The modulation is stated on either side of the request that starts
+the capture, for the reason ubertooth-util(1), CARRY-OVER BETWEEN RUNS gives;
+that page also says what `-l` can hold at the very start of a dump on a board
+another run left in a mode.
 
 A `-d` file is opened once the board has been opened and its firmware
-accepted, not before, so a run refused for either reason leaves no empty file
-behind. A terminal on standard output is still refused
-while the command line is read, with or without `-d -`, because that is a
-problem with the command rather than with the board.
+accepted, so a run refused for either reason leaves no empty file behind,
+while a run refused by the radio leaves the file there and empty. A `-d` the
+tool cannot open leaves the board as it was found. A terminal on standard
+output is refused while the command line is read, with or without `-d -`,
+because that is a problem with the command rather than with the board.
 
 `-V` reads the attached board, so it exits 1 when a board is attached and
 cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7),
@@ -226,8 +218,9 @@ COMMON OPTIONS.
 
 ## THE GENERIC RECEIVE
 
-Experimental: expect the options and the output to change. Both halves of it
-work on our bench, the symbol stream and the packet framing.
+Experimental: expect the options and the output to change. Both halves of it,
+the symbol stream and the packet framing, have been exercised between two
+boards.
 
 With `-g` the board does one of two things, and which one it does comes from
 GRMDM's packet-mode bit, so the configuration decides it:
@@ -267,13 +260,11 @@ MODE sets a receiving board to the same value.
 read position -- the two bytes after what has been read out of the FIFO,
 against the CRC16 over what was read -- and this capture reads a fixed 32
 bytes, because the framing carries no length. A 32-byte payload is therefore
-the case where the read stops where the CRC is, and it is the case that was
-measured: of 200 packets one way, the three whose payload came out corrupted
-were the three the radio marked bad. A shorter payload tracked the transmit's
-CRC too when it was tried (30 packets of 8 bytes: every record good with the
-CRC on, every record bad with it off), so the flag is not simply scrambled,
-but nothing has shown it catching a corrupt short packet. Treat it as
-unverified there rather than as a check.
+the case where the read stops where the CRC is, and it is the case the flag
+has been checked against: there it marked the corrupted packets and only
+those. A shorter payload still tracks whether the transmitter sent a CRC at
+all, so the flag is not simply scrambled, but it has not been shown catching a
+corrupt short packet. Treat it as unverified there rather than as a check.
 
 The configuration has to be in the radio before the capture starts, and it
 survives only while the board is idle: a mode ending puts the radio back
