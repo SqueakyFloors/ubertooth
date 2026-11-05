@@ -228,11 +228,9 @@ wrote one is never told to write again.
 The confirming wait is spent once per detach and only after the device has
 gone, so a board that never left the bootloader is reported as promptly as
 before.
-The 1.5 s is measured against one board on one host, where it was back within
-630 ms of being asked to reset. A board that takes longer than the whole 1.5 s,
-behind a hub or on a loaded host, is back on the bus after the confirming
-listing has already read it as gone, and is reported as detached, which is the
-answer this check gave before it existed.
+A board that takes longer than the whole 1.5 s, behind a hub or on a loaded
+host, is back on the bus after the confirming listing has already read it as
+gone, and is reported as detached.
 
 If a transfer fails, in either direction, the tool closes the stale handle,
 reopens and claims the DFU device on the same physical path, restores its DFU
@@ -350,9 +348,11 @@ Miscellaneous:
    print the version: the host tools, then the firmware version and build of
    each attached board; see ubertooth(7), COMMON OPTIONS
  - `-h` :
-   print the usage text on standard output and exit 0. It takes effect once
-   the whole command line has parsed, so a bad option value, a stray word or
-   an option given twice is still reported.
+   print the usage text on standard output. It takes effect once the whole
+   command line has parsed, so a bad option value, a stray word or a
+   value-taking option given twice is still reported. It exits 0, except
+   beside a `-V` that could not read a board, whose status the command then
+   carries.
 
 ## UPDATING THE BOOTLOADER
 
@@ -574,7 +574,7 @@ stream is piped into.
 A command line with no function in it does nothing, so it is refused with
 `error: nothing to do: give -d to write an image, -u to read one back, -s to
 sign one, or -r to reset` on standard error and exit status 1, before any
-device is opened; it used to exit 0 having said and done nothing. A bare
+device is opened. A bare
 `ubertooth-dfu`, with no arguments at all, prints the usage text after that
 line; every other refused command line is the `error: ` line alone.
 

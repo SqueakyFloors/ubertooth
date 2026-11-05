@@ -133,10 +133,9 @@ sent to the device, and the exit status is 1:
 
 To put a board into the DFU bootloader and reflash it, use ubertooth-dfu(1),
 which enters the bootloader itself as part of a write (`-d`), a read (`-u`) or
-`-r`. `ubertooth-util -f` entered it too; earlier releases already noted that
-it was no longer required and pointed at ubertooth-dfu(1), and it has now been
-removed, so `-f` is an option the tool does not know (`error: unrecognized option '-f'`,
-exit 1). Nothing enters the bootloader and leaves the board there any more; to
+`-r`. `-f` is not an option of this tool: it is one the tool does not know
+(`error: unrecognized option '-f'`, exit 1). Nothing enters the bootloader and
+leaves the board there any more; to
 park a board in it, jumper the expansion header (ubertooth-dfu(1), MANUALLY
 ENTERING BOOTLOADER).
 
@@ -259,8 +258,9 @@ Range test:
  - `-m` :
    display the result of the last range test
  - `-n [seconds]` :
-   run a range test and report it: a progress line about once a second while
-   it runs, then the same result block `-m` prints, both on standard output.
+   run a range test and report it: a progress line about once a second on
+   standard error while it runs, then the same result block `-m` prints, on
+   standard output.
    The value is how long to wait for the repeater's reply, 10 seconds by
    default; `-n 0` waits forever. Nothing answering within that time is an
    error on standard error, and the board is left stopped. See
@@ -285,14 +285,19 @@ Miscellaneous:
    device reports a nonzero status for the read
  - `-s` :
    get microcontroller serial number
+ - `-x` :
+   start xmas lights on the board: the LEDs run a pattern, the command
+   returns at once, and the board keeps going until `-S` or another mode
+   option stops it
  - `-w` :
    get the watchdog state, why the board last reset itself, how deep its
    stack has been, and how many of the firmware's waits on the radio gave up.
    See [WATCHDOG][]; exits non-zero if either read fails
  - `-h` :
-   print the usage text on standard output and exit 0. It takes effect once
-   the whole command line has parsed, so a bad option value, a stray word or
-   an option given twice is still reported.
+   print the usage text on standard output. It takes effect once the whole
+   command line has parsed, so a bad option value, a stray word or an option
+   given twice is still reported. It exits 0, except beside a `-V` that could
+   not read a board, whose status the command then carries.
 
 ## WATCHDOG
 
@@ -300,9 +305,8 @@ The firmware resets the board if it goes three seconds without servicing USB,
 or without its mode getting back round its own loop. A board that stops
 answering the host is useless to it and cannot be recovered from it — the reset
 request travels over USB too — so the board recovers itself, re-enumerates, and
-comes back idle. What a capture used to see as a hang is now the board
-disappearing and coming back; the tools treat a board that has gone as lost and
-exit.
+comes back idle. A capture running at the time sees the board disappear and
+come back; the tools treat a board that has gone as lost and exit.
 
 The loop half is the weaker of the two. Six modes service USB from the
 interrupt rather than by polling, and get no service pass at all while the host
@@ -312,7 +316,9 @@ keeps feeding the watchdog and is not reset: `-r` on that board resets its USB
 connection, and failing that it has to be unplugged or have its hub port
 power-cycled, which is the fallback the tools' `libusb -7` note names. The
 `btbr` image feeds the watchdog from its loop in the same way, so it has the
-same gap. Everything the lab soak caught was caught by the other half.
+same gap. A reset of the USB connection that libusb itself refuses is one
+line, `error: resetting the USB connection of Ubertooth device 0 failed
+(libusb -1)`, and exit 1.
 
 A board the watchdog did reset can still answer nothing afterwards. It
 re-enumerates in a few hundred milliseconds, which the host does not always
@@ -432,7 +438,7 @@ The last line counts something else: the firmware's waits on the radio. Each
 of them gives up after a bound and carries on, which is what keeps a radio
 that never reports the state it was asked for from holding the board — but
 carrying on is silent, so a half-working radio reads as a quiet channel. The
-counts are the times each shape of wait ran out: the synthesizer never
+counts are the times each of those waits ran out: the synthesizer never
 locking, never going back off, the 16 MHz crystal never reporting stable, the
 radio's state machine never reaching a state, the radio stopping partway
 through delivering a packet's bytes, and the short lead a packet is given to
@@ -488,10 +494,9 @@ what identifies such a bootloader: two boards whose hashes differ are running
 different bootloaders, and two that agree are almost certainly running the
 same one.
 
-The hashes in the two samples above are illustrative. There is no one factory
-value to compare against: of five shipped Ubertooth Ones on one bench, every
-one reported a different hash, so a board's own hash is worth recording but
-another board's says nothing about it.
+The hashes in the two samples above are illustrative. Shipped boards do not
+share one factory value, so a board's own hash is worth recording and another
+board's says nothing about it.
 
 The bootloader does not change when the application is reflashed, so the line
 is a property of the board rather than of the firmware on it. It is the
@@ -731,8 +736,7 @@ second, so a test that is waiting looks different from one that has finished:
     waiting for the repeater... (2 s)
 
 Those lines are progress and go to standard error, so standard output carries
-the result block alone and a script reading `-n` for a result reads nothing
-else. When the reply arrives it prints the result block below and exits 0. The
+the result block alone; see DIAGNOSTICS. When the reply arrives it prints the result block below and exits 0. The
 exchange normally takes two or three seconds: the sender's burst, then a
 second during which the repeater holds off so the sender is listening by the
 time the answer comes, then the reply burst.
@@ -997,14 +1001,12 @@ status is 1.
 
 `-h` and `-V` both end the command and both answer on standard output, so a
 command line with both prints both, the version first and the usage text
-last; the order they were written in makes no difference. The first one used
-to win and the other was dropped.
+last; the order they were written in makes no difference.
 
 `-c` and `-C` are the same channel setting written two ways, so a command line
 that gives a value to both names two channels for one setting and is refused
 before any device is opened: `error: -C cannot be combined with -c; they are
-the same channel setting written two ways`. The second one used to be the one
-sent. A value written one way and a read written the other is still one
+the same channel setting written two ways`. A value written one way and a read written the other is still one
 setting and one read, so `-C 24 -c` sets the channel and then reports it.
 
 It exits with 1, without opening a device, when two or more mode options are
@@ -1020,8 +1022,7 @@ a word that is not an option, and names it: `error: unexpected argument '<word>'
 `ubertooth-util` takes no other arguments. An option the tool does not know is
 refused the same way, as one line on standard error with no usage text after
 it: `error: unrecognized option '-Z'`; an option whose value is missing reads
-`error: option '-U' requires a value`. The removed `-f` is one of those
-options now: use ubertooth-dfu(1) instead.
+`error: option '-U' requires a value`.
 
 A `-N` count that succeeds does not affect the exit status: the number is
 printed and the rest of the command decides it. A count that cannot be read is
@@ -1066,8 +1067,7 @@ something rather than report something: `Resetting ubertooth device <selector>`,
 `Stopping ubertooth device <selector>`,
 `Entering flash programming (ISP) mode`,
 `Entering LED specan mode (threshold -<n> dBm)`, `Starting range test`,
-`Starting repeater` and `Starting TX test`. They were written to standard
-output before.
+`Starting repeater` and `Starting TX test`.
 
 `-i` adds a second line, because the first does not say what the board will
 do: `note: the board hands itself to its on-chip programmer and

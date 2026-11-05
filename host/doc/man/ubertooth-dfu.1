@@ -101,7 +101,7 @@ note: an interrupted download leaves the board without a whole image, so write o
 .P
 A board that has just taken a whole image is not in that state, so a run that wrote one is never told to write again\.
 .P
-The confirming wait is spent once per detach and only after the device has gone, so a board that never left the bootloader is reported as promptly as before\. The 1\.5 s is measured against one board on one host, where it was back within 630 ms of being asked to reset\. A board that takes longer than the whole 1\.5 s, behind a hub or on a loaded host, is back on the bus after the confirming listing has already read it as gone, and is reported as detached, which is the answer this check gave before it existed\.
+The confirming wait is spent once per detach and only after the device has gone, so a board that never left the bootloader is reported as promptly as before\. A board that takes longer than the whole 1\.5 s, behind a hub or on a loaded host, is back on the bus after the confirming listing has already read it as gone, and is reported as detached\.
 .P
 If a transfer fails, in either direction, the tool closes the stale handle, reopens and claims the DFU device on the same physical path, restores its DFU state, and retries the whole transfer once from its first block\. A transfer that fails twice ends the command with exit status 1\. With \fB\-d \|\.\|\.\|\. \-r\fR, the image name and revision from the image's firmware info block are what the board must report back: the run does not return success until the application on that same path reports exactly both\. The image name matters because both images built from one tree carry the same revision, so a write of \fBbtbr\fR over \fBbluetooth_rxtx\fR that did not take would otherwise pass on the revision alone\.
 .P
@@ -159,7 +159,7 @@ select the application\-mode Ubertooth by enumeration index or serial number; se
 print the version: the host tools, then the firmware version and build of each attached board; see ubertooth(7), COMMON OPTIONS
 .TP
 \fB\-h\fR
-print the usage text on standard output and exit 0\. It takes effect once the whole command line has parsed, so a bad option value, a stray word or an option given twice is still reported\.
+print the usage text on standard output\. It takes effect once the whole command line has parsed, so a bad option value, a stray word or a value\-taking option given twice is still reported\. It exits 0, except beside a \fB\-V\fR that could not read a board, whose status the command then carries\.
 .SH "UPDATING THE BOOTLOADER"
 A bootloader refuses USB writes below 0x4000, so it cannot replace itself: in earlier releases a new bootloader reached a board only over the serial programming interface or JTAG\. \fB\-\-update\-bootloader\fR installs one over USB, in one command:
 .IP "" 4
@@ -248,7 +248,7 @@ An option the tool does not know is refused the same way, as one line on standar
 .P
 A file the tool cannot open, and an image it will not write, are each refused with one line on standard error, beginning \fBerror:\fR and naming the file\. The \fBChecking firmware signature\fR line that precedes an image refusal is progress, so it is on standard error as well and the two stay in order whatever either stream is piped into\.
 .P
-A command line with no function in it does nothing, so it is refused with \fBerror: nothing to do: give \-d to write an image, \-u to read one back, \-s to sign one, or \-r to reset\fR on standard error and exit status 1, before any device is opened; it used to exit 0 having said and done nothing\. A bare \fBubertooth\-dfu\fR, with no arguments at all, prints the usage text after that line; every other refused command line is the \fBerror:\fR line alone\.
+A command line with no function in it does nothing, so it is refused with \fBerror: nothing to do: give \-d to write an image, \-u to read one back, \-s to sign one, or \-r to reset\fR on standard error and exit status 1, before any device is opened\. A bare \fBubertooth\-dfu\fR, with no arguments at all, prints the usage text after that line; every other refused command line is the \fBerror:\fR line alone\.
 .P
 A refused command line creates and truncates nothing, and leaves no temporary file: \fB\-s\fR, \fB\-u\fR and \fB\-d\fR name their file while the command line is read, and the files are opened only once every check has passed\. The files that are only read, the \fB\-d\fR image and the \fB\-s\fR input, are opened and checked first, since they are the last things that can refuse the command; neither output file is created until they have passed\. Whether \fB\-s\fR was given a \fB\.bin\fR is a check on the name, so it is still reported alongside \fB\-h\fR\.
 .SH "EXIT STATUS"

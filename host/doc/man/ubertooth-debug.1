@@ -20,18 +20,15 @@ ubertooth\-debug(1) is a tool for reading register values from the CC2400 chip
 on Ubertooth One. It is primarily designed to assist firmware development but
 may be of interest to curious hackers.
 .PP
-\fB\fC\-w\fR is experimental, as the generic radio mode it exists for is: see
-.BR ubertooth (7),
-GENERIC RADIO MODE for what that mode does and what it asks of a
-configuration\&. Expect the option and its output to change\&.
-.PP
 \fB\fC\-w\fR writes registers as well as \fB\fC\-r\fR reading them\&. Writing
 the radio's registers by hand is how a generic capture is set up:
 \fB\fCubertooth\-dump \-g\fR demodulates with whatever configuration is in the
 CC2400, so \fB\fC\-w\fR puts the channel, data rate, sync word and framing
-there first\&.
+there first\&. It is experimental, as the generic radio mode it exists for is,
+so expect the option and its output to change;
 .BR ubertooth (7),
-GENERIC RADIO MODE is the worked example\&.
+GENERIC RADIO MODE says what that mode does, what it asks of a configuration,
+and is the worked example\&.
 .PP
 Nothing here knows which values a register accepts: these are the radio's own
 registers, and the value is written as given\&. A configuration that does not
@@ -59,9 +56,8 @@ Read a consecutive set of registers from the CC2400 on Ubertooth\&. Either end
 may be a \fB\fC%name\fR (\fB\fC\-r %main\-%fsdiv\fR)
 .IP \(bu 2
 one \fB\fC\-r\fR takes the whole list, so give it once: a second \fB\fC\-r\fR is
-refused with \fB\fCerror: option '\-r' given more than once\fR, because it used
-to replace the first one's registers without a word\&. Write them together
-instead, \fB\fC\-r %main,0x02\-0x05\fR
+refused with \fB\fCerror: option '\-r' given more than once\fR\&. Write the
+registers together instead, \fB\fC\-r %main,0x02\-0x05\fR
 .RB ( ubertooth (7),
 OPTION VALUES)
 .IP \(bu 2
@@ -91,9 +87,11 @@ attached board; see
 COMMON OPTIONS
 .IP \(bu 2
 \fB\fC\-h\fR :
-print the usage text on standard output and exit 0\&. It takes effect once the
-whole command line has parsed, so a bad option value, a stray word or an
-option given twice is still reported\&.
+print the usage text on standard output\&. It takes effect once the whole
+command line has parsed, so a bad option value, a stray word or a
+value\-taking option given twice is still reported\&. It exits 0, except
+beside a \fB\fC\-V\fR that could not read a board, whose status the command
+then carries\&.
 
 .SH EXAMPLES
 .PP
@@ -248,16 +246,15 @@ error: register address must be 0x00\-0xff (got 300 in 0x02,300)
 .RE
 
 .PP
-A value that cannot be read as a list at all gets one line in the same shape,
-with the reason: \fB\fCerror: register list must be names or addresses, single
-or as a range: unknown name (got %nosuchregister)\fR\&. The other reasons are
-\fB\fCempty value\fR, \fB\fCrange with no start\fR,
-\fB\fCnot an octal digit\fR and \fB\fCnot a name, address or range\fR\&.
+A value that cannot be read as a list at all gets one line in the same form,
+naming the reason the list reader gave:
+\fB\fCerror: register list must be names or addresses, single or as a range:
+unknown name (got %nosuchregister)\fR\&.
 .PP
 \fB\fC\-w\fR takes a list of \fB\fC<reg>=<value>\fR pairs\&. A number with a
 leading \fB\fC0x\fR is hex and every other number is decimal, so
-\fB\fC\-w 010=1\fR writes register ten\&. (\fB\fC\-r\fR reads a leading zero
-as octal, which it has always done\&.) The register is refused the way
+\fB\fC\-w 010=1\fR writes register ten, while \fB\fC\-r\fR reads a leading
+zero as octal\&. The register is refused the way
 \fB\fC\-r\fR's is, and a value outside 16 bits the same way:
 .PP
 .RS
@@ -272,13 +269,18 @@ error: register value must be 0x0000\-0xffff (got 0x10000 in 0x20=0x10000)
 .RE
 
 .PP
-An item that is not a pair at all, a missing value, an empty item between two
-commas and a trailing comma are all refused in one line as
-\fB\fCerror: register write must be <reg>=<value> (got ...)\fR, and a
-\fB\fC%name\fR the table does not have as
-\fB\fCerror: no CC2400 register is called %nosuch (in %nosuch=1)\fR\&. Nothing
-is written when any item is refused, so a configuration cannot reach the radio
-half\-applied\&.
+An item that is not a pair at all, or one with a missing value, is refused in
+one line as
+\fB\fCerror: register write must be <reg>=<value> (got 0x20 in 0x20,0x21=1)\fR,
+and a \fB\fC%name\fR the table does not have as
+\fB\fCerror: no CC2400 register is called %nosuch (in %nosuch=1)\fR\&. A value
+the reader cannot split into items at all \-\- an empty \fB\fC\-w\fR, or a
+list ending in a comma \-\- names the list instead:
+\fB\fCerror: register write list must be <reg>=<value>[,...] (got an empty
+value)\fR\&. One \fB\fC\-w\fR carries at most 256 writes, and more is
+\fB\fCerror: at most 256 register writes in one \-w (got more in <list>)\fR\&.
+Nothing is written when any item is refused, so a configuration cannot reach
+the radio half\-applied\&.
 .PP
 Either \fB\fC\-r\fR or \fB\fC\-w\fR is needed: a command line with neither is
 refused with

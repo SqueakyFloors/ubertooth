@@ -89,7 +89,7 @@ error: options \-q \-n cannot be combined; give only one of \-q \-n \-e \-t \-x 
 .fi
 .IP "" 0
 .P
-To put a board into the DFU bootloader and reflash it, use ubertooth\-dfu(1), which enters the bootloader itself as part of a write (\fB\-d\fR), a read (\fB\-u\fR) or \fB\-r\fR\. \fBubertooth\-util \-f\fR entered it too; earlier releases already noted that it was no longer required and pointed at ubertooth\-dfu(1), and it has now been removed, so \fB\-f\fR is an option the tool does not know (\fBerror: unrecognized option '\-f'\fR, exit 1)\. Nothing enters the bootloader and leaves the board there any more; to park a board in it, jumper the expansion header (ubertooth\-dfu(1), MANUALLY ENTERING BOOTLOADER)\.
+To put a board into the DFU bootloader and reflash it, use ubertooth\-dfu(1), which enters the bootloader itself as part of a write (\fB\-d\fR), a read (\fB\-u\fR) or \fB\-r\fR\. \fB\-f\fR is not an option of this tool: it is one the tool does not know (\fBerror: unrecognized option '\-f'\fR, exit 1)\. Nothing enters the bootloader and leaves the board there any more; to park a board in it, jumper the expansion header (ubertooth\-dfu(1), MANUALLY ENTERING BOOTLOADER)\.
 .SH "OPTIONS"
 Common options:
 .TP
@@ -154,7 +154,7 @@ start repeater mode
 display the result of the last range test
 .TP
 \fB\-n [seconds]\fR
-run a range test and report it: a progress line about once a second while it runs, then the same result block \fB\-m\fR prints, both on standard output\. The value is how long to wait for the repeater's reply, 10 seconds by default; \fB\-n 0\fR waits forever\. Nothing answering within that time is an error on standard error, and the board is left stopped\. See \fIRANGE TEST\fR\.
+run a range test and report it: a progress line about once a second on standard error while it runs, then the same result block \fB\-m\fR prints, on standard output\. The value is how long to wait for the repeater's reply, 10 seconds by default; \fB\-n 0\fR waits forever\. Nothing answering within that time is an error on standard error, and the board is left stopped\. See \fIRANGE TEST\fR\.
 .P
 Miscellaneous:
 .TP
@@ -173,15 +173,18 @@ get microcontroller Part ID (32\-bit, hexadecimal); exits non\-zero if the devic
 \fB\-s\fR
 get microcontroller serial number
 .TP
+\fB\-x\fR
+start xmas lights on the board: the LEDs run a pattern, the command returns at once, and the board keeps going until \fB\-S\fR or another mode option stops it
+.TP
 \fB\-w\fR
 get the watchdog state, why the board last reset itself, how deep its stack has been, and how many of the firmware's waits on the radio gave up\. See \fIWATCHDOG\fR; exits non\-zero if either read fails
 .TP
 \fB\-h\fR
-print the usage text on standard output and exit 0\. It takes effect once the whole command line has parsed, so a bad option value, a stray word or an option given twice is still reported\.
+print the usage text on standard output\. It takes effect once the whole command line has parsed, so a bad option value, a stray word or an option given twice is still reported\. It exits 0, except beside a \fB\-V\fR that could not read a board, whose status the command then carries\.
 .SH "WATCHDOG"
-The firmware resets the board if it goes three seconds without servicing USB, or without its mode getting back round its own loop\. A board that stops answering the host is useless to it and cannot be recovered from it \(em the reset request travels over USB too \(em so the board recovers itself, re\-enumerates, and comes back idle\. What a capture used to see as a hang is now the board disappearing and coming back; the tools treat a board that has gone as lost and exit\.
+The firmware resets the board if it goes three seconds without servicing USB, or without its mode getting back round its own loop\. A board that stops answering the host is useless to it and cannot be recovered from it \(em the reset request travels over USB too \(em so the board recovers itself, re\-enumerates, and comes back idle\. A capture running at the time sees the board disappear and come back; the tools treat a board that has gone as lost and exit\.
 .P
-The loop half is the weaker of the two\. Six modes service USB from the interrupt rather than by polling, and get no service pass at all while the host is quiet, so for them the guard is that the mode loop is still turning\. A board in one of those whose USB path alone has died, with its loop still going round, keeps feeding the watchdog and is not reset: \fB\-r\fR on that board resets its USB connection, and failing that it has to be unplugged or have its hub port power\-cycled, which is the fallback the tools' \fBlibusb \-7\fR note names\. The \fBbtbr\fR image feeds the watchdog from its loop in the same way, so it has the same gap\. Everything the lab soak caught was caught by the other half\.
+The loop half is the weaker of the two\. Six modes service USB from the interrupt rather than by polling, and get no service pass at all while the host is quiet, so for them the guard is that the mode loop is still turning\. A board in one of those whose USB path alone has died, with its loop still going round, keeps feeding the watchdog and is not reset: \fB\-r\fR on that board resets its USB connection, and failing that it has to be unplugged or have its hub port power\-cycled, which is the fallback the tools' \fBlibusb \-7\fR note names\. The \fBbtbr\fR image feeds the watchdog from its loop in the same way, so it has the same gap\. A reset of the USB connection that libusb itself refuses is one line, \fBerror: resetting the USB connection of Ubertooth device 0 failed (libusb \-1)\fR, and exit 1\.
 .P
 A board the watchdog did reset can still answer nothing afterwards\. It re\-enumerates in a few hundred milliseconds, which the host does not always notice as the board leaving and coming back, and until it does every request to that board is refused (\fBlibusb \-9\fR)\. \fB\-r\fR on it resets the USB connection, which is what the host needed to see, and the board answers again\.
 .P
@@ -240,7 +243,7 @@ The line is absent until a fault happens, and a power\-cycle clears it\.
 .P
 Firmware older than this recorded the address register whether or not the status said that register meant anything, so its record would read as an instruction address that was never run\. The firmware API version is what keeps the two apart: a release build of these tools refuses a board carrying an older version, and a development build warns about it\. Reflash the board to match, which clears the record\.
 .P
-The last line counts something else: the firmware's waits on the radio\. Each of them gives up after a bound and carries on, which is what keeps a radio that never reports the state it was asked for from holding the board \(em but carrying on is silent, so a half\-working radio reads as a quiet channel\. The counts are the times each shape of wait ran out: the synthesizer never locking, never going back off, the 16 MHz crystal never reporting stable, the radio's state machine never reaching a state, the radio stopping partway through delivering a packet's bytes, and the short lead a packet is given to reach the radio's FIFO before it is read out of it\.
+The last line counts something else: the firmware's waits on the radio\. Each of them gives up after a bound and carries on, which is what keeps a radio that never reports the state it was asked for from holding the board \(em but carrying on is silent, so a half\-working radio reads as a quiet channel\. The counts are the times each of those waits ran out: the synthesizer never locking, never going back off, the 16 MHz crystal never reporting stable, the radio's state machine never reaching a state, the radio stopping partway through delivering a packet's bytes, and the short lead a packet is given to reach the radio's FIFO before it is read out of it\.
 .P
 All zero is what a working board shows\. A count that climbs during a capture says the samples or packets that came out of it are not to be trusted, whatever they look like\. The counts are since the board started, a \fB\-r\fR reset included, and they stop at 65535\.
 .P
@@ -270,7 +273,7 @@ Bootloader: no version block (factory or earlier, treated as 1\.x), CRC32:0x5f0a
 .P
 Those are the 1\.x generation, and that is all the line can say about which one it is\. It is an answer, not a failure, and the command exits 0\. The hash is what identifies such a bootloader: two boards whose hashes differ are running different bootloaders, and two that agree are almost certainly running the same one\.
 .P
-The hashes in the two samples above are illustrative\. There is no one factory value to compare against: of five shipped Ubertooth Ones on one bench, every one reported a different hash, so a board's own hash is worth recording but another board's says nothing about it\.
+The hashes in the two samples above are illustrative\. Shipped boards do not share one factory value, so a board's own hash is worth recording and another board's says nothing about it\.
 .P
 The bootloader does not change when the application is reflashed, so the line is a property of the board rather than of the firmware on it\. It is the application that reads it, though, so firmware older than this request refuses it, in the wording ubertooth(7) gives for a refused request (OUTPUT AND DIAGNOSTICS) followed by \fBerror: bootloader information read failed\fR\. Reflash the board to read it\.
 .SH "SELECTING A DEVICE"
@@ -464,7 +467,7 @@ waiting for the repeater\|\.\|\.\|\. (2 s)
 .fi
 .IP "" 0
 .P
-Those lines are progress and go to standard error, so standard output carries the result block alone and a script reading \fB\-n\fR for a result reads nothing else\. When the reply arrives it prints the result block below and exits 0\. The exchange normally takes two or three seconds: the sender's burst, then a second during which the repeater holds off so the sender is listening by the time the answer comes, then the reply burst\.
+Those lines are progress and go to standard error, so standard output carries the result block alone; see DIAGNOSTICS\. When the reply arrives it prints the result block below and exits 0\. The exchange normally takes two or three seconds: the sender's burst, then a second during which the repeater holds off so the sender is listening by the time the answer comes, then the reply burst\.
 .SS "Reading the result"
 Each direction has a level and a number\. The level is the lowest power the other end heard, 0 (\-25 dBm) to 7 (0 dBm)\. The number is which of the 16 packets sent at that level was the one that got through, 0 to 15, so a higher number means more packets at that level were lost before one arrived\. Together they say how much margin the link has: level 0 and number 0 is the strongest result there is, the very first packet at the lowest power decoded first time, and a climbing number, then a climbing level, is a link with less and less to spare\. "request" is the sender to the repeater, "reply" the repeater back\.
 .P
@@ -587,11 +590,11 @@ error: nothing to do: \-U '0' selects a device but no option asks anything of it
 .P
 \fB\-U\fR only says which board the rest of the command line acts on, so it is not an operation of its own; \fB\-N\fR, \fB\-h\fR and \fB\-V\fR are, and each works on its own\. The usage text follows the \fBerror:\fR line on standard error, and the exit status is 1\.
 .P
-\fB\-h\fR and \fB\-V\fR both end the command and both answer on standard output, so a command line with both prints both, the version first and the usage text last; the order they were written in makes no difference\. The first one used to win and the other was dropped\.
+\fB\-h\fR and \fB\-V\fR both end the command and both answer on standard output, so a command line with both prints both, the version first and the usage text last; the order they were written in makes no difference\.
 .P
-\fB\-c\fR and \fB\-C\fR are the same channel setting written two ways, so a command line that gives a value to both names two channels for one setting and is refused before any device is opened: \fBerror: \-C cannot be combined with \-c; they are the same channel setting written two ways\fR\. The second one used to be the one sent\. A value written one way and a read written the other is still one setting and one read, so \fB\-C 24 \-c\fR sets the channel and then reports it\.
+\fB\-c\fR and \fB\-C\fR are the same channel setting written two ways, so a command line that gives a value to both names two channels for one setting and is refused before any device is opened: \fBerror: \-C cannot be combined with \-c; they are the same channel setting written two ways\fR\. A value written one way and a read written the other is still one setting and one read, so \fB\-C 24 \-c\fR sets the channel and then reports it\.
 .P
-It exits with 1, without opening a device, when two or more mode options are given (see DESCRIPTION), when \fB\-z\fR is combined with a mode option, or when an \fB\-a\fR level is not a single digit 0\-7 (\fBerror: PA level must be a single digit 0\-7 (got <value>)\fR)\. The same holds for any other option value that is not a whole decimal number in its range (\fB\-c\fR, \fB\-C\fR, \fB\-d\fR, \fB\-l\fR, \fB\-n\fR, \fB\-q\fR, \fB\-z\fR), for example \fBerror: channel must be 0\-78 (got abc)\fR or \fBerror: timeout must be a whole number of seconds, 0 for none (got abc)\fR\. It also exits with 1, without opening a device, when the command line contains a word that is not an option, and names it: \fBerror: unexpected argument '<word>'\fR\. \fBubertooth\-util\fR takes no other arguments\. An option the tool does not know is refused the same way, as one line on standard error with no usage text after it: \fBerror: unrecognized option '\-Z'\fR; an option whose value is missing reads \fBerror: option '\-U' requires a value\fR\. The removed \fB\-f\fR is one of those options now: use ubertooth\-dfu(1) instead\.
+It exits with 1, without opening a device, when two or more mode options are given (see DESCRIPTION), when \fB\-z\fR is combined with a mode option, or when an \fB\-a\fR level is not a single digit 0\-7 (\fBerror: PA level must be a single digit 0\-7 (got <value>)\fR)\. The same holds for any other option value that is not a whole decimal number in its range (\fB\-c\fR, \fB\-C\fR, \fB\-d\fR, \fB\-l\fR, \fB\-n\fR, \fB\-q\fR, \fB\-z\fR), for example \fBerror: channel must be 0\-78 (got abc)\fR or \fBerror: timeout must be a whole number of seconds, 0 for none (got abc)\fR\. It also exits with 1, without opening a device, when the command line contains a word that is not an option, and names it: \fBerror: unexpected argument '<word>'\fR\. \fBubertooth\-util\fR takes no other arguments\. An option the tool does not know is refused the same way, as one line on standard error with no usage text after it: \fBerror: unrecognized option '\-Z'\fR; an option whose value is missing reads \fBerror: option '\-U' requires a value\fR\.
 .P
 A \fB\-N\fR count that succeeds does not affect the exit status: the number is printed and the rest of the command decides it\. A count that cannot be read is a failed operation like any other: it prints no number and makes the command exit 1, and the rest of it still runs\.
 .P
@@ -605,7 +608,7 @@ Standard output carries only what was asked for: the values the queries read, th
 .P
 \fB\-n\fR follows the range test it starts, and its \fBwaiting for the repeater\|\.\|\.\|\. (<n> s)\fR lines are progress, so they go to standard error with \fBStarting range test\fR\. Standard output carries the four result lines \fB\-m\fR gives and nothing else, so a script reading \fB\-n\fR for a result reads only that\.
 .P
-Standard error also carries the progress lines for the operations that do something rather than report something: \fBResetting ubertooth device <selector>\fR, \fBStopping ubertooth device <selector>\fR, \fBEntering flash programming (ISP) mode\fR, \fBEntering LED specan mode (threshold \-<n> dBm)\fR, \fBStarting range test\fR, \fBStarting repeater\fR and \fBStarting TX test\fR\. They were written to standard output before\.
+Standard error also carries the progress lines for the operations that do something rather than report something: \fBResetting ubertooth device <selector>\fR, \fBStopping ubertooth device <selector>\fR, \fBEntering flash programming (ISP) mode\fR, \fBEntering LED specan mode (threshold \-<n> dBm)\fR, \fBStarting range test\fR, \fBStarting repeater\fR and \fBStarting TX test\fR\.
 .P
 \fB\-i\fR adds a second line, because the first does not say what the board will do: \fBnote: the board hands itself to its on\-chip programmer and answers nothing else until it is power\-cycled\fR\.
 .P
