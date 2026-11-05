@@ -59,9 +59,8 @@ Read a consecutive set of registers from the CC2400 on Ubertooth\&. Either end
 may be a \fB\fC%name\fR (\fB\fC\-r %main\-%fsdiv\fR)
 .IP \(bu 2
 one \fB\fC\-r\fR takes the whole list, so give it once: a second \fB\fC\-r\fR is
-refused with \fB\fCerror: option '\-r' given more than once\fR, because it used
-to replace the first one's registers without a word\&. Write them together
-instead, \fB\fC\-r %main,0x02\-0x05\fR
+refused with \fB\fCerror: option '\-r' given more than once\fR\&. Write the
+registers together instead, \fB\fC\-r %main,0x02\-0x05\fR
 .RB ( ubertooth (7),
 OPTION VALUES)
 .IP \(bu 2

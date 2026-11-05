@@ -259,8 +259,9 @@ Range test:
  - `-m` :
    display the result of the last range test
  - `-n [seconds]` :
-   run a range test and report it: a progress line about once a second while
-   it runs, then the same result block `-m` prints, both on standard output.
+   run a range test and report it: a progress line about once a second on
+   standard error while it runs, then the same result block `-m` prints, on
+   standard output.
    The value is how long to wait for the repeater's reply, 10 seconds by
    default; `-n 0` waits forever. Nothing answering within that time is an
    error on standard error, and the board is left stopped. See
@@ -300,9 +301,8 @@ The firmware resets the board if it goes three seconds without servicing USB,
 or without its mode getting back round its own loop. A board that stops
 answering the host is useless to it and cannot be recovered from it — the reset
 request travels over USB too — so the board recovers itself, re-enumerates, and
-comes back idle. What a capture used to see as a hang is now the board
-disappearing and coming back; the tools treat a board that has gone as lost and
-exit.
+comes back idle. A capture running at the time sees the board disappear and
+come back; the tools treat a board that has gone as lost and exit.
 
 The loop half is the weaker of the two. Six modes service USB from the
 interrupt rather than by polling, and get no service pass at all while the host
@@ -1003,8 +1003,7 @@ to win and the other was dropped.
 `-c` and `-C` are the same channel setting written two ways, so a command line
 that gives a value to both names two channels for one setting and is refused
 before any device is opened: `error: -C cannot be combined with -c; they are
-the same channel setting written two ways`. The second one used to be the one
-sent. A value written one way and a read written the other is still one
+the same channel setting written two ways`. A value written one way and a read written the other is still one
 setting and one read, so `-C 24 -c` sets the channel and then reports it.
 
 It exits with 1, without opening a device, when two or more mode options are

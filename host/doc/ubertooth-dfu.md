@@ -574,7 +574,7 @@ stream is piped into.
 A command line with no function in it does nothing, so it is refused with
 `error: nothing to do: give -d to write an image, -u to read one back, -s to
 sign one, or -r to reset` on standard error and exit status 1, before any
-device is opened; it used to exit 0 having said and done nothing. A bare
+device is opened. A bare
 `ubertooth-dfu`, with no arguments at all, prints the usage text after that
 line; every other refused command line is the `error: ` line alone.
 

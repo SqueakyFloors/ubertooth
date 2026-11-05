@@ -43,9 +43,8 @@ Options:
    Read a consecutive set of registers from the CC2400 on Ubertooth. Either
    end may be a `%name` (`-r %main-%fsdiv`)
  - one `-r` takes the whole list, so give it once: a second `-r` is refused
-   with `error: option '-r' given more than once`, because it used to replace
-   the first one's registers without a word. Write them together instead,
-   `-r %main,0x02-0x05` (ubertooth(7), OPTION VALUES)
+   with `error: option '-r' given more than once`. Write the registers
+   together instead, `-r %main,0x02-0x05` (ubertooth(7), OPTION VALUES)
  - `-w <reg>=<value>[,<reg>=<value>[,...]]` :
    Write one or more registers of the CC2400 on Ubertooth. Each register is
    an address `0x00`-`0xff` or a `%name`, as `-r` accepts, and each value is

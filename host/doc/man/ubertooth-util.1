@@ -154,7 +154,7 @@ start repeater mode
 display the result of the last range test
 .TP
 \fB\-n [seconds]\fR
-run a range test and report it: a progress line about once a second while it runs, then the same result block \fB\-m\fR prints, both on standard output\. The value is how long to wait for the repeater's reply, 10 seconds by default; \fB\-n 0\fR waits forever\. Nothing answering within that time is an error on standard error, and the board is left stopped\. See \fIRANGE TEST\fR\.
+run a range test and report it: a progress line about once a second on standard error while it runs, then the same result block \fB\-m\fR prints, on standard output\. The value is how long to wait for the repeater's reply, 10 seconds by default; \fB\-n 0\fR waits forever\. Nothing answering within that time is an error on standard error, and the board is left stopped\. See \fIRANGE TEST\fR\.
 .P
 Miscellaneous:
 .TP
@@ -179,7 +179,7 @@ get the watchdog state, why the board last reset itself, how deep its stack has 
 \fB\-h\fR
 print the usage text on standard output and exit 0\. It takes effect once the whole command line has parsed, so a bad option value, a stray word or an option given twice is still reported\.
 .SH "WATCHDOG"
-The firmware resets the board if it goes three seconds without servicing USB, or without its mode getting back round its own loop\. A board that stops answering the host is useless to it and cannot be recovered from it \(em the reset request travels over USB too \(em so the board recovers itself, re\-enumerates, and comes back idle\. What a capture used to see as a hang is now the board disappearing and coming back; the tools treat a board that has gone as lost and exit\.
+The firmware resets the board if it goes three seconds without servicing USB, or without its mode getting back round its own loop\. A board that stops answering the host is useless to it and cannot be recovered from it \(em the reset request travels over USB too \(em so the board recovers itself, re\-enumerates, and comes back idle\. A capture running at the time sees the board disappear and come back; the tools treat a board that has gone as lost and exit\.
 .P
 The loop half is the weaker of the two\. Six modes service USB from the interrupt rather than by polling, and get no service pass at all while the host is quiet, so for them the guard is that the mode loop is still turning\. A board in one of those whose USB path alone has died, with its loop still going round, keeps feeding the watchdog and is not reset: \fB\-r\fR on that board resets its USB connection, and failing that it has to be unplugged or have its hub port power\-cycled, which is the fallback the tools' \fBlibusb \-7\fR note names\. The \fBbtbr\fR image feeds the watchdog from its loop in the same way, so it has the same gap\. Everything the lab soak caught was caught by the other half\.
 .P
@@ -589,7 +589,7 @@ error: nothing to do: \-U '0' selects a device but no option asks anything of it
 .P
 \fB\-h\fR and \fB\-V\fR both end the command and both answer on standard output, so a command line with both prints both, the version first and the usage text last; the order they were written in makes no difference\. The first one used to win and the other was dropped\.
 .P
-\fB\-c\fR and \fB\-C\fR are the same channel setting written two ways, so a command line that gives a value to both names two channels for one setting and is refused before any device is opened: \fBerror: \-C cannot be combined with \-c; they are the same channel setting written two ways\fR\. The second one used to be the one sent\. A value written one way and a read written the other is still one setting and one read, so \fB\-C 24 \-c\fR sets the channel and then reports it\.
+\fB\-c\fR and \fB\-C\fR are the same channel setting written two ways, so a command line that gives a value to both names two channels for one setting and is refused before any device is opened: \fBerror: \-C cannot be combined with \-c; they are the same channel setting written two ways\fR\. A value written one way and a read written the other is still one setting and one read, so \fB\-C 24 \-c\fR sets the channel and then reports it\.
 .P
 It exits with 1, without opening a device, when two or more mode options are given (see DESCRIPTION), when \fB\-z\fR is combined with a mode option, or when an \fB\-a\fR level is not a single digit 0\-7 (\fBerror: PA level must be a single digit 0\-7 (got <value>)\fR)\. The same holds for any other option value that is not a whole decimal number in its range (\fB\-c\fR, \fB\-C\fR, \fB\-d\fR, \fB\-l\fR, \fB\-n\fR, \fB\-q\fR, \fB\-z\fR), for example \fBerror: channel must be 0\-78 (got abc)\fR or \fBerror: timeout must be a whole number of seconds, 0 for none (got abc)\fR\. It also exits with 1, without opening a device, when the command line contains a word that is not an option, and names it: \fBerror: unexpected argument '<word>'\fR\. \fBubertooth\-util\fR takes no other arguments\. An option the tool does not know is refused the same way, as one line on standard error with no usage text after it: \fBerror: unrecognized option '\-Z'\fR; an option whose value is missing reads \fBerror: option '\-U' requires a value\fR\. The removed \fB\-f\fR is one of those options now: use ubertooth\-dfu(1) instead\.
 .P
