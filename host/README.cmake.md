@@ -13,7 +13,8 @@ The following are flags that may be of use when configuring this project.
 
  * ENABLE_PYTHON
   * Build and install the tools written in Python: ubertooth-specan-ui and
-    ubertooth-btbr. OFF also drops their test suites.
+    ubertooth-btbr. OFF skips the whole `host/python` directory, so every test
+    registered there goes too, including the btle-extcap.py ones.
 
  * USE_BLUEZ
   * Insist on the two tools that drive a second adapter through BlueZ,
@@ -25,12 +26,17 @@ The following are flags that may be of use when configuring this project.
  * REQUIRE_ALL
   * Turn any missing optional dependency into a configure error, instead of
     leaving the tools that need it out. The configure summary names this flag
-    when it has skipped anything.
+    where the missing dependency is one you could install.
 
  * BUILD_SHARED_LIB, BUILD_STATIC_LIB, BUILD_STATIC_BINS
-  * Which libubertooth to build, and whether the tools are linked statically.
-    At least one library must be built; static tools need the static
-    library.
+  * Which libubertooth to build, and whether the tools are linked statically;
+    ON, OFF and OFF by default. At least one library must be built, and
+    building the static library alone turns BUILD_STATIC_BINS on for you.
+
+ * LIB_SUFFIX
+  * Appended to `lib` for the library directory, for a system that keeps
+    64-bit libraries in `lib64`. It wins over CMAKE_INSTALL_LIBDIR, and the
+    configure step says which one it used.
 
 Using the installed library from CMake
 ======================================

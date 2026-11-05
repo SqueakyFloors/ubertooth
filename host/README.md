@@ -66,7 +66,9 @@ For example:
 ```
 ubertooth-specan -G | feedgnuplot --stream 0.5 --domain --3d
 ```
-draws a realtime animated 3D plot of the frequency spectrum.
+draws a realtime animated 3D plot of the frequency spectrum, and
+`ubertooth-dump -d - | dd of=/dev/null` reports the symbol stream's transfer
+rate, which should be about 1 MB/s.
 
 
 Privledge Reduction

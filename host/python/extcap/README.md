@@ -24,8 +24,7 @@ using it from `tshark` — see
 The build does not install this script: copy or link it, executable, into
 Wireshark's personal extcap directory, with `ubertooth-util` and
 `ubertooth-btle` on the `PATH` Wireshark starts it with. `btle-extcap(1)`,
-INSTALLATION, names that directory and how Wireshark reports it. Each attached
-board then appears in Wireshark's capture list as "Ubertooth One `<serial>`".
+INSTALLATION, names that directory and how Wireshark reports it.
 
 ## Running it by hand
 
