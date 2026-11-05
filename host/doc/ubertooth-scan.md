@@ -84,14 +84,18 @@ An option whose value is missing reads `error: option '-t' requires a value`.
 
 An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
-`error: maximum access code errors must be 0-5 (got 6)`.
+`error: maximum access code errors must be 0-5 (got 6)` and
+`error: timeout must be a whole number of seconds, 0 for none (got abc)`.
+
+An option given a value twice is refused too, `error: option '-t' given more
+than once`: the tool does not pick between two answers to the same question.
+This is the rule for every tool; see ubertooth(7), OPTION VALUES.
 
 ## OUTPUT
 
-Standard output carries what the scan found. Nothing the tool itself prints
-there is anything else, so a run collected in a file or read by a script no
-longer picks up its headings, its progress or its failures — see the end of
-this section for the two lines libbtbb still adds.
+Standard output carries what the scan found and nothing else, so a run
+collected in a file or read by a script picks up no headings, no progress, and
+no failures.
 
 Each device the BlueZ inquiry of `-s` found is its address and its name, one to
 a line. While the Ubertooth half runs, each packet it decodes is a line of its
@@ -121,9 +125,7 @@ rests on, and where the dBm scale ends.
 The name on a device's line is read from the device itself, and that read waits
 25 seconds for an answer. A device that does not answer in that time has
 `[unknown]` on its line, with a `note:` on standard error saying why, and the
-scan goes on to the next result. Earlier releases gave that read no deadline,
-so a device that answered the page and then said nothing held the run there:
-the results so far printed, and nothing after them.
+scan goes on to the next result.
 
 A name is printed only where the device's own answer carried it. The scan sends
 the name request and reads the completing event itself, so it can hold the
@@ -132,10 +134,7 @@ has to carry the address the name was asked of, and the name is taken from the
 bytes the answer actually brought. An answer carrying a different address gets
 a `warning:` on standard error naming that address, and one that stops before
 the name gets a `warning:` saying how short it was; the device's line reads
-`[unknown]` either way and the scan goes on. Earlier releases read the name
-through the library, which hands back a name with nothing to say whose it is,
-and a device whose own read had failed could have its name printed beside a
-later device's address, with nothing in the output to show it.
+`[unknown]` either way and the scan goes on.
 
 `-x` adds the extended report of a device under its line, indented, as
 `hcitool info` shows one: its address and name, the LMP version and
@@ -150,8 +149,7 @@ had.
 A device that does not answer one of those reads has no line for it in the
 report, and the read that failed is named on standard error: the name, the LMP
 version, the features and each feature page are left out rather than reported
-as unknown or, in the features' case, as zero. Earlier releases left the line
-out in silence, and printed zeroed features as the device's own. The device's
+as unknown or, in the features' case, as zero. The device's
 own line above the report still reads `[unknown]` when no name comes back,
 since that line is a result either way.
 
@@ -166,14 +164,9 @@ by the time a survey result is printed.
 Everything else this tool prints goes to standard error: the three headings
 that say which half of the scan is running (`HCI scan`, `Ubertooth scan` and
 `Scan results:`), the `Requesting information ...` line of `-x`, and every
-warning and failure (see EXIT STATUS). Earlier releases mixed those in with
-the results, so a scan piped into another program carried them along.
-
-Earlier releases also had lines from libbtbb among the results, because the
-library wrote them to standard output: what it says while it recovers a
-piconet's clock, such as `12 initial CLK1-27 candidates`, `got CLK1-27` and
-`clock offset = 3.`. The library reports those on standard error now, so a
-scan's standard output holds the results and nothing else.
+warning and failure (see EXIT STATUS). libbtbb's own lines go there too: what
+it says while it recovers a piconet's clock, such as `12 initial CLK1-27
+candidates`, `got CLK1-27`, and `clock offset = 3.`.
 
 ## GAPS IN A CAPTURE
 
@@ -259,11 +252,9 @@ adapter — and its results are printed.
 A device the inquiry found that will not take the connection `-x` needs, or
 will not answer one of the reads that fill the report in — its name, its LMP
 version, its features, a features page, its clock offset or its channel map —
-is named the same way and that much of its report is missing. The scan carries on and prints the
-rest, and exits 1 because part of what `-x` asked for did not happen. Three
-failures of that report — reading the local adapter's settings, finding memory
-for the request it makes, and reading the clock offset — used to end the whole
-run instead, with the board still open in whatever mode it was in.
+is named the same way and that much of its report is missing. The scan carries
+on and prints the rest, and exits 1 because part of what `-x` asked for did
+not happen.
 
 A piconet the Ubertooth half found is different: a sniffed piconet gives no
 NAP, so the address `-x` connects to has its two most significant bytes guessed
@@ -275,22 +266,20 @@ seed of the header error check and CRC of the FHS packet the pager sends
 the controller no NAP, so it reports back the address it was given, which is what
 the check on the name answer compares. The one way the guess itself can stop the
 connection is by matching the local Bluetooth device's own address, which a
-controller refuses to page.
-What a real controller makes of the guess has not been measured on this
-project's bench
-([issue #699](https://github.com/SqueakyFloors/ubertooth/issues/699)). Either
-way, a connection that cannot be made to such an address is a `note:` and the
+controller refuses to page; what a real controller makes of the guess has not
+been verified. Either way, a connection that cannot be made to such an address is a `note:` and the
 run still exits 0. Give such a device to `ubertooth-scan -s -x`, or to
 `ubertooth-follow -t`, by its whole address.
 
 A device that reports AFH off is not such a failure: it answered, and `note:
 AFH disabled` is the answer. A device that reports an AFH mode byte which is
-neither off nor on is one, and says what the byte was; it used to be taken for
-AFH off.
+neither off nor on is one, and says what the byte was.
 
 A capture that could not be started at all exits 1 as well, whichever step
 failed: the receive transfer libusb would not take, the host thread that
-collects the capture, or the request that puts the board in its capture mode.
+collects the capture, the Basic Rate modulation request (`error: could not set
+the modulation: ...`), or the request that puts the board in its capture
+mode.
 Standard output holds whatever a `-s` inquiry printed before that and nothing
 else; standard error carries the one `error: ` line for the step that failed.
 The capture request is named the way the sweep request below is, with the
@@ -321,12 +310,9 @@ line of its own to the report as that is done.
 
 The sweep is stated to the board after the capture has been asked for, because
 a mode start resets the board's hop mode and would throw away a sweep stated
-before it: without that, a scan listened to one channel and printed a map that
-meant nothing. See ubertooth-util(1), CARRY-OVER BETWEEN RUNS. The board keeps
-a sweep stated after the capture request whatever it was doing before, so
-nothing has to be stopped first; a board left in a mode that captures nothing,
-a killed spectrum scan say, used to swallow it and the map was built from one
-channel.
+before it; see ubertooth-util(1), CARRY-OVER BETWEEN RUNS. The board keeps a
+sweep stated after the capture request whatever it was doing before, so no
+mode has to be stopped first, including one left running by a killed tool.
 
 A BlueZ inquiry asked for with `-s` runs before the sweep is stated, so its
 results are printed even when the sweep is then refused: that half of the scan

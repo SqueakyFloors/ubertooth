@@ -35,9 +35,7 @@ Name the target one of two ways:
    below).
 
 One of `-l` and `-u` without the other names no piconet, so it is refused and
-the missing half is named: `error: -l <LAP> requires -u <UAP>`. It used to be
-taken as no target at all, which read the address from the local Bluetooth
-device and followed that instead of what was asked for.
+the missing half is named: `error: -l <LAP> requires -u <UAP>`.
 
 `-t` with `-l` or `-u` is refused: the two are the same setting written two
 ways, and the tool does not reconcile them. With no target at all, the address
@@ -67,8 +65,8 @@ around are not reachable from macOS's public Bluetooth APIs, so it is not
 built there and no macOS version is planned. `ubertooth-rx -l <LAP>` recovers
 the addresses and the clock from the air without an adapter, which takes it
 hops of the piconet and some of a capture, and against a link heard rarely may
-not get there at all: see ubertooth-rx(1), THE CLOCK SEARCH. Reading the clock
-through an adapter, as this tool does, is immediate and exact. See
+not get there at all: see ubertooth-rx(1), THE CLOCK SEARCH. Reading the clock through an adapter, as this tool does, takes one page and
+one read, with a one-second deadline on the read. See
 COMPATIBILITY.md for the comparison.
 
 ## OPTIONS
@@ -159,9 +157,9 @@ than on an address. So a page that fails here has an ordinary cause: the
 target is out of range, it is not accepting connections, or the `-u` given is
 wrong. The one way
 the guess itself can stop the page is by matching the local Bluetooth device's
-own address, which a controller refuses to page. What a real controller makes of
-the guessed NAP has not been measured on this project's bench
-([issue #699](https://github.com/SqueakyFloors/ubertooth/issues/699)). When the
+own address, which a controller refuses to page. What a real controller makes
+of the guessed NAP has not been verified
+([#699](https://github.com/SqueakyFloors/ubertooth/issues/699)). When the
 page does fail, the command stops, saying what to do about it:
 
     error: connecting to 00:00:33:44:55:66 failed: Host is down; -l and -u give four of the six bytes of the target address, so 00:00 is a guess: give the whole target address with -t xx:xx:xx:xx:xx:xx
@@ -257,11 +255,8 @@ to capture.
    the board as the clock to hop on, and starts capturing. Unlike
    ubertooth-rx(1), it does not search the air for a clock: it is given one, so
    there is no acquisition to wait for and a follow that is working prints
-   packets from the start. On this project's bench the first record arrived
-   between a third of a second and four and a half seconds after the command
-   across the runs recorded, and that wait is for a packet of the piconet to
-   arrive rather than for the tool: a follow that is working spends none of it
-   acquiring a clock. A run that prints none has one of five causes: the
+   packets from the start: the wait before the first record is the wait for a
+   packet of the piconet to arrive. A run that prints none has one of five causes: the
    piconet is not transmitting, the board cannot hear the piconet, the `-u`
    given is wrong, the clock the board was given is off by enough to put it on
    the wrong channel, which is what `-w` adjusts for, or the target is not the
@@ -326,19 +321,18 @@ need not hold for the other.
       echo "w=$w $((records - bad / 2)) of $records headers passed"
     done
 
-The count that matters is the headers that passed, not the records written. A
-board hopping on a clock that is wrong still matches the piconet's access code
-now and then, and it records every match, so a bad value can write hundreds of
-records and get nothing out of any of them. Wireshark marks a bad header
-`Incorrect Packet Header or HEC` and `tshark -V` prints that twice per frame,
-which is the halving above. Do not count the packet detail the run printed
-instead: that needs the payload as well as the header, which an enhanced data
-rate payload never reaches, so on a link carrying EDR every value would read as
-zero.
+The count that matters is the headers that passed, not the records written: a
+board hopping on a wrong clock still matches the access code now and then and
+records every match, so a bad value can write hundreds of records and get
+nothing out of any of them. Wireshark marks a bad header `Incorrect Packet
+Header or HEC` and `tshark -V` prints that twice per frame, which is the
+halving above. Do not count the packet detail the run printed instead: that
+needs the payload too, which an enhanced data rate payload never reaches, so
+on a link carrying EDR every value would read as zero.
 
-Sweep with `-e 0`, exact access codes only. At the default `-e 2` a run writes
-three or four times as many records, the extra ones matched with an error
-allowed, which is how a bad value comes to look like a working capture.
+Sweep with `-e 0`, exact access codes only: at the default `-e 2` the extra
+records matched with an error allowed are how a bad value comes to look like a
+working capture.
 
 Throw away any leg where the piconet went quiet, and any leg that printed the
 warning that the clock being followed was not this piconet's (see DESCRIPTION
@@ -346,18 +340,11 @@ above): the first reads as a clean zero and the second is no longer a reading
 of `-w` at all. Confirm from the devices themselves that each leg had traffic
 to capture.
 
-A sweep on this project's bench, 25-second legs on one Classic piconet with
-everything but `-w` held the same, came out at 6169 headers at `-w 2`, 3976 at
-`-w 3`, 28 at the default of 5, 3 at 0, and none at 6 or 8. Those legs followed
-the local device's own piconet, with no target named. So the useful range is
-narrow, and on that host it was three slots away from the default.
-
-The best value repeats; what it captures does not. Two shorter passes on the
-same bench put `-w 2` ahead again, and of three legs at it, one decoded almost
-every record it wrote and the other two a small part of theirs. No value of
-`-w` took that variation out. So `-w` decides whether a follow decodes anything
-at all, and how much it then holds is not steady: expect the capture at the
-best value to vary from run to run.
+The useful range is narrow: a value a slot or two out can decode nothing at
+all, so a machine whose value is not the default captures nothing until the
+sweep finds it. The best value repeats from sweep to sweep; how much it
+captures does not, and no value of `-w` takes that variation out. So treat
+`-w` as deciding whether a follow decodes anything, not how much.
 
 ## WHAT A FOLLOW DOES NOT CAPTURE
 
@@ -470,9 +457,9 @@ and still arrive, and so is the `AFH map:` line of `-a`, which is the answer to
 that option.
 
 Redirect standard output to a new file or a pipe, not to one being appended
-to: on Linux the capture is opened again through `/proc/self/fd`, which
-truncates, so `ubertooth-follow -q - >> capture.pcap` loses what the file
-held.
+to: the capture is opened again through a descriptor-filesystem path,
+`/dev/fd` where there is one and `/proc/self/fd` otherwise, which truncates,
+so `ubertooth-follow -q - >> capture.pcap` loses what the file held.
 
 Binary on a terminal is a mistake rather than a stream anyone reads, so it is
 refused: `error: stdout is a tty, refusing to write binary capture data to
@@ -552,8 +539,11 @@ target without it would hop on the local device's clock instead. A follow keyed
 on `-l` and `-u` pages a guessed `00:00:<UAP>:<LAP>`, so that line also asks
 for the whole address with `-t` (see AFH above).
 
-A board that refuses the target's address or the clock reset exits 1 before the
-capture starts, with the request named on standard error. Following anyway
+A board that refuses the target's address, the clock reset, the Basic Rate
+modulation, or the AFH map the follow sets or clears exits 1 before the
+capture runs, with the request named on standard error. The two map requests
+read `error: setting the board's AFH map failed` and `error: clearing the
+board's AFH map failed`. Following anyway
 would mean a board that is not set up for the piconet: without the target's
 address it matches no packet, and with its clock never zeroed it hops on a
 clock the offset was not measured from.
@@ -591,25 +581,21 @@ captured stays written out, and libubertooth names the refused request on
 standard error.
 
 The `-q`, `-r`, and `-d` files are created once the board has been opened and
-its firmware accepted, not before, and a run that is refused after that
-removes them again, so a refused follow leaves no empty capture behind
-whatever refused it. For this tool the files are created later than it sounds:
-the adapter, the connection to the target, and the AFH read all come first, so
-a path that cannot be opened is reported after them. A terminal on standard
-output is still refused while the command line is read, and so is every other
-fault in the command line. A capture on standard output (`-q -`) is not a file
-this tool created, so there is nothing of it to remove: whatever standard
-output was redirected to is left as it is.
+its firmware accepted, and a run refused after that removes them again, so a
+refused follow leaves no empty capture behind whatever refused it. For this
+tool they are created later than it sounds: the adapter, the connection to the
+target, and the AFH read all come first, so a path that cannot be opened is
+reported after them. Every fault in the command line, a terminal on standard
+output included, is refused before any of it.
 
-A path given to `-q` or `-d` that already holds something is emptied when the
-file is opened, and removing it on a refusal does not bring the old contents
-back; `-r` refuses a path that exists rather than writing over it.
-
-Only a regular file is removed. A device, a pipe, or a symbolic link named as
-the destination is left where it is, along with whatever the run wrote through
-it, because the run did not create it. A removal that will not go is reported
-as `warning: cannot remove <path>: <reason>` and does not change the exit
-status.
+A regular file named by `-q` or `-d` is removed, whether this run created it
+or truncated one that was already there, so removing it does not bring the old
+contents back. Anything else is left where it is, along with whatever the run
+wrote through it: a device, a pipe, a symbolic link, a path naming one of this
+process's descriptors, and the file standard output was redirected to. A removal that will not go is
+reported as `warning: cannot remove <path>: <reason>` and does not change the
+exit status. `-r` refuses a path that exists rather than writing over it, so
+it never reaches this.
 
 A run that cannot allocate the piconet it follows exits 1 with `error: out of
 memory`, before the adapter or a board is opened; `-h` and `-V` are answered
@@ -644,7 +630,8 @@ adapter; THE CLOCK SEARCH describes what that costs
 ubertooth-scan(1): the other BlueZ tool, which finds the piconets an adapter
 cannot see
 
-ubertooth-afh(1)
+ubertooth-afh(1): recovers the channel map of a piconet whose LAP and UAP are
+known, with no adapter
 
 ubertooth(7): overview of Project Ubertooth; OPTION VALUES describes how
 option values are written
