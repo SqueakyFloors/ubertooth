@@ -33,14 +33,12 @@
 /*
  * Every path in this file ends in blink_fault_code() below, which flashes its
  * code and never returns. Nothing in that loop feeds the watchdog, so the
- * board resets itself a few seconds later and comes back usable; before the
- * watchdog it sat there answering nothing on USB until someone unplugged it.
+ * board resets itself a few seconds later and comes back usable.
  *
  * Each path therefore records where it was in the breadcrumb first, and
  * ubertooth-util -w reads that back once the board has reconnected. Without it
- * the record would still name whatever the firmware was doing before the fault
- * -- "not in a wait" from the main loop, or "servicing USB" for a fault inside
- * usb_work() -- so a fault read as something it was not.
+ * the record would name whatever the firmware was doing before the fault --
+ * "not in a wait", or "servicing USB" for a fault inside usb_work().
  *
  * The site goes in before the dump, not after: the dump goes out over USB, and
  * usb_send_sync() marks its own site while it runs and puts this one back when

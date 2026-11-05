@@ -129,14 +129,13 @@ uint8_t hop_inquiry(uint32_t clk)
  * which is why this takes the native clock rather than a leg's clock.
  *
  * The inquiry scan row of the table is Xir, CLKN16-12 plus the response
- * counter N; the page scan row is CLKN16-12 alone.  This image leaves N at
+ * counter N; the page scan row is CLKN16-12 alone. This image leaves N at
  * zero, where the two are the same value: N exists to move a responder off a
- * frequency it has just answered on, which matters where several devices
- * answer one inquiry, and nothing here advances it.
+ * frequency it has just answered on, and nothing here advances it.
  *
  * The phase is kept for hop_start_response(), because a response has to start
  * from the phase that heard the packet rather than from the clock as it reads
- * by the time the packet has been decoded.
+ * once the packet has been decoded.
  */
 uint8_t hop_scan(uint32_t clkn)
 {

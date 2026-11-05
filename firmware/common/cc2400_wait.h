@@ -54,23 +54,20 @@
  * SFSON strobe, 0 after SRFOFF. Calls `service`, if it is not NULL, between
  * status polls.
  *
- * The bound is what the unbounded `while (!(cc2400_status() & FS_LOCK));` in
- * the mode loops lacked: a radio that stops reporting the state the loop is
- * waiting for keeps the loop from ever looking at requested_mode again, so
- * ubertooth-util -S cannot stop the mode and the board has to be re-plugged.
- * A caller that times out has a synthesizer in the wrong state, so what it
- * reads from the radio next is not a measurement; a caller that only samples,
- * like led_specan(), can carry on and lose that one sample.
+ * The bound matters because a radio that stops reporting the state the loop
+ * waits for would keep that loop from ever looking at requested_mode again,
+ * so nothing could stop the mode and the board would need re-plugging. A
+ * caller that times out has a synthesizer in the wrong state, so what it
+ * reads from the radio next is not a measurement; one that only samples, like
+ * led_specan(), can carry on and lose that sample.
  *
  * `service` is for a loop that spends most of its time in here. USB in the
  * bluetooth_rxtx image is polled from the mode loops (handle_usb()), and
- * endpoint 0 is single-buffered, so a loop that only polls once per pass runs
- * a whole pass behind the host and control requests stall. Passing
- * handle_usb() in keeps endpoint 0 within a few microseconds of the host, and
- * keeps it serviced between this loop's bit-banged SPI transfers rather than
- * inside one, which is what servicing it from the USB interrupt instead would
- * risk. The BR/EDR image drives USB from the USB interrupt, so its callers
- * pass NULL.
+ * endpoint 0 is single-buffered, so a loop that polls once per pass runs a
+ * whole pass behind the host and control requests stall. Passing handle_usb()
+ * in keeps endpoint 0 serviced between this loop's bit-banged SPI transfers
+ * rather than inside one. The BR/EDR image drives USB from the USB
+ * interrupt, so its callers pass NULL.
  *
  * Returns 1 if the synthesizer reported `locked`, 0 if the wait timed out.
  */
@@ -88,12 +85,11 @@ int cc2400_wait_fs(int locked, void (*service)(void));
  * is started by the register configuration the caller has already written, so
  * this only polls.
  *
- * The unbounded `while (!(cc2400_status() & XOSC16M_STABLE));` it replaces sits
- * at the top of a mode, before the loop that services USB has started, so a
- * part that never reports stable leaves the board enumerated and answering
- * nothing. A caller that times out has a radio that is not
- * running; it can carry on and produce junk samples, which the host can see,
- * rather than a board that has to be power-cycled.
+ * This runs at the top of a mode, before the loop that services USB has
+ * started, so without the bound a part that never reports stable would leave
+ * the board enumerated and answering nothing. A caller that times out has a
+ * radio that is not running, and can carry on and produce junk samples the
+ * host can see rather than a board that has to be power-cycled.
  *
  * Returns 1 if the oscillator reported stable, 0 if the wait timed out.
  */
@@ -108,15 +104,13 @@ int cc2400_wait_xosc_stable(void (*service)(void));
  * strobes SFSON and SRFOFF between polls -- so the state being waited for
  * never arrives.
  *
- * An unbounded wait then hangs whichever loop called it. That is fatal in this
- * firmware because USB is polled rather than interrupt-driven (see
- * handle_usb()): with the main loop stuck the board answers no control request
- * at all, so the host sees every request time out (-7), or stall (-9) if
- * endpoint 0 was left halted, until the board is physically re-plugged.
+ * An unbounded wait would then hang whichever loop called it, and with the
+ * main loop stuck the board answers no control request at all until it is
+ * re-plugged.
  *
  * Callers only need the radio quiet; the teardown and register re-init that
- * follow a mode change do not depend on the synthesizer having actually
- * reported unlocked.
+ * follow a mode change do not depend on the synthesizer having reported
+ * unlocked.
  *
  * This is cc2400_wait_fs(0, NULL), kept because most callers want exactly
  * that and are not loops that need to service anything while they wait.

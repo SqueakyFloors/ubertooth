@@ -39,8 +39,7 @@
  * Every In-Application Programming call is reached through bl_update_ops, so
  * firmware/tests/test_bl_update.c drives the whole of it against a model of a
  * part's flash. That matters more here than elsewhere: this is the one code
- * path in the tree whose mistakes a user cannot put right over USB, and no
- * board can be used to find them.
+ * path in the tree whose mistakes a user cannot put right over USB.
  */
 
 /* The four sectors of the bootloader region, each 4 KiB (NXP LPC176x/5x user

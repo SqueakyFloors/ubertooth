@@ -143,8 +143,8 @@ static unsigned rx_buf_update(void)
  * nothing until it is re-plugged.
  *
  * The deadline is the slot clock, not a number of polls, because the bytes are
- * due at a known time: the sync word was detected at pkt_time, and after that
- * the air delivers one byte every 8usec. A poll count would wait for a
+ * due at a known time: the sync word was detected at pkt_time, and the air
+ * delivers one byte every 8 usec after that. A poll count would wait for a
  * different length of time on every change to this code or the clock speed.
  */
 static unsigned rx_wait_bytes(unsigned want)
