@@ -1,6 +1,6 @@
 CMake Settings
 ==============
-The following are flags that may be of use when configuing this project.
+The following are flags that may be of use when configuring this project.
 
  * INSTALL_UDEV_RULES
   * A boolean flag for installing udev rules to control access to
@@ -12,7 +12,8 @@ The following are flags that may be of use when configuing this project.
     are used on the host system.
 
  * ENABLE_PYTHON
-  * Build tools that require python - now only ubertooth-specan-ui
+  * Build and install the tools written in Python: ubertooth-specan-ui and
+    ubertooth-btbr
 
 Using the installed library from CMake
 ======================================

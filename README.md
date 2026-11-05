@@ -204,7 +204,7 @@ for the operation-by-operation comparison and the alternatives.
 ### Device administration & firmware
 | Tool | What it does | Needs |
 |---|---|---|
-| [ubertooth-util](host/doc/ubertooth-util.md) | Device admin: versions (`-V`), the board's bootloader (`-B`), LEDs, reset, channel, device count, watchdog state (`-w`) | — |
+| [ubertooth-util](host/doc/ubertooth-util.md) | Device admin: versions (`-V`), the board's bootloader (`-B`), LEDs, reset, channel, device count, the board's watchdog, reset and capture-error counters (`-w`) | — |
 | [ubertooth-dfu](host/doc/ubertooth-dfu.md) | Flash/read firmware over DFU | — |
 
 ### Special-purpose
@@ -237,11 +237,10 @@ Ubertooth attached`, and still exits 0, so it answers "which tools am I
 running?" on its own. Reading the version does not stop a mode the board is
 running, and works on whatever firmware the board is carrying.
 
-`-v` means verbose where a tool has verbose output (`ubertooth-specan -v`,
-`ubertooth-debug -v <0-2>`). Two older spellings are kept for existing
-scripts: `ubertooth-util -v` prints the firmware version line alone
-(deprecated: use `-V`), and `ubertooth-btle -v` is the older spelling of `-k`,
-its CRC verify setting, which warns and will be removed. See the
+`-v` means verbose where a tool has verbose output (`ubertooth-btle -v`,
+`ubertooth-specan -v`, `ubertooth-debug -v <0-2>`). One older spelling is kept
+for existing scripts: `ubertooth-util -v` prints the firmware version line
+alone (deprecated: use `-V`). See the
 [Ubertooth overview man page](host/doc/ubertooth.md), COMMON OPTIONS.
 
 ### Which firmware a tool needs

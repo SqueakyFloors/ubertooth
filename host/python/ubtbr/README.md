@@ -9,7 +9,7 @@ With more than one Ubertooth attached, choose the one carrying the ubtbr
 firmware with `-U <index|serial>`, as the other tools take it; `-h` prints the
 usage text.
 
-The *ubertooth-ubtbr* tool provide a command-line interface to most functionnalities of ubtbr:
+The *ubertooth-btbr* tool provide a command-line interface to most functionnalities of ubtbr:
 
 Start an inquiry:
 > inquiry
