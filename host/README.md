@@ -54,27 +54,21 @@ Running the script without the '-d' option will print the files to be removed.
 
 The Tools
 ---------
-ubertooth-util: various utility functions including firmware and host versions,
-LEDs, reset, channel and the attached-device count. Reflashing is
-ubertooth-dfu's job.
+The catalog in the top-level [README](../README.md#tools) lists every tool,
+groups them by purpose, and says what each needs beyond the Ubertooth itself.
+Each tool's manual page in [host/doc](doc) is the full reference for its
+options: `man ubertooth` for the overview, `man ubertooth-rx` and so on for a
+tool. `ubertooth-follow` and `ubertooth-scan` are built only where BlueZ is,
+and `btle-extcap.py` is not installed by the build: it is copied into
+Wireshark's extcap directory by hand.
 
-ubertooth-rx: a general purpose Bluetooth sniffing tool, will promiscuously
-find LAPs or, if given a LAP, will determine a UAP.  Given both a LAP and a UAP
-it will attempt to calculate a clock and hop along with the piconet.
-
-ubertooth-dump: dumps a raw Bluetooth symbol stream from an Ubertooth board.
-If you pipe it into xxd, you should see various ones and zeros.  If you pipe it
-into dd, you can find out the transfer rate (should be 1 MB/s).  Timestamps are
-dumped to stderr.
-
-ubertooth-specan: outputs signal strength data suitable for feeding into spectrum
-analyser software. e.g.
+For example:
 ```
 ubertooth-specan -G | feedgnuplot --stream 0.5 --domain --3d
 ```
-
-will use feedgnuplot to drive gnuplot to draw a realtime animated 3D plot of the
-frequency spectrum.
+draws a realtime animated 3D plot of the frequency spectrum, and
+`ubertooth-dump -d - | dd of=/dev/null` reports the symbol stream's transfer
+rate, which should be about 1 MB/s.
 
 
 Privledge Reduction

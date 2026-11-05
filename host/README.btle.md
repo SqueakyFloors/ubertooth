@@ -33,9 +33,10 @@ connection; they differ in how they come by the connection's parameters.
 In both modes, raw packets are hex dumped to the terminal and (if
 specified) a dump file.
 
-The only way to exit either of these modes is to reset the device:
-
-    ubertooth-util -r
+Ctrl-C ends either mode, and the capture files it was writing are kept. A run
+killed outright can leave the board in its capture mode, and `ubertooth-btle`
+does not stop a mode it finds, so stop it with `ubertooth-util -S` first.
+`ubertooth-util -r` is for a board that has stopped answering at all.
 
 Connection Following
 --------------------
@@ -137,11 +138,10 @@ data packets with contents other than 01 00:
     systime=1349414683 freq=2404 addr=506545d9 delta_t=693.326 ms
     0d 00 55 5d 86
 
-The frequency in those two lines is from an earlier release. Promiscuous
-mode works a connection out on 2440 MHz once it has the access address,
-whatever channel the discovery pass ran on, so the lines after the access
-address now read freq=2440; measuring the hop amount then moves between
-2404 MHz and 2406 MHz. See ubertooth-btle(1).
+The `freq=` values above were recorded on an older release. Promiscuous mode
+now works a connection out on 2440 MHz once it has the access address,
+whatever channel the discovery pass ran on, and measuring the hop amount moves
+between 2404 and 2406 MHz. See ubertooth-btle(1).
 
 The Ubertooth then recovers the hop interval and hop amount, finally
 entering connection following mode (as though a connect were observed).
@@ -153,7 +153,7 @@ Miscellaneous Usage
 CRC verification is off by default. To change this setting, use the
 -k flag (you should adjust the squelch if you enable it):
 
-    ubertooth-btle -k0
+    ubertooth-btle -k 1     # on; -k 0 turns it off again, -k reads the setting
 
 The access address being used is normally auto-detected, either from the
 connection packet or recovered in promiscuous mode. If you wish to

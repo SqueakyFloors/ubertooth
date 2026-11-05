@@ -40,7 +40,6 @@ the full reference for its options.
   through BlueZ. (Needs: BlueZ and a target.)
 - ``ubertooth-scan`` — Active inquiry scan using a BlueZ dongle plus Ubertooth.
   **Linux only**, for the same reason. (Needs: a BlueZ Bluetooth dongle.)
-
 - ``ubertooth-btbr`` — Take part in Classic BT: inquiry, paging, *monitor*
   mode, which captures a connection as it is set up, and transmitting chosen
   packet types on a connection. **Experimental**, and the
@@ -74,7 +73,8 @@ operation by operation.
 - ``ubertooth-util`` — Device admin: the version (``-V``: host tools,
   firmware version and firmware build; ``-v`` is the older, deprecated
   spelling of its firmware version line), LEDs, reset, channel, device count
-  (``-N``), watchdog state and why the board last reset itself (``-w``).
+  (``-N``), and the watchdog state, why the board last reset itself, and how
+  many radio waits gave up (``-w``).
   Reflashing is ``ubertooth-dfu``'s job.
 - ``ubertooth-dfu`` — Flash or read firmware over DFU.
 
