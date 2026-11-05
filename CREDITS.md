@@ -15,6 +15,35 @@ contributors. The software is released under the GPLv2; see [COPYING](COPYING).
 - Mike Ryan ([@mikeryan](https://github.com/mikeryan)), Bluetooth Low Energy
   (BLE) sniffing engine and releases from 2018
 
+## The Classic Bluetooth baseband firmware and its host library
+
+`firmware/btbr`, one of the two firmware images that run the host tools, and
+`host/python/ubtbr`, the host library behind `ubertooth-btbr`, were written by
+**Etienne Helluy-Lafont** (Univ. Lille, CNRS) as the *ubtbr* project, building on
+the project's existing firmware code and on OsmocomBB's TDMA scheduler. They are
+what lets an Ubertooth take part in a Classic connection -- inquiry, paging,
+and a link layer -- rather than only listen to one, and they carry the monitor
+mode that follows a connection from its setup.
+
+## Third-party code in the firmware
+
+Other people's code is built into or linked with the firmware images, each
+piece under its own notice in the file that carries it:
+
+- Bertrik Sikken, the LPCUSB USB stack: `firmware/common/lpcusb`,
+  `firmware/common/usb_serial.c`, and each image's USB driver, under a BSD
+  license.
+- Harald Welte, OsmocomBB's TDMA scheduler
+  (`firmware/btbr/src/btphy/tdma_sched.c`), under the GPL version 2 or later.
+- Opendous Inc., the LPC17xx startup and interrupt code
+  (`firmware/common/LPC17xx_Startup.c` and `LPC17xx_Interrupts.c`), under a
+  permissive notice.
+- Kustaa Nyholm, `tinyprintf` (`firmware/btbr/src/util/tinyprintf.c` and
+  `firmware/bluetooth_rxtx/tinyprintf.c`), under the LGPL version 2.1 or later.
+- CodeSourcery, the Cortex-M3 linker script both images link through
+  (`firmware/common/sections.ld`), under a permissive notice that asks to be
+  carried verbatim, as that file does.
+
 ## Upstream and community work in this fork
 
 These changes were contributed outside this repository and incorporated here.
