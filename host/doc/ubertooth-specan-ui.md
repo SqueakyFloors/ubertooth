@@ -146,7 +146,8 @@ A failure to start `ubertooth-specan` is reported the same way, as
 `error: could not open an Ubertooth device` followed by a `note: ` naming the
 command, and whatever `ubertooth-specan` itself said on standard error. The
 window stays open with no samples in it: the child's failure does not end the
-run, and the exit status is settled when the window is closed.
+run, and closing the window exits 0 as it does after any run that got that
+far.
 
 A `-V` with no standard output to print the answer to, which is what
 `ubertooth-specan-ui -V >&-` leaves, is `error: standard output has gone away`

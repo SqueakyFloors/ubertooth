@@ -212,10 +212,9 @@ Set both boards to the lowest level before paging one from the other:
     ubertooth-util -U <serial> -a 0
 
 `btbr` keeps whatever level the register holds, so this lasts until the board
-is flashed again. The lowest level is about 25 dB down from the highest
-(ubertooth-util(1), `-a`), which reaches across a desk and not much further,
-so put it back to 7 before paging anything else. Moving the two boards apart,
-or putting an attenuator on one antenna, does the same job.
+is flashed again, so put the level back (ubertooth-util(1), `-a`) before
+paging anything further away. Moving the two boards apart, or putting an
+attenuator on one antenna, does the same job.
 
 ## MONITOR MODE
 

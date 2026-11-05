@@ -132,7 +132,7 @@ ubertooth\-util \-U <serial> \-a 0
 .fi
 .IP "" 0
 .P
-\fBbtbr\fR keeps whatever level the register holds, so this lasts until the board is flashed again\. The lowest level is about 25 dB down from the highest (ubertooth\-util(1), \fB\-a\fR), which reaches across a desk and not much further, so put it back to 7 before paging anything else\. Moving the two boards apart, or putting an attenuator on one antenna, does the same job\.
+\fBbtbr\fR keeps whatever level the register holds, so this lasts until the board is flashed again, so put the level back (ubertooth\-util(1), \fB\-a\fR) before paging anything further away\. Moving the two boards apart, or putting an attenuator on one antenna, does the same job\.
 .SH "MONITOR MODE"
 \fBmonitor\fR targets the paging phase of a connection, where the central sends the peripheral a Frequency Hop Synchronization (FHS) packet carrying its full address and clock\. If the Ubertooth receives that FHS before the real peripheral does, it joins the new piconet ahead of both devices and reports the packets they exchange, including the unencrypted LMP traffic that opens every connection\. An LMP packet that sets the Adaptive Frequency Hopping (AFH) map is followed, so the capture keeps up when the piconet narrows its channels\.
 .P

@@ -157,7 +157,8 @@ capture that ends in the moment after a gap does not report that last one.
 
 ## DIAGNOSTICS
 
-Standard output carries only the samples and the usage text for `-h`. Without
+Standard output carries only the samples, the usage text for `-h`, and the
+answer to `-V`. Without
 `-d` the samples are text records; with `-d` and no `-g` or `-G` they are the
 raw 3-byte records, which is why that pair is refused a terminal.
 
