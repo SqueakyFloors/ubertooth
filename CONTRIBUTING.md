@@ -128,21 +128,11 @@ report like the rest but do not gate a merge.
 
 The rule is not strict, so a branch need not be up to date with `main` to
 merge, and it requires no reviews: the project's own rules say who reviews
-what and who may merge. It does not apply to the repository owner
-(`enforce_admins` is off), whose admin override is the only way a pull request
-merges with a required check outstanding.
+what and who may merge.
 
-The policy is not to use it. A red required check is a stop: say on the pull
-request why you think it should not block, and leave it to the maintainer. The
-one standing exception is for the macOS runners, which queue far longer than
-the rest. Once every Linux and platform-independent required check has passed,
-a pull request whose only unfinished required checks are `macos-26` legs -- or
-`image-revision` or `dfu-package` waiting on `firmware (macos-26)` -- and that
-has been waiting on them for more than seven minutes may be merged past them
-with that override, with the pending checks and the wait named on the pull
-request and the same legs of `main`'s own run watched afterwards. A macOS leg
-that has finished and failed still blocks. A release candidate is held to the
-full run, macOS included, before it is named.
+**Never use `--admin`.** A required check that is red, stuck, or still to
+report is a stop: say on the pull request why you think it should not block,
+and leave it to the maintainer.
 
 What the rule does not fix is that GitHub reads workflow files from the branch
 under review, so a branch can still weaken an `if:` condition, drop a step or
