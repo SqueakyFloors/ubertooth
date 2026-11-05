@@ -27,17 +27,16 @@ on:
     types: [published]
   workflow_dispatch:
 
-# A newer commit cancels the older run it supersedes: on a pull request, that
-# PR's older run; on main, the run of the previous main commit, so when several
-# merges land close together only the newest main commit is built (each PR head
-# was already built before it merged). The weekly schedule, releases and manual
-# runs get a unique group (the run id) and are never cancelled. The group uses
-# the PR number, so same-named branches from forks cannot collide.
+# Only a pull request's superseded runs are canceled, and its group is the PR
+# number, so same-named branches from forks cannot collide. Every other event
+# (a push to main, the weekly schedule, a release, a manual run) keys on the
+# run id and so has a group to itself: each commit main takes is built and
+# tested as merged, even when several merges land close together. One group
+# shared by all main commits would not do, because a run still waiting for a
+# runner is canceled as soon as a newer run joins its group, whatever
+# cancel-in-progress says, and that commit would go unbuilt.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.ref) || github.run_id }}
-  # Only a pull request's superseded runs are cancelled. Every push to main
-  # runs to the end, so each commit main takes is built and tested as merged,
-  # even when several merges land close together.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Two tiers, to keep pull requests fast and cheap:
