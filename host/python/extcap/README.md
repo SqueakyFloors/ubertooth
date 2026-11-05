@@ -21,22 +21,18 @@ using it from `tshark` — see
 
 ## Installing it
 
-Copy or link the script into Wireshark's personal extcap directory, which
-Wireshark itself names under Help, About Wireshark, Folders ("Personal Extcap
-path"); the path differs between Wireshark versions and platforms, and
-Wireshark 4.4 and later look in a `wireshark` subdirectory of it:
-
-    ln -s "$PWD/btle-extcap.py" <that path>/
-
-The script must be executable, and `ubertooth-util` and `ubertooth-btle` must
-be on the `PATH` Wireshark starts it with. Each attached board then appears in
-Wireshark's capture list as "Ubertooth One `<serial>`".
+The build does not install this script: copy or link it, executable, into
+Wireshark's personal extcap directory, with `ubertooth-util` and
+`ubertooth-btle` on the `PATH` Wireshark starts it with. `btle-extcap(1)`,
+INSTALLATION, names that directory and how Wireshark reports it. Each attached
+board then appears in Wireshark's capture list as "Ubertooth One `<serial>`".
 
 ## Running it by hand
 
-Worth doing when a board does not appear in Wireshark. These are the calls
-Wireshark itself makes; `btle-extcap(1)` describes each one and what it
-answers.
+Worth doing when a board does not appear in Wireshark. The first two lines are
+calls Wireshark makes; the third writes the capture to standard output instead
+of a fifo, which is for a run by hand. `btle-extcap(1)` describes every call
+and what it answers.
 
     btle-extcap.py --extcap-interfaces              # one line per attached board
     btle-extcap.py --extcap-interface=ubertooth<serial> --extcap-dlts

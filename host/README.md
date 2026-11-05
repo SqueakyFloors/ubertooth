@@ -54,13 +54,15 @@ Running the script without the '-d' option will print the files to be removed.
 
 The Tools
 ---------
-The build installs sixteen command-line tools. The catalog in the top-level
-[README](../README.md#tools) groups them by purpose and says what each needs
-beyond the Ubertooth itself, and each tool's manual page in
-[host/doc](doc) is the full reference for its options:
-`man ubertooth` for the overview, `man ubertooth-rx` and so on for a tool.
+The catalog in the top-level [README](../README.md#tools) lists every tool,
+groups them by purpose, and says what each needs beyond the Ubertooth itself.
+Each tool's manual page in [host/doc](doc) is the full reference for its
+options: `man ubertooth` for the overview, `man ubertooth-rx` and so on for a
+tool. `ubertooth-follow` and `ubertooth-scan` are built only where BlueZ is,
+and `btle-extcap.py` is not installed by the build: it is copied into
+Wireshark's extcap directory by hand.
 
-One example of what the stream tools are for:
+For example:
 ```
 ubertooth-specan -G | feedgnuplot --stream 0.5 --domain --3d
 ```

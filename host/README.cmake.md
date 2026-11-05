@@ -13,7 +13,24 @@ The following are flags that may be of use when configuring this project.
 
  * ENABLE_PYTHON
   * Build and install the tools written in Python: ubertooth-specan-ui and
-    ubertooth-btbr
+    ubertooth-btbr. OFF also drops their test suites.
+
+ * USE_BLUEZ
+  * Insist on the two tools that drive a second adapter through BlueZ,
+    ubertooth-follow and ubertooth-scan: the configure step fails when
+    libbluetooth is not there. Without the flag those two are built wherever
+    libbluetooth is found and left out, with a note, where it is not. BlueZ is
+    Linux only, so this flag cannot be met on macOS.
+
+ * REQUIRE_ALL
+  * Turn any missing optional dependency into a configure error, instead of
+    leaving the tools that need it out. The configure summary names this flag
+    when it has skipped anything.
+
+ * BUILD_SHARED_LIB, BUILD_STATIC_LIB, BUILD_STATIC_BINS
+  * Which libubertooth to build, and whether the tools are linked statically.
+    At least one library must be built; static tools need the static
+    library.
 
 Using the installed library from CMake
 ======================================

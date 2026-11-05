@@ -204,7 +204,7 @@ for the operation-by-operation comparison and the alternatives.
 ### Device administration & firmware
 | Tool | What it does | Needs |
 |---|---|---|
-| [ubertooth-util](host/doc/ubertooth-util.md) | Device admin: versions (`-V`), the board's bootloader (`-B`), LEDs, reset, channel, device count, the board's watchdog, reset and capture-error counters (`-w`) | — |
+| [ubertooth-util](host/doc/ubertooth-util.md) | Device admin: versions (`-V`), the board's bootloader (`-B`), LEDs, reset, channel, device count, the watchdog state, why the board last reset itself, and the board's error counters (`-w`) | — |
 | [ubertooth-dfu](host/doc/ubertooth-dfu.md) | Flash/read firmware over DFU | — |
 
 ### Special-purpose

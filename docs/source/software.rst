@@ -73,8 +73,8 @@ operation by operation.
 - ``ubertooth-util`` — Device admin: the version (``-V``: host tools,
   firmware version and firmware build; ``-v`` is the older, deprecated
   spelling of its firmware version line), LEDs, reset, channel, device count
-  (``-N``), and the board's watchdog, reset and capture-error counters
-  (``-w``).
+  (``-N``), and the watchdog state, why the board last reset itself and the
+  board's error counters (``-w``).
   Reflashing is ``ubertooth-dfu``'s job.
 - ``ubertooth-dfu`` — Flash or read firmware over DFU.
 
