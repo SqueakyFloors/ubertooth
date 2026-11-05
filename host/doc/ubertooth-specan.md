@@ -24,8 +24,10 @@ Options:
  - `-l <2402-2480>` :
    lower frequency in MHz (default 2402); the value is required when `-l` is used
  - `-u <2402-2480>` :
-   upper frequency in MHz (default 2480); the value is required when `-u` is used
-   and must not be lower than the selected lower frequency
+   upper frequency in MHz (default 2480); the value is required when `-u` is
+   used and must not be lower than the selected lower frequency, which is
+   refused with `error: lower frequency must not exceed upper frequency`,
+   exit 1
  - `-g` :
    write the samples as text for feedgnuplot
  - `-G` :
@@ -155,9 +157,13 @@ capture that ends in the moment after a gap does not report that last one.
 
 ## DIAGNOSTICS
 
-Standard output carries only the samples — whatever `-d` has not sent to a
-file, as text or, with no `-g` or `-G`, as the raw records — and the usage text
-for `-h`.
+Standard output carries only the samples and the usage text for `-h`. Without
+`-d` the samples are text records; with `-d` and no `-g` or `-G` they are the
+raw 3-byte records, which is why that pair is refused a terminal.
+
+A second value for `-d`, `-l`, `-u`, or `-U` is refused with `error: option
+'-l' given more than once`, and a second `-v`, which takes no value, with
+`error: -v may be given only once`.
 Errors, warnings and progress, including `Ubertooth stopped`, go to standard
 error. The errors this tool prints itself are one line starting `error: `, for
 example `error: /no/such/dir/samples.bin: No such file or directory` for a

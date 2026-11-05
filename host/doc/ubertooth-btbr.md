@@ -138,10 +138,9 @@ An address is written `11:22:33:44:55:66` or `112233445566`.
  - `inquiry_scan` :
    answer inquiries, so nearby devices discover this board
  - `page_scan` :
-   accept a connection from a device that pages this board; a standard
-   Classic controller usually gets through in a few seconds, and another
-   Ubertooth on the same bench needs its transmit level turned down first,
-   as does this one (see TWO BOARDS CLOSE TOGETHER); a board scanning this
+   accept a connection from a device that pages this board; another Ubertooth
+   nearby needs its transmit level turned down first, as does this one (see
+   TWO BOARDS CLOSE TOGETHER); a board scanning this
    way answers a small L2CAP echo request, so `l2ping` from another Ubertooth
    sees a reply (see LIMITATIONS for how small)
  - `discoverable` :
@@ -201,13 +200,12 @@ prompt. Before the prompt is up, Ctrl-C ends the tool.
 ## TWO BOARDS CLOSE TOGETHER
 
 Paging one Ubertooth from another needs both of them turned down first. At the
-transmit level the radio starts at, two boards a few centimeters apart drive
-each other's receiver far past the level it can demodulate. The page itself
-still gets through, because a page scan sits on one frequency for milliseconds
-at a time, but the short receive windows that follow it find nothing: the
-paged board comes up as a peripheral, the pager never hears the
-acknowledgment, and the connection ends a second later having carried no
-packet.
+transmit level the radio starts at, two boards close together drive each
+other's receiver past the level it can demodulate. The page itself still gets
+through, because a page scan sits on one frequency for milliseconds at a time,
+but the short receive windows that follow it find nothing: the paged board
+comes up as a peripheral, the pager never hears the acknowledgment, and the
+connection ends having carried no packet.
 
 Set both boards to the lowest level before paging one from the other:
 
@@ -215,9 +213,9 @@ Set both boards to the lowest level before paging one from the other:
 
 `btbr` keeps whatever level the register holds, so this lasts until the board
 is flashed again. The lowest level is about 25 dB down from the highest
-(ubertooth-util(1), `-a`): plenty across a bench and not enough for a device
-across a room, so put it back to 7 before paging anything else. Moving the two boards apart, or putting an attenuator on one
-antenna, does the same job.
+(ubertooth-util(1), `-a`), which reaches across a desk and not much further,
+so put it back to 7 before paging anything else. Moving the two boards apart,
+or putting an attenuator on one antenna, does the same job.
 
 ## MONITOR MODE
 
@@ -582,12 +580,9 @@ board, and when the thread reading the board stopped on a failure.
 The last of those is a board that left the USB bus, stopped answering, or sent
 a message whose framing this tool could not follow, with the session still up:
 the thread reading it ends there, nothing restarts it, and no message arrives
-for the rest of the session. The board was power-cycled under a running
-`inquiry` when this was found, and the session reported every step correctly
-and then exited 0, so a script could not tell it from a run where every
-command worked. What
-ended that thread is said as it happens, `error: the receive thread stopped:
-<type>: ...`, and again on the way out as a `warning: `.
+for the rest of the session. What ended that thread is said as it happens,
+`error: the receive thread stopped: <type>: ...`, and again on the way out as
+a `warning: `.
 
 A single command the board refused is not that. It is reported on standard
 error (see DIAGNOSTICS), the prompt stays up, and the session goes on and
