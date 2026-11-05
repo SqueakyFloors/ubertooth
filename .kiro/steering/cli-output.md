@@ -31,8 +31,8 @@ stream a line is on.
   <reason>` — because the line is that device's result, and because the
   listing has to stay one stream that can be read or parsed top to bottom:
   send the failures elsewhere and which device gave which line is ambiguous in
-  a pipe. The `error: ` saying why is on standard error and the status is
-  still 1. Do not move these lines to standard error.
+  a pipe. The `error: ` saying why is on standard error, and the status is
+  still 1.
 - A line summing up the result just printed goes where that result went:
   `ubertooth-btle`'s `note: 312 packets held data that could not be decoded` is
   a trailer on the decode above it, so a run that prints no decode prints no
@@ -56,12 +56,10 @@ stream a line is on.
 answer on standard output, so a command line with both prints both, and the
 usage text comes last: it is the long one, and printing
 it first would scroll the short answer off the screen. The order they were
-written in makes no difference.
-
-This is about the options that end the command. `ubertooth-util -N` answers
-from the host too, but it prints its count and then runs the rest of the
-command line, so `-h` beside it still ends the command and the count is not
-printed.
+written in makes no difference. This is about the options that end the
+command: `ubertooth-util -N` also answers from the host, but it prints its
+count and then runs the rest of the command line, so `-h` beside it still
+ends the command and the count is not printed.
 
     $ ubertooth-util -h -V      # the version, then the usage text, status 0
     $ ubertooth-util -V -h      # the same two, in the same order
@@ -98,8 +96,11 @@ with the reason on the line where that board's version would have been.
   Python's `getopt` wording to the same lines. A tool that takes no long
   option adds `: the tools take single-letter options` to the second, which
   is why `btle-extcap.py`, whose long options are Wireshark's, does not.
-- libubertooth and libbtbb never write to standard output. Their diagnostics
-  go to standard error (or are returned to the caller).
+- libubertooth and libbtbb never write a diagnostic to standard output: a
+  warning, an error, or a note goes to standard error, or is returned to the
+  caller. Results are the caller's to place, and the library writes them to
+  the stream the caller set (`ubertooth_result_stream()`, standard output when
+  the caller has set none).
 - Firmware of another API version is an `error: ` in a release build, which
   refuses the command, and the same line as a `warning: ` in a development
   build, which runs it; a `note: ` then says what allowed that. One wording,

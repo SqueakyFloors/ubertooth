@@ -12,26 +12,29 @@ Keep it short and keep it current. The visible part fits on one screen and
 reads in a minute, in this order:
 
 1. **The problem, in plain language** (2-4 sentences): what a user saw go
-   wrong, or what was missing, what is different after this PR, and whether it
-   works, with a count ("30 of 30 payloads intact"). Say plainly what is not
-   yet shown. No function names or commit hashes here. A before/after example
-   of what the user sees is the best way to show it.
-2. **One small results table**: before against after, only the numbers that
-   decide it, about six rows at most.
-3. **One short excerpt** of real output, three to eight lines, that shows the
-   result.
+   wrong, or what was missing, and what is different after this PR. A
+   before/after example of what the user sees is the best way to show it. No
+   function names or commit hashes here.
+2. **One small results table**, where the change produces numbers: before
+   against after, only the figures that decide it, about six rows at most.
+   Say plainly what the change has not been shown to do.
+3. **One short excerpt** of real output, three to eight lines, where there is
+   output to show.
 
-Everything else is folded into `<details><summary>...</summary>` sections:
-the setup and boards, the full commands and logs, how the change works, the
-tests -- including the hardware line (board, firmware, the `main` commit it
-was based on), or "Hardware: pending" with the `pending hw test` label -- the
-review findings table with one line per finding fixed, deferred (with the
-issue number) or rejected (with the reason), the rebase notes, and what the
-runs do not show.
+Everything else goes in `<details><summary>...</summary>` sections:
+
+- the setup and the boards, and the full commands and logs;
+- how the change works;
+- the tests, with the hardware line (board, firmware, the `main` commit it was
+  based on), or "Hardware: pending" and the `pending hw test` label;
+- the review findings, one line per finding fixed, deferred (with the issue
+  number) or rejected (with the reason), naming each reviewer's model and
+  verdict;
+- the rebase notes, and what the runs do not show.
 
 When the PR changes direction, rewrite the body to describe what the PR does
 now. Delete superseded text rather than appending to it; history lives in the
-commits. Aim for one screen.
+commits.
 
 ## PR comments
 

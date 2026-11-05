@@ -3,9 +3,10 @@ inclusion: always
 ---
 # Issue Triage: Release, Post-Release, Backburner
 
-Every open issue carries exactly one of these labels. Work on `release`
-issues first; do not start `post-release` or `backburner` work while
-`release` issues are open, unless the maintainer asks.
+Every open issue carries exactly one of these labels; give one to any issue
+you find without one, or carrying two. Work on `release` issues first; do not
+start `post-release` or `backburner` work while `release` issues are open,
+unless the maintainer asks.
 
 - **`release`**: must be fixed before the first fork release. Either an
   **advertised feature does not work** (a tool, mode or option the README, a
@@ -22,12 +23,15 @@ issues first; do not start `post-release` or `backburner` work while
   exit anyway), docs gaps, test and CI improvements.
 - **`backburner`**: new features and design work deferred on purpose (not broken advertised features).
 
-Also used, alongside one of the three: `in progress` (someone is working it
-now; add it before the first build and remove it if the work is abandoned
-without closing the issue), `needs maintainer` (a decision is needed),
-`pending hw test` (merged or ready, hardware validation outstanding),
-`manual test` (needs a person at a bench or a GUI), and `needs dongle` or
-`needs serial adapter` (blocked on that piece of hardware).
+Alongside the triage label, these say what is happening to an issue:
+`in progress` (someone is working it now; add it before the first build, and
+remove it if the work is abandoned without closing the issue),
+`needs maintainer` (a decision is needed), `pending hw test` (merged or ready,
+hardware validation outstanding), `manual test` (needs a person at a bench or
+a GUI), and `needs dongle` or `needs serial adapter` (blocked on that piece of
+hardware). GitHub's own `bug`, `enhancement`, and `documentation` say what
+kind of issue it is, and are kept on top of the triage label rather than
+instead of it.
 
 ## Filing an issue
 
