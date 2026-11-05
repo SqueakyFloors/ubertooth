@@ -2,8 +2,9 @@ name: Doc API version
 
 # The one check whose whole subject is documentation: it reads every tracked
 # Markdown, reStructuredText and roff page and refuses a firmware API version
-# pinned into a sample, and it asks whether TEST_PLAN.md, COMPATIBILITY.md and
-# the CHANGELOG's top section state the version this tree carries.
+# pinned into a sample, and it asks whether validation/TEST_PLAN.md,
+# COMPATIBILITY.md and the CHANGELOG's top section state the version this tree
+# carries.
 #
 # Its own workflow, with no path filter on a pull request or on a push to
 # main, as libbtbb-pin.yml has none: build.yml skips a change whose every file
@@ -35,9 +36,9 @@ jobs:
 
     - name: Check the documentation does not pin the API version
       # Sample output writes the version as API:<version>, so that a bump has
-      # one place to change; TEST_PLAN.md and COMPATIBILITY.md carry the real
-      # number, so this also asks whether those two, and the CHANGELOG's top
-      # section, are at the version the tree carries. It reads files: no
-      # build, no network.
+      # one place to change; validation/TEST_PLAN.md and COMPATIBILITY.md
+      # carry the real number, so this also asks whether those two, and the
+      # CHANGELOG's top section, are at the version the tree carries. It
+      # reads files: no build, no network.
       timeout-minutes: 2
       run: tools/check-doc-api-version.sh

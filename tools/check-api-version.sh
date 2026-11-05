@@ -902,7 +902,7 @@ compared=$(printf 'compared with %s (%s), merge base %s, which had %s' \
 # typed in place of 0x0135 passed, burned the value the first fork release
 # reserves, and would have refused every user's board until it was reflashed.
 release_doc_list=$(git --no-pager diff --name-only "$merge_base" "$head_commit" -- \
-    CHANGELOG.md COMPATIBILITY.md TEST_PLAN.md) || {
+    CHANGELOG.md COMPATIBILITY.md validation/TEST_PLAN.md) || {
     echo "error: could not tell whether this branch is a release" >&2
     exit 1
 }
@@ -937,7 +937,7 @@ say_major_reserved() {
     echo "       until it is reflashed."
     echo ""
     echo "       If this branch IS the release, it also moves CHANGELOG.md,"
-    echo "       COMPATIBILITY.md and TEST_PLAN.md, and takes one major up"
+    echo "       COMPATIBILITY.md and validation/TEST_PLAN.md, and takes one major up"
     echo "       from its merge base."
     # Only where one exists. At main x.99 the next value is itself a major, so
     # there is none, and say_free_is_major below says so instead.
@@ -1036,7 +1036,7 @@ if [ -n "$changed" ]; then
         else
             echo "       Set it to $free_value in"
             echo "       $header, and move"
-            echo "       CHANGELOG.md, COMPATIBILITY.md, TEST_PLAN.md and the pinned"
+            echo "       CHANGELOG.md, COMPATIBILITY.md, validation/TEST_PLAN.md and the pinned"
             echo "       strings in the tests with it."
             echo ""
         fi
@@ -1118,7 +1118,7 @@ fi
     echo "       that are fine be refused until they are reflashed. The one"
     echo "       exception is a release, which takes the next major version"
     echo "       (minor digits 00) with CHANGELOG.md, COMPATIBILITY.md and"
-    echo "       TEST_PLAN.md moving with it."
+    echo "       validation/TEST_PLAN.md moving with it."
     echo ""
     echo "       If this branch does change the firmware, it changes it somewhere"
     echo "       tools/check-api-version.sh does not watch, which is the one false"

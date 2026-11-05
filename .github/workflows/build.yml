@@ -829,11 +829,11 @@ jobs:
 
     - name: Check the documentation does not pin the API version (BSD tools)
       # Sample output writes the version as API:<version>, so that a bump has
-      # one place to change; TEST_PLAN.md and COMPATIBILITY.md carry the real
-      # number, so this also asks whether those two are at the version the
-      # tree carries. Before this check the rule was kept by review, and the
-      # samples that went stale were found two bumps later. It reads files:
-      # no build, no network, a second or two.
+      # one place to change; validation/TEST_PLAN.md and COMPATIBILITY.md
+      # carry the real number, so this also asks whether those two are at the
+      # version the tree carries. Before this check the rule was kept by
+      # review, and the samples that went stale were found two bumps later. It
+      # reads files: no build, no network, a second or two.
       #
       # The gate is the doc-api-version workflow, which has no path filter and
       # so runs on a documentation-only branch, where this job does not. It
@@ -853,11 +853,12 @@ jobs:
       # allowlist too wide passes the stale samples the check exists to find.
       # This builds throwaway repositories in each of those shapes -- pinned
       # in the README, in a man page's Markdown, in a hand-maintained roff
-      # page, 1.06 borrowed by a bluetooth_rxtx sample, a stale TEST_PLAN.md,
-      # a COMPATIBILITY.md that never mentions the version, a header the
-      # version cannot be read from -- and asserts the status, the stream and
-      # the message for each. Both platforms, because the two xargs and sed
-      # implementations disagree about exactly this kind of work.
+      # page, 1.06 borrowed by a bluetooth_rxtx sample, a stale
+      # validation/TEST_PLAN.md, a COMPATIBILITY.md that never mentions the
+      # version, a header the version cannot be read from -- and asserts the
+      # status, the stream and the message for each. Both platforms, because
+      # the two xargs and sed implementations disagree about exactly this kind
+      # of work.
       # A few seconds of git init: no build, no network.
       timeout-minutes: 3
       run: tools/check-doc-api-version-selftest.sh

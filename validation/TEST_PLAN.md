@@ -20,7 +20,7 @@ not be written to.
 ### 1a. Clean build on Ubuntu 22.04
 - [ ] Clone repo fresh on Ubuntu 22.04
 - [ ] Install dependencies: the Debian and Ubuntu `apt` line in
-      [the build guide](docs/source/build_guide.rst), which is the list kept
+      [the build guide](../docs/source/build_guide.rst), which is the list kept
       up to date
 - [ ] Build libbtbb from the pinned fork commit (see the same guide)
 - [ ] Run `cmake .. && make` in `host/build/`
@@ -220,7 +220,7 @@ write a bootloader.*
 these steps put the board in DFU by hand first, and DFU mode exposes no serial
 number, so an explicit selector looks for an application device that is not
 there and the run ends at `DFU entry failed`. See
-[`ubertooth-dfu(1)`](host/doc/ubertooth-dfu.md).*
+[`ubertooth-dfu(1)`](../host/doc/ubertooth-dfu.md).*
 
 - [ ] Install `firmware/bootloader/bootloader.hex` over ISP or JTAG
 - [ ] Put the board in DFU and send `REQ_UPLOAD` (class request 2) with wValue
@@ -641,7 +641,7 @@ is left in when a mode stops.
 - [ ] Run `ubertooth-btbr -U <serial>`, then `page <BD_ADDR>` at its prompt
       against a known classic BT device. The command line takes no address;
       the target is a prompt command (see
-      [`ubertooth-btbr(1)`](host/doc/ubertooth-btbr.md))
+      [`ubertooth-btbr(1)`](../host/doc/ubertooth-btbr.md))
 - [ ] Confirm: with two boards attached and no `-U`, the tool lists both and
       opens neither (`error: multiple Ubertooth devices found; select one
       with -U <index|serial>`)
@@ -777,7 +777,7 @@ connection. The tool is Linux only: there is no BlueZ on macOS.*
 
 This change is in a documented recipe rather than in a script the package
 ships: see "Capturing BLE in Scapy" in
-[Capturing BLE with Wireshark](docs/source/capturing_BLE_Wireshark.rst).
+[Capturing BLE with Wireshark](../docs/source/capturing_BLE_Wireshark.rst).
 
 - [ ] Capture to a PCAP file with `ubertooth-btle -n -c /tmp/bluesCap`
 - [ ] Read it back with the recipe's `PcapReader`, as the page gives it
@@ -857,7 +857,7 @@ fails.
   a real failure is reported, and a second capture works without restarting
   Wireshark. The automated tests drive the plugin the way Wireshark does and
   the harness checks it with `tshark`, but nothing exercises the GUI.
-  See [Using Ubertooth with Wireshark](docs/source/using_ubertooth_with_wireshark.rst)
+  See [Using Ubertooth with Wireshark](../docs/source/using_ubertooth_with_wireshark.rst)
   for the install and capture steps.
 - [The `ubertooth-specan-ui` window on a real desktop](https://github.com/SqueakyFloors/ubertooth/issues/952)
   — the live plot, the keys and the on-screen key help, `--wifi 14` at

@@ -4,7 +4,7 @@ This document states which platforms and tool versions this fork **requires**,
 which it has been **tested against**, and which are **not supported**.
 
 > **Honesty rule for this doc:** a cell is only marked *Verified* if it was
-> actually exercised — by a CI run or on real hardware (see [TEST_PLAN.md](TEST_PLAN.md) and
+> actually exercised — by a CI run or on real hardware (see
 > [validation/](validation/)). Requirements we intend to meet but have **not yet verified**
 > are marked *Target (unverified)*. We do not claim support we have not proven:
 > this fork exists to make the tree build and run on current systems, and the
@@ -352,4 +352,4 @@ so and names it.
    is for. Linux alone, because what it covers — which include directory a
    target is given — is the same on every platform.
 3. **Hardware-only claims** — anything about radio behaviour (BLE/BR-EDR
-   capture) is only "tested" when run on a real Ubertooth per [TEST_PLAN.md](TEST_PLAN.md).
+   capture) is only "tested" when run on a real Ubertooth per [validation/TEST_PLAN.md](validation/TEST_PLAN.md).

@@ -42,8 +42,8 @@
  * new mode, a fix -- leaves the number where it is. It moves only for a
  * change that really does break an older host tool: a request removed or
  * renumbered, or a reply or record layout an older host would misread. Such a
- * bump also updates CHANGELOG.md, COMPATIBILITY.md, TEST_PLAN.md and the
- * pinned strings in the tests.
+ * bump also updates CHANGELOG.md, COMPATIBILITY.md, validation/TEST_PLAN.md
+ * and the pinned strings in the tests.
  *
  * So a board carrying firmware from an earlier commit is normally accepted,
  * which is why this number is not the revision the `Firmware version:` line

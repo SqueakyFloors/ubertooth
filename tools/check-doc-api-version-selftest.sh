@@ -53,16 +53,16 @@ fail() {
 }
 
 # A repository shaped like this one as far as the check can tell: 80 filler
-# pages with nothing pinned in them, the firmware header, and TEST_PLAN.md,
-# COMPATIBILITY.md and CHANGELOG.md all at the current version -- 83 files in
-# the check's scope, since those three are Markdown. Raising the check's floor
-# past 83 fails every case here at once, which is the right way round to find
-# out.
+# pages with nothing pinned in them, the firmware header, and
+# validation/TEST_PLAN.md, COMPATIBILITY.md and CHANGELOG.md all at the current
+# version -- 83 files in the check's scope, since those three are Markdown.
+# Raising the check's floor past 83 fails every case here at once, which is the
+# right way round to find out.
 new_repo() {
     repos=$((repos + 1))
     repo="$work/repo$repos"
     mkdir -p "$repo/docs/source" "$repo/host/libubertooth/src" \
-        "$repo/host/doc/man" || exit 1
+        "$repo/host/doc/man" "$repo/validation" || exit 1
     i=0
     while [ "$i" -lt 80 ]; do
         printf 'Filler page %s\n\n    Firmware version: bluetooth_rxtx git-test (API:<version>)\n' \
@@ -72,7 +72,7 @@ new_repo() {
     printf '#define UBERTOOTH_API_VERSION 0x%s\n' "$current_digits" \
         > "$repo/host/libubertooth/src/ubertooth_interface.h"
     printf -- '- [ ] Confirm: returns Firmware version: <image> <revision> (API:%s)\n' \
-        "$current" > "$repo/TEST_PLAN.md"
+        "$current" > "$repo/validation/TEST_PLAN.md"
     printf '| **Ubertooth firmware (API)** | %s (this tree), exactly |\n' \
         "$current" > "$repo/COMPATIBILITY.md"
     # Two release sections, so a case can plant a number in either and the
@@ -212,21 +212,21 @@ run_check
 
 # ---- the two documents that carry the real number -----------------------
 
-case_name="a stale TEST_PLAN.md is caught"
+case_name="a stale validation/TEST_PLAN.md is caught"
 new_repo
-printf -- '- [ ] Confirm: returns (API:%s)\n' "$stale" > "$repo/TEST_PLAN.md"
-git -C "$repo" add TEST_PLAN.md
+printf -- '- [ ] Confirm: returns (API:%s)\n' "$stale" > "$repo/validation/TEST_PLAN.md"
+git -C "$repo" add validation/TEST_PLAN.md
 run_check
 [ "$status" -eq 1 ] || fail "expected exit 1, got $status"
-grep -q "TEST_PLAN.md expects an API version this tree does not carry" "$err" ||
+grep -q "validation/TEST_PLAN.md expects an API version this tree does not carry" "$err" ||
     fail "a stale expected version was not reported"
-grep -q "TEST_PLAN.md:   $stale" "$err" ||
+grep -q "validation/TEST_PLAN.md:   $stale" "$err" ||
     fail "the stale value is not named"
 
-case_name="a TEST_PLAN.md with no expected version at all is caught"
+case_name="a validation/TEST_PLAN.md with no expected version at all is caught"
 new_repo
-printf -- '- [ ] Confirm: it reports a version\n' > "$repo/TEST_PLAN.md"
-git -C "$repo" add TEST_PLAN.md
+printf -- '- [ ] Confirm: it reports a version\n' > "$repo/validation/TEST_PLAN.md"
+git -C "$repo" add validation/TEST_PLAN.md
 run_check
 [ "$status" -eq 1 ] || fail "expected exit 1, got $status"
 grep -q "states no expected API: version at all" "$err" ||
@@ -268,11 +268,11 @@ case_name="a plan line carrying a stale version beside the current one is caught
 # one and stop.
 new_repo
 printf -- '- [ ] Confirm: was (API:%s), this tree reports (API:%s)\n' \
-    "$stale" "$current" > "$repo/TEST_PLAN.md"
-git -C "$repo" add TEST_PLAN.md
+    "$stale" "$current" > "$repo/validation/TEST_PLAN.md"
+git -C "$repo" add validation/TEST_PLAN.md
 run_check
 [ "$status" -eq 1 ] || fail "expected exit 1, got $status"
-grep -q "TEST_PLAN.md expects an API version this tree does not carry" "$err" ||
+grep -q "validation/TEST_PLAN.md expects an API version this tree does not carry" "$err" ||
     fail "a second version on the same line was not reported"
 
 # ---- the CHANGELOG's top section, which says the version in words -------
@@ -444,11 +444,11 @@ case_name="too few documentation files in scope is refused"
 # about is the size of the scope.
 repos=$((repos + 1))
 repo="$work/repo$repos"
-mkdir -p "$repo/host/libubertooth/src"
+mkdir -p "$repo/host/libubertooth/src" "$repo/validation"
 printf 'Only page\n' > "$repo/README.md"
 printf '#define UBERTOOTH_API_VERSION 0x%s\n' "$current_digits" \
     > "$repo/host/libubertooth/src/ubertooth_interface.h"
-printf -- '- [ ] Confirm: returns (API:%s)\n' "$current" > "$repo/TEST_PLAN.md"
+printf -- '- [ ] Confirm: returns (API:%s)\n' "$current" > "$repo/validation/TEST_PLAN.md"
 printf '| firmware | %s |\n' "$current" > "$repo/COMPATIBILITY.md"
 git -C "$repo" init -q
 git -C "$repo" config user.email selftest@example.invalid

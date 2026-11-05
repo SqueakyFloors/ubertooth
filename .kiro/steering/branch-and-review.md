@@ -198,7 +198,7 @@ breaks older host tools**, plus once at each release (maintainer, 2026-10-29).
   follows this rule needs no maintainer decision (maintainer, 2026-10-30). The
   number is BCD, so after `0x0119` comes `0x0120`, not `0x011a`. Take the
   value after whatever `main` carries, re-checking after a rebase.
-- A bump updates `TEST_PLAN.md`'s expected `API:` string,
+- A bump updates `validation/TEST_PLAN.md`'s expected `API:` string,
   `COMPATIBILITY.md`'s firmware row, the pinned strings in the tests, and the
   CHANGELOG's reflash note -- the places that state the requirement -- and
   nothing else. **Sample output** writes the version as `API:<version>` rather
@@ -238,12 +238,12 @@ breaks older host tools**, plus once at each release (maintainer, 2026-10-29).
   a release step, not a per-PR one (see `docs/source/release_procedure.rst`).
   The check knows about it: one major up **from the merge base**, with the
   minor digits at `00`, above `main`, and with `CHANGELOG.md`,
-  `COMPATIBILITY.md` and `TEST_PLAN.md` moving with it, is allowed with no
-  firmware change, so the release's own PR is not refused. **No other branch
-  may take a major version**, whether or not it changes the firmware: a board
-  accepts only the exact value, so a `0x0200` typed in place of `0x0135` would
-  refuse every user's board until it was reflashed, and it burns the value the
-  release reserves.
+  `COMPATIBILITY.md` and `validation/TEST_PLAN.md` moving with it, is allowed
+  with no firmware change, so the release's own PR is not refused. **No other
+  branch may take a major version**, whether or not it changes the firmware: a
+  board accepts only the exact value, so a `0x0200` typed in place of `0x0135`
+  would refuse every user's board until it was reflashed, and it burns the
+  value the release reserves.
 - On a pull request the job runs **`main`'s copy** of
   `tools/check-api-version.sh`, not the branch's, so a branch cannot edit the
   check that gates it. A branch's own changes to the script are reviewed and

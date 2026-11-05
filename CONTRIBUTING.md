@@ -56,7 +56,7 @@ check is for; the paragraphs after it say which ones a given change runs.
 | `install.sh` / `install-sh` | Runs the installer end to end, on Ubuntu, macOS and a Fedora container (on a pull request, only when `install.sh` or its own workflow file changes). The Fedora leg installs nothing beforehand, so the script's own `dnf` package list is what the run uses |
 | `libbtbb pin` / `libbtbb-pin` | The pinned libbtbb commit is the same in every file that repeats it |
 | `Man pages` / `refresh` | The committed roff man pages match their Markdown sources (only when `host/doc/` or its own workflow file changes) |
-| `Doc API version` / `doc-api-version` | No documentation sample pins the firmware API version, and `TEST_PLAN.md`, `COMPATIBILITY.md` and the CHANGELOG's top section state the version the tree carries |
+| `Doc API version` / `doc-api-version` | No documentation sample pins the firmware API version, and `validation/TEST_PLAN.md`, `COMPATIBILITY.md` and the CHANGELOG's top section state the version the tree carries |
 
 On a pull request, `host` runs on two Ubuntu runners -- 22.04, the oldest
 glibc a hosted runner offers, and 24.04 -- and one macOS runner; `firmware`
