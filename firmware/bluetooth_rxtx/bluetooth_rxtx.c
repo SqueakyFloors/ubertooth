@@ -50,6 +50,7 @@
 /*
  * A stack overflow on demand, so the guard at the bottom of the stack can be
  * shown to catch one. No shipped image defines STACK_GUARD_TEST.
+ * UBERTOOTH_STOP is the trigger because every tool sends it as it exits.
  *
  * Every word of each frame is written, so the descent cannot step over the
  * 32-byte guard, and the recursive call goes through a volatile pointer: at
@@ -166,9 +167,10 @@ typedef struct _le_promisc_active_aa_t {
 /* How many of the gaps between one connection's returns to this channel the
  * estimator keeps. It needs two runs of a pattern to see a repeat, so this is
  * twice the longest pattern it can find: up to eight returns a trip round the
- * channels. A map of about five channels or fewer returns more often than
- * that -- the remapping spreads the unused positions over the used ones --
- * and then nothing is reported. */
+ * channels. A smaller channel map returns more often, about 37/U times for U
+ * used channels, because the remapping spreads the unused positions over the
+ * used ones: a map of five fills this exactly, and a smaller one returns too
+ * often for the pattern to fit, so nothing is reported. */
 #define LE_PROMISC_GAPS 16
 
 typedef struct _le_promisc_state_t {
@@ -266,8 +268,9 @@ static AHB_SRAM union {
 
 /* dma_init_le() splits what it is given into a first item of LE_DMA_HEAD
  * bytes and a second of the rest, and the controller's transfer size is a
- * 12-bit field. A size that overflowed would run into the burst-size bits and
- * mis-program the controller rather than fail. */
+ * 12-bit field. Both bounds are checked at compile time because the length is
+ * a constant at the only call site; a size that overflowed would run into the
+ * burst-size bits and mis-program the controller rather than fail. */
 _Static_assert(LE_RX_PDU_MAX > LE_DMA_HEAD,
                "the low-energy receive buffer is shorter than the first DMA item");
 _Static_assert(LE_RX_PDU_MAX - LE_DMA_HEAD <= 0xfff,
@@ -285,7 +288,9 @@ static int enqueue(uint8_t type, uint8_t* buf)
 
 	f->pkt_type = type;
 	/* A record comes off the ring with whatever the last one left in it, so
-	 * clear the power figures the branch below may not fill in. */
+	 * clear what the branch below may not fill in. The status bits that
+	 * would make a noise figure readable stay clear with it, so a zero is
+	 * not reported as a measurement. */
 	f->rssi_noise = 0;
 	f->reserved = 0;
 	if(type == SPECAN) {
@@ -358,7 +363,9 @@ int enqueue_with_ts(uint8_t type, uint8_t* buf, uint32_t ts)
 /*
  * The registers UBERTOOTH_READ_ALL_REGISTERS answers with: every CC2400
  * address from MAIN (0x00) through SYNCH (0x2d), the last register below the
- * command strobes, three bytes of reply each. The filling loop and the
+ * command strobes, three bytes of reply each. A few addresses in that run
+ * are not registers the radio documents, and are read anyway, as they always
+ * have been. The filling loop and the
  * reported length both come from this one count, so the reply cannot claim
  * fewer registers than it carries.
  */
@@ -1680,8 +1687,9 @@ static void cc2400_idle()
 	 * written, so the next mode starts with the radio front end a freshly
 	 * booted board has. The LE PHY forces the low-noise amplifier and
 	 * mixers on and the receive paths hold the receive gain amplifier out
-	 * of reset; the two spectrum analyzers write MANAND at all, so without
-	 * this what they measure depends on which mode ran before them.
+	 * of reset, while the two spectrum analyzers write no MANAND value of
+	 * their own, so without this what they measure depends on which mode
+	 * ran before them.
 	 */
 	cc2400_set(MANAND, MANAND_RESET_VALUE);
 
@@ -2170,7 +2178,10 @@ void le_jam(void) {
  * the map rebuild safe (see precalc()). It can disturb the channel: FSDIV
  * below is written from the global, so a UBERTOOTH_SET_CHANNEL retunes this
  * hop to the host's channel. Nothing ends up inconsistent, since the channel
- * reported and the one in the packet headers come from that same global.
+ * reported and the one in the packet headers come from that same global. A
+ * request that writes a radio register directly, which only the developer
+ * requests behind `ubertooth-util -a` and `ubertooth-debug` do, can land
+ * between the register write and the strobe below and spoil the one hop.
  */
 void hop(void (*service)(void))
 {

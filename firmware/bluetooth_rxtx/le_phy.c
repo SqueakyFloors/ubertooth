@@ -99,9 +99,10 @@
 //
 // So the short interval is kept, because a healthy lock is found inside it
 // and the receiver has to be armed promptly, but only for as long as a
-// healthy lock could take: 512 re-checks span some three milliseconds against
-// the few hundred microseconds the synthesizer needs. Past that the lock is
-// overdue and the interval becomes one no interrupt entry can outrun.
+// healthy lock could take: a re-check and its interval together cost about
+// 6 us, so 512 of them span some three milliseconds against the few hundred
+// microseconds the synthesizer needs. Past that the lock is overdue and the
+// interval becomes one no interrupt entry can outrun.
 //
 // The wait never gives up: retrying slowly keeps the capture alive and picks
 // the radio up again if it recovers, where giving up would leave the receiver
@@ -127,8 +128,11 @@
 //
 // The buffer holds eight frames, so a working SSP empties within a handful of
 // reads even while the receiver is still clocking symbols in at one byte
-// every eight microseconds. Reaching the bound costs the stale symbols at the
-// head of one packet, which the sync word match drops anyway.
+// every eight microseconds. 64 is well past that, and each read is two
+// register accesses across the peripheral bus, so running the whole bound
+// against an SSP that has stopped answering costs a few microseconds.
+// Reaching it costs the stale symbols at the head of one packet, which the
+// sync word match drops anyway.
 #define LE_SSP_DRAIN_READS 64
 
 
@@ -921,6 +925,11 @@ static void le_dma_interrupt(uint32_t timestamp) {
 				// reading this packet is dated by, so no measurement
 				// moves.
 				//
+				// Taking the buffer outside the guard instead would
+				// not help: the pointer would still name the finished
+				// packet while the new one was cleared, which is the
+				// same window a few instructions narrower.
+				//
 				// The new buffer may be NULL if the pool is exhausted;
 				// the waits below and the change_channel() and timer1
 				// paths wait for a buffer rather than arm receive
@@ -1570,13 +1579,10 @@ static void timer1_interrupt(void) {
 // The blink's own counter, timer2, and the moment the LEDs go off again.
 //
 // The blink marks a packet handed to the host, so it is armed from the mode's
-// loop, and it used to arm a fourth match of timer1. Timer1 is the radio's
-// clock: the connection event, the synthesizer-lock wait, and the buffer wait
-// are all matches of it, and its counter is what every deadline in this file
-// is measured against. So the loop wrote that register once for every packet
-// it handed to the host, which is what giving the LED a counter of its own
-// stops. The connection-following path still arms the event and the lock
-// match from the loop, under the guards timer1_arm_match() describes.
+// loop. It gets a counter of its own rather than a fourth match of timer1,
+// which is the radio's clock -- the connection event, the synthesizer-lock
+// wait and the buffer wait are all matches of it -- so that the loop does not
+// write that register once for every packet it hands over.
 //
 // Timer2 is free while this mode runs: the only other user is the xmas LED
 // demo, which is a mode of its own and cannot be running at the same time.
@@ -2341,8 +2347,7 @@ void le_phy_main(void) {
 		// Polled USB handling, control requests only. The host for this
 		// mode (ubertooth-btle -n/-f) collects packets with UBERTOOTH_POLL
 		// and never reads the bulk IN endpoint, so handing packets to that
-		// endpoint loses them: it has two hardware buffers, and this mode's
-		// first two packets went into them every session.
+		// endpoint loses the two its hardware buffers hold.
 		handle_usb_control();
 
 		// XXX maybe LED light show?
@@ -2350,16 +2355,10 @@ void le_phy_main(void) {
 
 	// Tear the PHY down before handing control back to the main loop.
 	//
-	// This used to stop timer1 and clear the LEDs only, leaving the DMA
-	// interrupt enabled, DMA channel 0 and the SSP running, and the CC2400 in
-	// RX. mode was still MODE_BT_FOLLOW_LE, so DMA_IRQHandler() kept
-	// dispatching arriving bytes into le_DMA_IRQHandler(), which strobes the
-	// synthesizer back on (SFSON) and reads RSSI over the CC2400's bit-banged
-	// SPI bus. So the handler kept switching the radio on under the
-	// cc2400_idle() the main loop runs next, whose FS_LOCK wait was unbounded:
-	// the board could sit there forever with USB unserviced, and every later
-	// control request timed out (-7) or stalled (-9) until the board was
-	// physically re-plugged.
+	// All of it: leaving the DMA interrupt enabled, DMA channel 0 and the SSP
+	// running, or the CC2400 in RX lets le_DMA_IRQHandler() keep strobing the
+	// synthesizer back on under the cc2400_idle() the main loop runs next,
+	// and its lock wait would never be satisfied.
 	//
 	// Order matters. Clearing le_phy_active first is what makes this safe: a
 	// write to NVIC ICER0 is not self-synchronising on Cortex-M3, so an
