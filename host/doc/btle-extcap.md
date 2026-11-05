@@ -234,7 +234,7 @@ the answer to the call. A standard error open for reading only
 (`btle-extcap.py --bogus 2>&-`), or a pipe whose reader has left
 (`btle-extcap.py --bogus 2>&1 | true`) all go the same way. The exit
 status is then all that is left to say what happened, and it is the script's
-own: it used to be 120, from the flush the interpreter makes as it exits.
+own rather than one the interpreter's own failed flush produced.
 A child the script starts is handed the bin for that stream rather than a
 closed descriptor, for the reason the capture above is refused one.
 

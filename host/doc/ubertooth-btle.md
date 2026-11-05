@@ -323,9 +323,7 @@ Major modes:
    go with `-f`, `-n` or `-p`. The value is one whole address and nothing
    else: a faux peripheral advertises from a single address, so the `/<bits>` mask
    and `none` that `-t` takes are refused here, each as the address it is not
-   (`error: faux peripheral address must be xx:xx:xx:xx:xx:xx (got none)`). Both
-   used to be parsed and then dropped, so `-s none` advertised from
-   `00:00:00:00:00:00`.
+   (`error: faux peripheral address must be xx:xx:xx:xx:xx:xx (got none)`).
 
 Interference (only with `-f` or `-p`):
 
@@ -349,14 +347,10 @@ Filtering:
    `-n` drops the advertising packets that do not. Every form of it, `-t none`
    included, is refused with `-p`, which has no device address to match
    against: `error: -t does not go with -p: promiscuous mode has no device
-   address to match a target against`. The combination used to be accepted,
-   and the board then read "a target was set" as "the host gave an access
-   address", so `-p` followed `8e89bed6` and captured nothing.
-   `-s` and `-t` are two different addresses and a command
-   can give both: `-s A -t B` advertises from A and follows B, and `-t none`
-   clears the target without touching the address `-s` was given. They shared
-   one address, so whichever of the two was written last used to set both, and
-   `-s <BD ADDR> -t none` advertised from `00:00:00:00:00:00` without a word.
+   address to match a target against`. `-s` and `-t` are two different
+   addresses and a command can give both: `-s A -t B` advertises from A and
+   follows B, and `-t none` clears the target without touching the address
+   `-s` was given.
 
 Logging:
 
@@ -736,12 +730,6 @@ bottom, `rssi=-120` means "no louder than this".
 A `-q` or `-r` capture records the figure for such a packet regardless, as a
 Basic Rate capture does: a record has no way to say that a level was not
 measured. So a capture file reads 0 dBm where the screen reads `none`.
-
-Earlier releases printed the weakest reading the board reports for the packet
-instead, through a rougher approximation. That figure ran far below the
-packet's own level: on the bench it reached -96 dBm where the quietest packet
-the capture recorded was -78, and a dump and a capture of the same run
-disagreed by as much as 90 dB on an individual packet.
 
 Errors, warnings and progress go to standard error, each error as one line
 starting `error: `, for example `error: USB poll failed` when the board stops

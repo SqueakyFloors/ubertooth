@@ -66,8 +66,7 @@ The optional value of `-q` may be attached or given as the next word
 
 `-q` or `-b` is the work, so a command line with neither is refused before
 any device is opened: `error: nothing to do: give -q to quack, or -b to
-signal the bootloader`. It used to open the selected board, check its
-firmware, quack nothing and exit 0.
+signal the bootloader`.
 
 ## DIAGNOSTICS
 

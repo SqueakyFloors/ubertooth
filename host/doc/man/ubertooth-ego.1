@@ -92,13 +92,13 @@ Interference (\fB\-i\fR, \fB\-j\fR) transmits at the CC2400 power level set with
 .P
 An option value must be a whole value in its range, or it is refused the same way instead of being read as 0, for example \fBerror: channel must be 2402\-2480 MHz (got 2481)\fR, \fBerror: capture length must be 1\-48 (got 0)\fR and \fBerror: access code must be 2, 4, 6 or 8 hex digits (got 112)\fR\.
 .P
-A major mode is the work, so a command line without \fB\-f\fR, \fB\-r\fR or \fB\-i\fR is refused before any device is opened: \fBerror: nothing to do: choose a major mode (\-f, \-r or \-i)\fR\. It used to open the selected board, check its firmware, do nothing and exit 0\.
+A major mode is the work, so a command line without \fB\-f\fR, \fB\-r\fR or \fB\-i\fR is refused before any device is opened: \fBerror: nothing to do: choose a major mode (\-f, \-r or \-i)\fR\.
 .P
-Each major mode runs until it is interrupted, so only one of them can run: two in one command are refused before any device is opened, naming both as they were spelled, \fBerror: \-r cannot be combined with \-f; choose one of \-f, \-r, \-i, or \-j\fR\. \fB\-i\fR and \fB\-j\fR are two spellings of the jamming mode, so they clash too\. The last mode written used to be the one that ran, and the others were dropped without a word\.
+Each major mode runs until it is interrupted, so only one of them can run: two in one command are refused before any device is opened, naming both as they were spelled, \fBerror: \-r cannot be combined with \-f; choose one of \-f, \-r, \-i, or \-j\fR\. \fB\-i\fR and \fB\-j\fR are two spellings of the jamming mode, so they clash too\.
 .P
-\fB\-c\fR outside continuous receive is refused before any device is opened too, naming the mode as it was spelled: \fBerror: \-c cannot be combined with \-f; only continuous receive (\-r) uses a channel\fR, with no usage text after it (see DIAGNOSTICS)\. It used to be accepted and then dropped silently in those modes\.
+\fB\-c\fR outside continuous receive is refused before any device is opened too, naming the mode as it was spelled: \fBerror: \-c cannot be combined with \-f; only continuous receive (\-r) uses a channel\fR, with no usage text after it (see DIAGNOSTICS)\.
 .P
-\fB\-l\fR with interference is refused the same way: \fBerror: \-l cannot be combined with \-i; only the receiving modes (\-f, \-r) read a capture length\fR\. It used to set a firmware value the mode never reads\.
+\fB\-l\fR with interference is refused the same way: \fBerror: \-l cannot be combined with \-i; only the receiving modes (\-f, \-r) read a capture length\fR\.
 .SH "DIAGNOSTICS"
 Standard output carries only the captured packets\. Each one is a line of three fields, then the bytes kept from that packet in hex, \fB\-l\fR of them\. The fields are \fBtime=\fR, the capture clock in 100 ns ticks; \fBdelta_t=\fR, the gap described below; and \fBfreq=\fR, the channel in MHz\.
 .P

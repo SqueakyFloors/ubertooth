@@ -171,7 +171,7 @@ One case it cannot see through: a board that hears exactly every second return, 
 Nothing hops until the interval is known, so a capture up to that point holds the one channel\.
 .TP
 \fB\-s <BD ADDR>\fR
-Inject advertising packets using specified BD ADDR\. Like \fB\-a\fR, it does not go with \fB\-f\fR, \fB\-n\fR or \fB\-p\fR\. The value is one whole address and nothing else: a faux peripheral advertises from a single address, so the \fB/<bits>\fR mask and \fBnone\fR that \fB\-t\fR takes are refused here, each as the address it is not (\fBerror: faux peripheral address must be xx:xx:xx:xx:xx:xx (got none)\fR)\. Both used to be parsed and then dropped, so \fB\-s none\fR advertised from \fB00:00:00:00:00:00\fR\.
+Inject advertising packets using specified BD ADDR\. Like \fB\-a\fR, it does not go with \fB\-f\fR, \fB\-n\fR or \fB\-p\fR\. The value is one whole address and nothing else: a faux peripheral advertises from a single address, so the \fB/<bits>\fR mask and \fBnone\fR that \fB\-t\fR takes are refused here, each as the address it is not (\fBerror: faux peripheral address must be xx:xx:xx:xx:xx:xx (got none)\fR)\.
 .P
 Interference (only with \fB\-f\fR or \fB\-p\fR):
 .TP
@@ -190,7 +190,7 @@ Original "jam" spelling of \fB\-I\fR; does exactly what \fB\-I\fR does
 Filtering:
 .TP
 \fB\-t <BD ADDR>\fR
-Limit connection following and interference in follow mode to the specified BD ADDR\. It is for the follow modes: \fB\-f\fR follows only a connection whose advertising or connect packets carry this address, and \fB\-n\fR drops the advertising packets that do not\. Every form of it, \fB\-t none\fR included, is refused with \fB\-p\fR, which has no device address to match against: \fBerror: \-t does not go with \-p: promiscuous mode has no device address to match a target against\fR\. The combination used to be accepted, and the board then read "a target was set" as "the host gave an access address", so \fB\-p\fR followed \fB8e89bed6\fR and captured nothing\. \fB\-s\fR and \fB\-t\fR are two different addresses and a command can give both: \fB\-s A \-t B\fR advertises from A and follows B, and \fB\-t none\fR clears the target without touching the address \fB\-s\fR was given\. They shared one address, so whichever of the two was written last used to set both, and \fB\-s <BD ADDR> \-t none\fR advertised from \fB00:00:00:00:00:00\fR without a word\.
+Limit connection following and interference in follow mode to the specified BD ADDR\. It is for the follow modes: \fB\-f\fR follows only a connection whose advertising or connect packets carry this address, and \fB\-n\fR drops the advertising packets that do not\. Every form of it, \fB\-t none\fR included, is refused with \fB\-p\fR, which has no device address to match against: \fBerror: \-t does not go with \-p: promiscuous mode has no device address to match a target against\fR\. \fB\-s\fR and \fB\-t\fR are two different addresses and a command can give both: \fB\-s A \-t B\fR advertises from A and follows B, and \fB\-t none\fR clears the target without touching the address \fB\-s\fR was given\.
 .P
 Logging:
 .TP
@@ -338,8 +338,6 @@ The \fBrssi=\fR figure on each packet's \fBsystime=\fR line is that packet's own
 The model has ends\. Above the top of it the radio reports the same reading for every level, so there is no figure for how loud such a packet was, and the column reads \fBrssi=none\fR rather than a number the board did not measure\. That is the word the Basic Rate \fBs=\fR and \fBn=\fR columns of ubertooth\-rx(1) already use for a level the board does not have\. An advertiser a few tens of centimeters away reaches it easily, low\-energy receive turning the board's amplifier and high\-gain mode on, so it is a common reading rather than a corner case\. At the bottom, \fBrssi=\-120\fR means "no louder than this"\.
 .P
 A \fB\-q\fR or \fB\-r\fR capture records the figure for such a packet regardless, as a Basic Rate capture does: a record has no way to say that a level was not measured\. So a capture file reads 0 dBm where the screen reads \fBnone\fR\.
-.P
-Earlier releases printed the weakest reading the board reports for the packet instead, through a rougher approximation\. That figure ran far below the packet's own level: on the bench it reached \-96 dBm where the quietest packet the capture recorded was \-78, and a dump and a capture of the same run disagreed by as much as 90 dB on an individual packet\.
 .P
 Errors, warnings and progress go to standard error, each error as one line starting \fBerror:\fR, for example \fBerror: USB poll failed\fR when the board stops answering during a capture, \fBerror: jamming not supported by this firmware\fR, \fBerror: target set failed\fR, or \fBerror: target address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)\fR\. A value that is not an address reads the same way whatever is wrong with it, and names the address the option sets, so \fB\-s\fR gives \fBerror: faux peripheral address must be xx:xx:xx:xx:xx:xx (got <word>)\fR, including for the \fBnone\fR and \fB22:44:66:88:aa:cc/24\fR that \fB\-t\fR takes, and a bad target mask gives \fBerror: target mask must be 0\-48 (got 49)\fR\. A capture file that cannot be created is reported as \fBerror: <file>: <reason>\fR\.
 .P
