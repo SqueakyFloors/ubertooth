@@ -29,20 +29,17 @@
  * firmware starts clocking it out of the FIFO, in bytes.
  *
  * Both modes start reading as soon as the radio reports SYNC_RECEIVED, and
- * the radio sets that flag when the sync word ends -- before the first
- * payload byte exists. A read that starts there asks the FIFO for a byte the
- * radio has not put in it yet and gets a wrong one back. Only byte 0 is
- * affected, because the read is slower than the air: cc2400_fifo_read() waits
- * out two delay loops per bit, about 14 us a byte against 8 us on the air, so
- * from the second byte on the radio is further ahead with every byte read.
- * The range test's sender reported this as `mismatch on byte 0` in about one
- * run in five.
+ * the radio sets that flag when the sync word ends, before the first payload
+ * byte exists, so a read that starts there gets a byte the radio has not put
+ * in the FIFO yet. Only byte 0 is affected, because the read is slower than
+ * the air -- cc2400_fifo_read() waits out two delay loops per bit, about
+ * 14 us a byte against 8 us -- so from the second byte on the radio is
+ * further ahead with every byte read.
  *
  * One byte time would do, since the wait starts at or after the end of the
- * sync word; four leave room for the jitter of the delay loop and of the
- * radio writing the byte. It must stay short: the radio goes on writing into
- * the same 32-byte FIFO while the packet is read out of it, so a wait of a
- * whole packet's air time would leave that FIFO nearly full.
+ * sync word; four leave room for the jitter of the delay loop
+ * and of the radio writing the byte. It must stay short: the radio goes on
+ * writing into the same 32-byte FIFO while the packet is read out of it.
  */
 #define RX_FIFO_LEAD_BYTES 4
 #define RX_FIFO_LEAD_100NS (RX_FIFO_LEAD_BYTES * RX_FIFO_BYTE_100NS)
@@ -53,11 +50,10 @@
  * The wait needs a few hundred reads, so this is a backstop and not the
  * bound: a timer 0 that is not running would otherwise leave the wait
  * spinning, answering no control request, until the watchdog reset the board.
- *
- * Reaching it costs real time -- 100,000 turns with USB unserviced, once per
- * packet -- and by then the radio has refilled the 32-byte FIFO several times
- * over, so that record is wrong throughout rather than only at byte 0. A wait
- * that gets here counts itself, so `ubertooth-util -w` says it happened.
+ * Reaching it costs 100,000 turns with USB unserviced, and by then the radio
+ * has refilled the 32-byte FIFO several times over, so the record is wrong
+ * throughout rather than only at byte 0. A wait that gets here counts itself,
+ * so `ubertooth-util -w` says it happened.
  */
 #define RX_FIFO_LEAD_POLLS 100000
 
@@ -67,9 +63,8 @@
  * The caller must have started timer 0 with clkn_start() before it receives:
  * that is what the lead is measured against. A counter that is not advancing
  * is caught by the poll cap above rather than leaving this waiting forever.
- *
- * When the timer is running this takes tens of microseconds, far too short to
- * service USB in and far too short for the host to notice.
+ * With the timer running this takes tens of microseconds, too short to
+ * service USB in.
  */
 void rx_wait_for_fifo(void);
 

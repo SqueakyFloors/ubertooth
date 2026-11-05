@@ -471,10 +471,9 @@ int dequeue_send(u32 clkn)
  * UBERTOOTH_POLL control requests instead of reading the bulk IN endpoint.
  *
  * Such a mode must leave its packets in the queue, because that is where the
- * request looks for them. handle_usb() below does the opposite: it hands a
- * queued packet to each free bulk IN hardware buffer. There are two of them
- * and nothing drains them while a poll-read mode runs, so every one of those
- * packets was simply gone -- the first two packets of every session.
+ * request looks for them. handle_usb() below does the opposite and hands a
+ * queued packet to each of the two free bulk IN hardware buffers, which
+ * nothing drains while a poll-read mode runs, so those packets are lost.
  *
  * The USB interrupt is held off for the reason handle_usb() gives.
  */
@@ -509,20 +508,16 @@ void handle_usb_control(void)
  * transfer it is part way through. None of it can take a second caller.
  *
  * USB is driven from two contexts in the firmware. Six modes service it from
- * the USB interrupt (bt_generic_le(), bt_le_sync(), bt_peripheral_le(), ego, xmas,
- * identify); the other modes and the main loop call this from their loop, or
- * handle_usb_control() above where the mode's host reads packets with
- * UBERTOOTH_POLL. What keeps the two apart today is only that no mode does
- * both: each of those six enables the interrupt on the way in and disables it
- * on the way out, and nothing calls either of these functions in between. That
- * is a property of fifteen mode functions, not of this code, and nothing used
- * to state it or check it.
+ * the USB interrupt (bt_generic_le(), bt_le_sync(), bt_peripheral_le(), ego,
+ * xmas, identify); the other modes and the main loop call this from their
+ * loop, or handle_usb_control() above where the mode's host reads packets
+ * with UBERTOOTH_POLL. That no mode does both is a property of fifteen mode
+ * functions rather than of this code.
  *
  * Holding the interrupt off here makes it a property of this code: whatever a
- * mode does, this is the only context driving USB while it runs. The interrupt
- * is not lost -- the NVIC keeps it pending and takes it as soon as the mask is
- * lifted -- and nothing is delayed that was not USB work anyway. On the modes
- * that exist, the hold costs one register read.
+ * mode does, this is the only context driving USB while it runs. The
+ * interrupt is not lost -- the NVIC keeps it pending and takes it as soon as
+ * the mask is lifted -- and the hold costs one register read.
  */
 void handle_usb(u32 clkn)
 {

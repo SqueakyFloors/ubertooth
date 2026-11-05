@@ -36,33 +36,30 @@ static void flash_leds(int count) {
 }
 
 /*
- * These four blink a code forever and never service USB. Since the watchdog is
- * armed they now get about three seconds to blink before it resets the board,
- * so a fault that recurs shows its code in bursts separated by a reboot rather
- * than as one unbroken sequence. That is wanted: the board used to sit there
- * answering nothing until someone unplugged it, and it now comes back usable.
+ * These four blink a code forever and never service USB, so the watchdog
+ * resets the board about three seconds in and it comes back usable rather
+ * than sitting there answering nothing until someone unplugs it.
  *
- * Three seconds is not enough to blink a whole code: delay_30ms() is a rough
- * busy loop, nearer 150 ms than 30, so a burst is cut off part-way and counting
- * blinks no longer tells you which fault it was. Each handler therefore records
- * its own fault in the breadcrumb before it starts blinking, and
- * ubertooth-util -w reads it back together with the mode the board was in --
- * which counting blinks never gave you. A site each rather than one shared
- * "a fault" site, so -w says which of the four it was.
+ * Three seconds is not enough to blink a whole code -- delay_30ms() is a
+ * rough busy loop, nearer 150 ms than 30 -- so counting blinks no longer says
+ * which fault it was. Each handler therefore records its own fault in the
+ * breadcrumb before it starts blinking, a site each rather than one shared
+ * "a fault" site, and ubertooth-util -w reads it back with the mode the board
+ * was in.
  *
  * Each handler also records the part's fault status register and one address:
  * the access the processor refused, where the part keeps a register for it,
- * and otherwise the instruction the processor was running, read from the
- * exception frame (fault_frame.h). The status says which of the two it is, and
- * ubertooth-util -w says so in words. Both are needed: a write the part refuses
- * records the address it refused, and the stack guard is caught that way, but an
- * instruction fetch the part refuses to execute -- a branch through a corrupted
- * pointer or return address -- records no access address at all, and then the
- * address it would not run is the whole of what there is to go on.
+ * and otherwise the instruction it was running, read from the exception frame
+ * (fault_frame.h). The status says which of the two the address is, and
+ * ubertooth-util -w says so in words. Both are needed, because an instruction
+ * fetch the part
+ * refuses to execute -- a branch through a corrupted pointer or return
+ * address -- records no access address at all, and then the address it would
+ * not run is all there is to go on.
  *
  * These run at a priority the USB interrupt cannot preempt -- HardFault above
- * everything, the other three at the same 0 as USB -- so the USB handler's feed
- * cannot keep a faulted board alive by accident.
+ * everything, the other three at the same 0 as USB -- so the USB handler's
+ * feed cannot keep a faulted board alive by accident.
  */
 UBERTOOTH_FAULT_ENTRY(HardFault_Handler, hard_fault_at)
 
@@ -76,11 +73,7 @@ void hard_fault_at(uint32_t *frame) {
 	 * priority. The hard fault status says only "forced", so what gets
 	 * recorded is the configurable fault status, which says which of the
 	 * three it was, and the address register of whichever of them has one
-	 * worth reading.
-	 *
-	 * A board on the bench recorded exactly this during a BLE follow soak,
-	 * and the status alone -- forced, with no address -- was as far as the
-	 * record went. */
+	 * worth reading. */
 	if (val & SCB_HFSR_FORCED) {
 		uint32_t cfsr = SCB_CFSR;
 

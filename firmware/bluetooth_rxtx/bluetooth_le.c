@@ -206,18 +206,14 @@ u32 btle_crcgen_lut(u32 crc_init, u8 *data, int len) {
  * at a time. It holds one period and 31 bits more, which means any 32-bit
  * window of the period is contiguous and no read has to wrap around.
  *
- * It is built from whitening[] on first use rather than written out as a
- * second copy of the sequence: a copy in the source could disagree with the
- * one above it, and the 20 bytes this takes do the work of a 1920-byte table
- * of ready-made words for 40 channels, which only reached 48 bytes into a
- * packet anyway.
+ * It is built from whitening[] rather than written out as a second copy of
+ * the sequence, which could disagree with the one above it.
  *
  * On first use rather than at a mode start because the callers are in two
  * different capture engines, so there is no one place a mode start passes
- * through. It costs one pass of 158 iterations per boot, on the first packet
- * of the first low-energy capture, while the receive DMA goes on filling the
- * buffer behind it. Both callers run from a mode loop, never from an
- * interrupt, so neither can find it half built.
+ * through. It costs one pass of 158 iterations per boot. Both callers run
+ * from a mode loop, never from an interrupt, so neither can find it half
+ * built.
  */
 #define WHITENING_PACKED_BITS (sizeof(whitening) + 31)
 #define WHITENING_WORD_COUNT ((WHITENING_PACKED_BITS + 31) / 32)
@@ -254,9 +250,8 @@ static u32 whitening_word(unsigned idx) {
  *
  * Four bytes at a time: rbit() reverses all 32 bits of a word, which reverses
  * each byte and puts the four in the opposite order, so the bytes go in most
- * significant first and come out least significant first. The whitening word
- * is then one XOR for all four, where it used to be eight lookups and a
- * modulo per byte -- which is what a 251-byte payload pays 250 times over.
+ * significant first and come out least significant first, and the whitening
+ * word is one XOR for all four.
  *
  * Channel is a physical channel in the range [BT_FREQ_MIN, BT_FREQ_MAX].
  */
@@ -332,14 +327,10 @@ void le_parse_channel_map(uint8_t *channel_map, le_channel_remapping_t *remappin
 /*
  * Map a channel index to a used index given a remapping struct.
  *
- * Both handlers that fill a remapping -- the one for a connection request and
- * the one for a channel map update -- refuse a map with no channels in it, so
- * the count is at least one by the time it arrives here. The guard below is a
- * backstop, and
- * it runs once per connection event. Without it a count of zero would be
- * silent: the processor's divide-by-zero trap is off at its reset value, so
- * the remainder would come out 0 and park a followed connection on data
- * channel 0.
+ * Both handlers that fill a remapping refuse a map with no channels in it, so
+ * the guard below is a backstop. Without it a count of zero would be silent:
+ * the processor's divide-by-zero trap is off at its reset value, so the
+ * remainder would come out 0 and park a followed connection on channel 0.
  */
 uint8_t le_map_channel(uint8_t channel_idx, le_channel_remapping_t *remapping) {
 	if (remapping->total_channels == 0)
@@ -506,14 +497,11 @@ static unsigned le_csa2_interval_score(const u32 *gap, unsigned gap_count,
  *
  * Every whole fraction of the right interval divides the same gaps and scores
  * the same, so a tie goes to the longest. A multiple of it does not divide
- * them unless every gap happens to span a multiple of that many events, which
- * two dozen gaps make very unlikely.
+ * them unless every gap spans a multiple of that many events.
  *
  * The answer is the interval as the board's clock sees it, which is what the
  * follow has to hop on, so at a long interval it can be a unit away from the
- * figure the connection was given: the two clocks differ by a few hundred
- * parts per million and a unit is a smaller difference than that. The follow
- * wants the board's figure, not the connection's.
+ * figure the connection was given.
  */
 uint16_t le_csa2_interval(const u32 *gap, unsigned gap_count) {
 	unsigned i, k;
@@ -535,14 +523,12 @@ uint16_t le_csa2_interval(const u32 *gap, unsigned gap_count) {
 					k * LE_CONN_INTERVAL_TICKS);
 			unsigned score;
 
-			/* The connection's clock runs a little fast or slow
-			 * against the board's, so a gap divided by its event
-			 * count lands near the whole number of units the
-			 * connection was given rather than on it. One unit
-			 * above the longest interval is the one place where
-			 * that costs the answer: the real interval would be
-			 * left out and a half or a third of it would win the
-			 * tie below. */
+			/* The two clocks differ, so a gap divided by its event
+			 * count lands near the connection's figure rather than
+			 * on it. One unit above the longest interval is the one
+			 * place that costs the answer: the real interval would
+			 * be left out and a fraction of it would win the tie
+			 * below. */
 			if (interval == LE_MAX_CONN_INTERVAL + 1)
 				interval = LE_MAX_CONN_INTERVAL;
 
@@ -576,19 +562,17 @@ uint16_t le_csa2_interval(const u32 *gap, unsigned gap_count) {
  * list.
  *
  * How many there are is known exactly, not estimated. le_csa2_prn_e() is one
- * to one in the event counter: reversing the bits inside each octet is, and so
- * is 17 * v + channelIdentifier, because 17 is odd. Over the whole range of
- * the counter the pseudo-random number therefore takes every value once, and
- * 65536 = 37 * 1771 + 9, so every channel has 1771 counters and nine of them
- * have 1772. That holds whatever channel map the connection uses, because the
+ * to one in the event counter -- reversing the bits inside each octet is, and
+ * so is 17 * v + channelIdentifier, because 17 is odd -- so over the counter's
+ * whole range the pseudo-random number takes every value once, and
+ * 65536 = 37 * 1771 + 9 gives every channel 1771 counters and nine of them
+ * 1772. That holds whatever channel map the connection uses, because the
  * unmapped channel does not depend on the map.
  *
- * Together they are 4 KB, which is more than the main RAM bank has to spare
- * next to the stack, so they live in the other bank. The block index costs
- * half a kilobyte of that and narrows a lookup to the seven or so entries a
- * block holds, against the eleven steps a binary search over all 1772 would
- * take; a search makes about 43 thousand of them, and all of that is time the
- * receiver spends deaf.
+ * Together they are 4 KB, more than the main RAM bank has to spare next to
+ * the stack, so they live in the other bank. The block index narrows a lookup
+ * to the seven or so entries a block holds, and a search makes about 43
+ * thousand lookups, all of it time the receiver spends deaf.
  */
 #define LE_CSA2_HITS 1772
 #define LE_CSA2_BUCKETS 256

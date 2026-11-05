@@ -181,10 +181,9 @@ void dma_init_le(volatile uint8_t* dest, unsigned len) {
  * carrying a value another context has moved on from.
  *
  * The receive request is the bit that costs a capture if it goes missing: the
- * radio is strobed into receive right after this, and the receiver then clocks
- * symbols into the SSP with nothing asking the controller to collect them, so
- * no byte reaches a buffer and no interrupt is raised while the loop goes on
- * answering the host.
+ * radio is strobed into receive right after this, and the receiver then
+ * clocks symbols into the SSP with nothing asking the controller to collect
+ * them, so no byte reaches a buffer while the loop goes on answering the host.
  *
  * The chip select pin stays outside the guard: it has its own set and clear
  * registers, so writing it reads nothing back.
