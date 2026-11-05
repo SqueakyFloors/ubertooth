@@ -84,7 +84,12 @@ An option whose value is missing reads `error: option '-t' requires a value`.
 
 An option value must be a whole value in its range, or it is refused the same
 way instead of being read as 0, for example
-`error: maximum access code errors must be 0-5 (got 6)`.
+`error: maximum access code errors must be 0-5 (got 6)` and
+`error: timeout must be a whole number of seconds, 0 for none (got abc)`.
+
+An option given a value twice is refused too, `error: option '-t' given more
+than once`: the tool does not pick between two answers to the same question.
+This is the rule for every tool; see ubertooth(7), OPTION VALUES.
 
 ## OUTPUT
 
@@ -274,7 +279,9 @@ neither off nor on is one, and says what the byte was.
 
 A capture that could not be started at all exits 1 as well, whichever step
 failed: the receive transfer libusb would not take, the host thread that
-collects the capture, or the request that puts the board in its capture mode.
+collects the capture, the Basic Rate modulation request (`error: could not set
+the modulation: ...`), or the request that puts the board in its capture
+mode.
 Standard output holds whatever a `-s` inquiry printed before that and nothing
 else; standard error carries the one `error: ` line for the step that failed.
 The capture request is named the way the sweep request below is, with the

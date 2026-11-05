@@ -39,7 +39,7 @@ If that UAP is in fact wrong, nothing of the piconet will decode, and the line a
 .P
 The capture is gated by the board's squelch, which this tool does not set: it is the default \-120 dBm unless \fBubertooth\-util \-z\fR set another value while the board was idle, and the firmware resets it whenever the board leaves a mode, so it never carries over from an earlier capture\. See ubertooth\-util(1), SQUELCH\.
 .P
-Requires BlueZ (Linux only)\. The clock and AFH\-map reads this tool is built around are not reachable from macOS's public Bluetooth APIs, so it is not built there and no macOS version is planned\. \fBubertooth\-rx \-l <LAP>\fR recovers the addresses and the clock from the air without an adapter, which takes it hops of the piconet and some of a capture, and against a link heard rarely may not get there at all: see ubertooth\-rx(1), THE CLOCK SEARCH\. Reading the clock through an adapter, as this tool does, is immediate and exact\. See COMPATIBILITY\.md for the comparison\.
+Requires BlueZ (Linux only)\. The clock and AFH\-map reads this tool is built around are not reachable from macOS's public Bluetooth APIs, so it is not built there and no macOS version is planned\. \fBubertooth\-rx \-l <LAP>\fR recovers the addresses and the clock from the air without an adapter, which takes it hops of the piconet and some of a capture, and against a link heard rarely may not get there at all: see ubertooth\-rx(1), THE CLOCK SEARCH\. Reading the clock through an adapter, as this tool does, takes one page and one read, with a one\-second deadline on the read\. See COMPATIBILITY\.md for the comparison\.
 .SH "OPTIONS"
 .TP
 \fB\-t <BD_ADDR>\fR
@@ -155,7 +155,7 @@ ubertooth\-follow \-l 445566 \-u 33 \-q capture\.pcap
 .IP "" 0
 
 .IP "4." 4
-Watch what the run prints\. The tool pages the target through the local Bluetooth device, reads the clock of the connection it gets, hands that to the board as the clock to hop on, and starts capturing\. Unlike ubertooth\-rx(1), it does not search the air for a clock: it is given one, so there is no acquisition to wait for and a follow that is working prints packets from the start: the wait before the first record is the wait for a packet of the piconet, usually under a second and at most a few\. A run that prints none has one of five causes: the piconet is not transmitting, the board cannot hear the piconet, the \fB\-u\fR given is wrong, the clock the board was given is off by enough to put it on the wrong channel, which is what \fB\-w\fR adjusts for, or the target is not the Central of the piconet\. The last of those finds nothing at all rather than part of the traffic: every packet in a piconet carries the Central's access code and hops on the Central's clock, so a follow keyed on a Peripheral's address is listening for a piconet that is not there\.
+Watch what the run prints\. The tool pages the target through the local Bluetooth device, reads the clock of the connection it gets, hands that to the board as the clock to hop on, and starts capturing\. Unlike ubertooth\-rx(1), it does not search the air for a clock: it is given one, so there is no acquisition to wait for and a follow that is working prints packets from the start: the wait before the first record is the wait for a packet of the piconet to arrive\. A run that prints none has one of five causes: the piconet is not transmitting, the board cannot hear the piconet, the \fB\-u\fR given is wrong, the clock the board was given is off by enough to put it on the wrong channel, which is what \fB\-w\fR adjusts for, or the target is not the Central of the piconet\. The last of those finds nothing at all rather than part of the traffic: every packet in a piconet carries the Central's access code and hops on the Central's clock, so a follow keyed on a Peripheral's address is listening for a piconet that is not there\.
 .IP
 A wrong \fB\-u\fR silences a run by putting the board on the wrong channels\. The hop sequence is built from the LAP and the low four bits of the UAP, so a \fB\-u\fR wrong in any of those four bits hops differently from the piconet and meets it only now and then\. A \fB\-u\fR wrong only in its top four bits leaves the hop sequence alone: such a run prints packets and decodes none of them, which is the case DESCRIPTION above describes\. A wrong \fB\-u\fR can also stop the page, and then the run exits 1 with the reason\.
 .IP
@@ -202,9 +202,7 @@ Sweep with \fB\-e 0\fR, exact access codes only\. At the default \fB\-e 2\fR a r
 .P
 Throw away any leg where the piconet went quiet, and any leg that printed the warning that the clock being followed was not this piconet's (see DESCRIPTION above): the first reads as a clean zero and the second is no longer a reading of \fB\-w\fR at all\. Confirm from the devices themselves that each leg had traffic to capture\.
 .P
-The useful range is narrow\. A sweep over one Classic piconet with everything but \fB\-w\fR held the same has put thousands of passing headers at one value, a few dozen at the default two or three slots away, and none at all a slot or two further on, so a machine whose value is not the default captures nothing until it is found\.
-.P
-The best value repeats; what it captures at it does not\. Repeated legs at the best value have ranged from decoding almost every record written to decoding a small part of them, and no value of \fB\-w\fR takes that variation out\. So \fB\-w\fR decides whether a follow decodes anything at all, and how much it then holds varies from run to run\.
+The useful range is narrow: a value a slot or two out can decode nothing at all, so a machine whose value is not the default captures nothing until the sweep finds it\. The best value repeats from sweep to sweep; how much it captures does not, and no value of \fB\-w\fR takes that variation out\. So treat \fB\-w\fR as deciding whether a follow decodes anything, not how much\.
 .SH "WHAT A FOLLOW DOES NOT CAPTURE"
 A capture holds the basic rate packets of one piconet, decoded as far as they can be without the link's keys\. Three things are not in it however well the follow goes:
 .IP "\(bu" 4
@@ -248,7 +246,7 @@ A refused command line creates and truncates nothing: \fB\-r\fR, \fB\-q\fR and \
 .P
 What the tool is following, the notes and the failures are on standard error and still arrive, and so is the \fBAFH map:\fR line of \fB\-a\fR, which is the answer to that option\.
 .P
-Redirect standard output to a new file or a pipe, not to one being appended to: on Linux the capture is opened again through \fB/proc/self/fd\fR, which truncates, so \fBubertooth\-follow \-q \- >> capture\.pcap\fR loses what the file held\.
+Redirect standard output to a new file or a pipe, not to one being appended to: the capture is opened again through a descriptor\-filesystem path, \fB/dev/fd\fR where there is one and \fB/proc/self/fd\fR otherwise, which truncates, so \fBubertooth\-follow \-q \- >> capture\.pcap\fR loses what the file held\.
 .P
 Binary on a terminal is a mistake rather than a stream anyone reads, so it is refused: \fBerror: stdout is a tty, refusing to write binary capture data to it\fR, exit 1\. Redirect or pipe standard output instead\.
 .SH "GAPS IN A CAPTURE"
@@ -268,7 +266,7 @@ A run stopped by Ctrl\-C before it had opened a board exits 0 as well: see ubert
 .P
 A page to the target that fails exits 1 as well, before any board is opened: the page is what yields the target's clock offset, and a follow of a named target without it would hop on the local device's clock instead\. A follow keyed on \fB\-l\fR and \fB\-u\fR pages a guessed \fB00:00:<UAP>:<LAP>\fR, so that line also asks for the whole address with \fB\-t\fR (see AFH above)\.
 .P
-A board that refuses the target's address or the clock reset exits 1 before the capture starts, with the request named on standard error\. Following anyway would mean a board that is not set up for the piconet: without the target's address it matches no packet, and with its clock never zeroed it hops on a clock the offset was not measured from\.
+A board that refuses the target's address, the clock reset, the Basic Rate modulation, or the AFH map the follow sets or clears exits 1 before the capture runs, with the request named on standard error\. The two map requests read \fBerror: setting the board's AFH map failed\fR and \fBerror: clearing the board's AFH map failed\fR\. Following anyway would mean a board that is not set up for the piconet: without the target's address it matches no packet, and with its clock never zeroed it hops on a clock the offset was not measured from\.
 .P
 Standard output stays empty in that case, and standard error names the request, why the board refused it and the libusb code, adding a note where there is something to try:
 .IP "" 4
@@ -286,7 +284,7 @@ A follow the board would not stop exits 1 as well: the request that takes the bo
 .P
 The \fB\-q\fR, \fB\-r\fR, and \fB\-d\fR files are created once the board has been opened and its firmware accepted, and a run refused after that removes them again, so a refused follow leaves no empty capture behind whatever refused it\. For this tool they are created later than it sounds: the adapter, the connection to the target, and the AFH read all come first, so a path that cannot be opened is reported after them\. Every fault in the command line, a terminal on standard output included, is refused before any of it\.
 .P
-Only a regular file the run created is removed, so a device, a pipe, a symbolic link, or the file standard output was redirected to is left where it is, along with whatever the run wrote through it\. A removal that will not go is reported as \fBwarning: cannot remove <path>: <reason>\fR and does not change the exit status\. A \fB\-q\fR or \fB\-d\fR path that already held something was emptied when the file was opened, and removing it does not bring the old contents back; \fB\-r\fR refuses a path that exists rather than writing over it\.
+A regular file named by \fB\-q\fR or \fB\-d\fR is removed, whether this run created it or truncated one that was already there, so removing it does not bring the old contents back\. Anything else is left where it is, along with whatever the run wrote through it: a device, a pipe, a symbolic link, a path naming one of this process's descriptors, and the file standard output was redirected to\. A removal that will not go is reported as \fBwarning: cannot remove <path>: <reason>\fR and does not change the exit status\. \fB\-r\fR refuses a path that exists rather than writing over it, so it never reaches this\.
 .P
 A run that cannot allocate the piconet it follows exits 1 with \fBerror: out of memory\fR, before the adapter or a board is opened; \fB\-h\fR and \fB\-V\fR are answered first and so still work on a machine with no memory for one\.
 .P
