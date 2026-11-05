@@ -54,9 +54,10 @@
  * SFSON strobe, 0 after SRFOFF. Calls `service`, if it is not NULL, between
  * status polls.
  *
- * The bound matters because a radio that stops reporting the state the loop
- * waits for would keep that loop from ever looking at requested_mode again,
- * so nothing could stop the mode and the board would need re-plugging. A
+ * The bound matters because a radio that stops reporting the state being
+ * waited for would keep the calling mode loop from ever looking at
+ * requested_mode again, so nothing could stop the mode and the board would
+ * need re-plugging. A
  * caller that times out has a synthesizer in the wrong state, so what it
  * reads from the radio next is not a measurement; one that only samples, like
  * led_specan(), can carry on and lose that sample.

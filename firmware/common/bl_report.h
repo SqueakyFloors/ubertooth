@@ -42,11 +42,13 @@ uint32_t bl_report_crc32(uintptr_t start, size_t length);
  *
  * The region is the flash below the image, so this is for an image linked
  * with a bootloader under it -- every shipped one. An image linked at 0
- * instead would hash its own first 16 KiB and report it as a 1.x bootloader,
- * so such an image should not call this at all.
+ * instead (LPC17xx_Linker_Script_without_bootloader.ld) would hash its own
+ * first 16 KiB and report it as a 1.x bootloader, so such an image should not
+ * call this at all.
  *
  * The region's address is a parameter so a test can hand it a region of its
- * own to read; each image passes UBERTOOTH_BOOTLOADER_REGION_START.
+ * own to read, since no host can read the board's address 0; each image
+ * passes UBERTOOTH_BOOTLOADER_REGION_START.
  */
 void bl_report_init(uintptr_t region);
 

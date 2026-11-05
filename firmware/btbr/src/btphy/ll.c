@@ -318,7 +318,10 @@ set_flags:
  * carried and the repeat it spent go back to the link for the next transmit
  * slot. Without that, a packet the host asked to repeat N times would go out
  * N-1 times, and the peer would get no acknowledgment for the packet it had
- * just sent and would repeat it. A slot that did go out costs both.
+ * just sent and would repeat it.
+ *
+ * A slot that did go out spends both the acknowledgment and the repeat, which
+ * is what the protocol expects.
  *
  * A link reset between the slot and this report owes nothing: the message a
  * repeat would belong to has been freed, which is why ll_reset() clears what

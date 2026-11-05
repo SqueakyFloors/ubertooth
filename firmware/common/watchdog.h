@@ -140,7 +140,9 @@ void watchdog_intent(uint8_t intent);
 /*
  * Count one capture transfer error: the DMA controller reported an error on
  * the channel a capture receives into, so the packet being received is lost.
- * What the mode does about it is the mode's own.
+ * What the mode does about it is the mode's own: the promiscuous path drains
+ * the receiver and arms the transfer again, and the low-energy engine does
+ * not, which leaves that capture stopped.
  *
  * Reported by UBERTOOTH_GET_WATCHDOG, for the reason the radio wait counts
  * exist (cc2400_wait.h): carrying on is right, and silent, so a capture
@@ -186,7 +188,9 @@ void watchdog_usb_ready(void);
  * Stretch the timeout to the longest the counter can hold, about 71 minutes,
  * for a hand-over to code that has no feed of its own. Only the on-chip
  * programmer (set_isp()) needs it: that keeps the chip running without a
- * reset, so the watchdog stays armed and cannot be switched off again.
+ * reset, so the watchdog stays armed and would reset the board mid-session.
+ * It cannot be switched off instead, because the part allows that only
+ * through a reset.
  *
  * watchdog_unstretch() puts the timeout and the intent back for the case
  * where the hand-over returns after all, or the board would run on unguarded.

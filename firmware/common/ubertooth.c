@@ -303,21 +303,18 @@ void cc2400_init()
  * would begin its own with CSN already low, and both would then read or write
  * a corrupt word, or lose a strobe.
  *
- * The cost is one transfer of interrupt latency: a bit of the loop below is
- * about 19 cycles, so at 100 MHz an 8-bit status read or strobe masks for
- * roughly 1.6 microseconds and a 24-bit transfer for roughly 4.6. The
- * transfers cc2400_reset() and clock_start() make run before the PLL, on the
- * 4 MHz internal oscillator, and take 25 times as long, but nothing is armed
- * that early in boot.
+ * The cost is one transfer of interrupt latency: at 100 MHz an 8-bit status
+ * read or strobe masks for roughly 1.6 microseconds and a 24-bit transfer for
+ * roughly 4.6. The transfers cc2400_reset() and clock_start() make run before
+ * the PLL and take 25 times as long, but nothing is armed that early in boot.
  *
- * Two things feel that latency. The LE PHY accepts a measured connection
- * anchor only within 3 microseconds of its estimate, taken from the clock
- * read at the top of its DMA handler, so a register transfer elsewhere can
- * delay that handler past the window and leave the PHY on its estimate for
- * that event. And bt_stream_rx() polls RSSI 50 to 80 times while it waits for
- * each DMA transfer, so for most of that wait interrupts are masked and the
- * carrier-sense interrupt that opens the symbol capture runs up to 4.6
- * microseconds late.
+ * Two things feel that latency, and neither has been measured as costing a
+ * packet. The LE PHY accepts a measured connection anchor only within 3
+ * microseconds of its estimate, so a register transfer elsewhere can delay
+ * its DMA handler past the window and leave it on the estimate for that
+ * event. And bt_stream_rx() polls RSSI throughout each DMA wait, so for most
+ * of that wait interrupts are masked and the carrier-sense interrupt that
+ * opens the symbol capture runs late.
  *
  * PRIMASK is blunter than the problem needs, because it also blocks the
  * handlers that never touch the bus. Masking only the handlers that drive the
@@ -391,19 +388,22 @@ static void spi_delay() {
  * low, and both would read or write a corrupt word, or lose a strobe.
  *
  * They hold the bus far longer than a register transfer, so the guard costs
- * more here than in cc2400_spi(). The write has no delay loops, about 1
- * microsecond a byte, so the longest write any caller makes -- one FIFO's
- * worth, 32 bytes -- masks for roughly 32 microseconds, well inside the clkn
+ * more here than in cc2400_spi(). The longest write any caller makes, one
+ * FIFO's worth, masks for roughly 32 microseconds, well inside the clkn
  * timer's 312.5 microsecond period. The read waits out spi_delay() twice per
  * bit, so a 32-byte read runs to roughly 460 microseconds: longer than one
  * clkn period and shorter than two, which costs the Bluetooth clock at most
  * one tick. An interrupt raised while masked is latched, not lost, so a span
  * holding one timer match only delays the handler; a tick goes only when two
- * matches fall inside the span and coalesce into the one pending bit.
+ * matches fall inside the span and coalesce into the one pending bit. The
+ * timer itself reloads in hardware and keeps time -- it is the count clkn
+ * keeps in software that falls 312.5 microseconds behind.
  *
  * Only the two modes that read the FIFO pay those ticks, the generic receive
- * and the range test. The capture modes whose timestamps a user reads take
- * their data over DMA and never touch the FIFO.
+ * and the range test, and the range test uses clkn only to time a one-second
+ * turnaround, which a tick either way does not change. The capture modes
+ * whose timestamps a user reads take their data over DMA and never touch the
+ * FIFO.
  *
  * The btbr image has its own bit-banged FIFO write, in btbr/src/btphy/rf.c,
  * which is not masked: there it runs only from interrupt handlers, and every

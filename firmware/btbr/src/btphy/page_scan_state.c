@@ -112,8 +112,8 @@ static void page_scan_fhs_schedule(void)
  * empty window is followed by a window for the central's next repeat --
  * 8.3.3.1 has the board listen until pagerespTO and 8.3.3.2 has the central
  * repeat every 1.25 ms over that time -- taking the two readings in turn.
- * Which one is right holds for 1.28 seconds at a time, the period of CLK12 on
- * both clocks (hop.h). */
+ * Taking them in turn works because which one is right holds for 1.28 seconds
+ * at a time, the period of CLK12 on both clocks (hop.h). */
 static void page_scan_fhs_missed(uint32_t window_clkn)
 {
 	/* A packet that took two or more ticks to decode -- a stray multi-slot
