@@ -86,14 +86,11 @@ or non-trivial operational documentation changes:
   - CI has two tiers. Pull requests and pushes to `main` run the minimal
     tier; the weekly schedule, a published release, and a manual run run the
     full matrix.
-  - `image-revision` and `dfu-package` run after the firmware job, on the
-    images it built, and they are the only checks that handle an image the way
-    `ubertooth-dfu` does: `image-revision` reads its firmware info block
-    rather than comparing the magic bytes, and `dfu-package` packages it into
+  - `image-revision` and `dfu-package` are the only checks that handle a
+    built image the way `ubertooth-dfu` does: one reads its firmware info
+    block rather than comparing the magic bytes, the other packages it into
     the `.dfu` users flash and asks the tool whether it would accept it.
-  - `host-installed-libubertooth` installs libubertooth and then configures,
-    builds, and tests `host/ubertooth-tools` against it, which is the other
-    supported way to build the tools and the only run that reaches the test
+  - `host-installed-libubertooth` is the only run that reaches the host test
     directory's `else()` branches. What it covers -- which include directory a
     target is given -- is the same on every platform, so it has no Mac leg.
   - `api-version` runs on pull requests and pushes to `main` only: it compares
@@ -130,13 +127,10 @@ Speed matters. Do not wait for every job.
   each has reported green or skipped. `CONTRIBUTING.md` names them, under
   "They are required". The rule does not apply to the repository owner, which
   is there for the one case where the maintainer has looked at a red check and
-  decided to merge anyway. **Never use `--admin`** except under the macOS
-  delay rule below: a check the maintainer has allowed to be red is the
+  decided to merge anyway: a check the maintainer has allowed to be red is the
   maintainer's merge, not yours. Say on the PR why you think it should not
-  block, and leave it.
-  A PR whose last run predates the stand-in jobs reports a skipped matrix job
-  under its bare name and sits blocked on the leg names; a rebase onto `main`
-  and a fresh run clears it.
+  block, and leave it. The one `--admin` merge an agent may make is the macOS
+  delay rule below.
 - **A macOS leg pending more than 7 minutes may be merged past.** The macOS
   runners queue far longer than the rest, so the maintainer's standing
   direction is: once every Linux and platform-independent required check has
@@ -213,14 +207,11 @@ breaks older host tools**, plus once at each release (maintainer, 2026-10-29).
   more to chase. A version a sample is making a point about --
   `2020-12-R1`'s 1.07, say -- is a fixed number and stays.
 - The `doc-api-version` CI job runs `tools/check-doc-api-version.sh`, which
-  asks all of that: no documentation file writes `API:` followed by a digit
-  except in the forms its allowlist names, and `TEST_PLAN.md`,
-  `COMPATIBILITY.md` and the CHANGELOG's **top section** carry the version
-  this tree carries. The CHANGELOG sentence is read in those words, "the
-  firmware API version is now `<version>`", so dropping it is a failure
-  rather than a pass; only the top section is read, so an earlier release's
-  note keeps the version it shipped. Run it before pushing; it reads files and
-  takes a second.
+  asks all of that, and its own comments say exactly how. The part to know
+  before writing a release note: the CHANGELOG's **top section** has to say,
+  in those words, "the firmware API version is now `<version>`", so dropping
+  that sentence is a failure rather than a pass. Run the check before pushing;
+  it reads files and takes a second.
 - The `api-version` CI job runs `tools/check-api-version.sh`, which compares
   the value on the branch with `main`'s tip and with their merge base. It
   cannot judge whether a change breaks an older host tool, so it asks what is
