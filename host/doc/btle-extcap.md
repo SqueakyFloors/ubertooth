@@ -146,7 +146,7 @@ data going to the fifo instead, and nothing when a call fails.
 
 The ubertooth-btle(1) a `--capture` call runs writes its own decode of every
 packet to its standard output, which is dropped: nobody asked this call for
-it, and 8 seconds of ambient advertising is some 560 kB. Its standard error is
+it. Its standard error is
 the script's, so a ubertooth-btle(1) that fails still says why. Wireshark
 keeps the first 1024 bytes of the capture call's standard error and shows them
 for the interface when the call fails.

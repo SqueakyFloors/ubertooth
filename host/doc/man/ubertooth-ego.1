@@ -84,7 +84,7 @@ The code is stated just after the request that starts the mode, which is what ke
 .P
 A program driving the board by hand can still set a code of its own and have the capture that follows use it, as it can with a channel: a mode started on an idle board resets nothing, because no earlier mode's code can be there to reset\.
 .SH "TRANSMIT POWER"
-Interference (\fB\-i\fR, \fB\-j\fR) transmits at the CC2400 power level set with \fBubertooth\-util \-a\fR and leaves it unchanged\. A board that has not been given a level jams at 7 (0 dBm, the maximum), the CC2400's reset value and the level jamming always used before\. Sniffing does not transmit and does not change the level\. These levels are at the CC2400 radio; the Ubertooth One's RF amplifier changes the actual output after that\.
+Interference (\fB\-i\fR, \fB\-j\fR) transmits at the CC2400 power level set with \fBubertooth\-util \-a\fR and leaves it unchanged\. A board that has not been given a level jams at 7 (0 dBm, the maximum), which is the CC2400's reset value\. Sniffing does not transmit and does not change the level\. These levels are at the CC2400 radio; the Ubertooth One's RF amplifier changes the actual output after that\.
 .SH "ARGUMENTS"
 \fBubertooth\-ego\fR takes options only\. A word that is not an option, including a bare \fB\-\fR, is refused before any device is opened and named: \fBerror: unexpected argument '<word>'\fR, with exit status 1\.
 .P

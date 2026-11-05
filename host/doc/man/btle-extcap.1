@@ -85,7 +85,7 @@ btle\-extcap\.py \-\-extcap\-interface=ubertooth<serial> \-\-capture \-\-fifo=\-
 .SH "DIAGNOSTICS"
 Errors and warnings go to standard error, as does the usage line after a bare call (\fBerror: nothing to do: give \-\-extcap\-interfaces, \-\-extcap\-dlts, \-\-extcap\-config or \-\-capture\fR, then the usage line)\. The script's own standard output carries only the listings and the capture\-filter answer, the capture data going to the fifo instead, and nothing when a call fails\.
 .P
-The ubertooth\-btle(1) a \fB\-\-capture\fR call runs writes its own decode of every packet to its standard output, which is dropped: nobody asked this call for it, and 8 seconds of ambient advertising is some 560 kB\. Its standard error is the script's, so a ubertooth\-btle(1) that fails still says why\. Wireshark keeps the first 1024 bytes of the capture call's standard error and shows them for the interface when the call fails\.
+The ubertooth\-btle(1) a \fB\-\-capture\fR call runs writes its own decode of every packet to its standard output, which is dropped: nobody asked this call for it\. Its standard error is the script's, so a ubertooth\-btle(1) that fails still says why\. Wireshark keeps the first 1024 bytes of the capture call's standard error and shows them for the interface when the call fails\.
 .P
 That 1024 bytes is there for a real failure to use: ubertooth\-btle(1) sums up the packets whose data could not be read on the stream the decode went to, which this call drops, so a good capture no longer ends in \fBError from extcap pipe\fR and a board unplugged mid\-capture reaches the user\. See ubertooth\-btle(1), DIAGNOSTICS\.
 .P
