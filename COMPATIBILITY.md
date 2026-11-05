@@ -34,10 +34,10 @@ Legend:
 | **arm-none-eabi-gcc (firmware)** | 9-2019-q4 (GCC 9.2.1) | 9-2019-q4 (Ubuntu 20.04 CI), 10.3-2021.07 (22.04), 13.2.rel1 (24.04), 15.3.1 (macOS 14/15/26 CI); 13.2 (Linux) and 15.3 (macOS) on hardware | older than 9-2019-q4 (not tested) | ✅ 9-2019-q4 verified in CI (oldest tested) |
 | **libusb** | 1.0.23 | 1.0.23 (Ubuntu 20.04 CI), 1.0.25 (22.04), 1.0.27 (24.04), 1.0.30 (macOS) | pre-1.0; older than 1.0.23 (not tested) | ✅ 1.0.23 verified in CI (oldest tested) |
 | **libbtbb** | the pinned fork commit ([`7e1cdf0`](https://github.com/SqueakyFloors/libbtbb/commit/7e1cdf0336857a714da1af8c7496fe32453ac6d0), C lib) | that commit (CI, `install.sh`); upstream master was CI's dependency until the switch to the pin | one missing a function the tools call or a macro they read: refused at configure time; one from another commit: a warning. Any other libbtbb, upstream's included: untested here | ✅ the pin is what CI builds |
-| **libbluetooth (BlueZ)** — optional, for `ubertooth-scan` and `ubertooth-follow` | 5.53 | 5.53 (Ubuntu 20.04 CI), 5.64 (22.04), 5.72 (24.04), 5.87 (Fedora CI) | macOS: no BlueZ, and the operations these tools need are not in macOS's public APIs either, so both are skipped there and will stay that way ([note below](#macos-ubertooth-scan-and-ubertooth-follow-are-linux-only)) | ✅ 5.53 verified in CI, and both tools have since run against a real adapter: `ubertooth-scan`'s inquiry and remote-name reads ([#1175](https://github.com/SqueakyFloors/ubertooth/pull/1175)), and `ubertooth-follow` reading a real piconet's clock and decoding its traffic, payloads included ([#518](https://github.com/SqueakyFloors/ubertooth/issues/518)) -- though not yet reliably, which is a clock error rather than anything to do with BlueZ ([#507](https://github.com/SqueakyFloors/ubertooth/issues/507)). The adapter's BlueZ version was not recorded in either run |
+| **libbluetooth (BlueZ)** — optional, for `ubertooth-scan` and `ubertooth-follow` | 5.53 | 5.53 (Ubuntu 20.04 CI), 5.64 (22.04), 5.72 (24.04), 5.87 (Fedora CI) | macOS: no BlueZ, and the operations these tools need are not in macOS's public APIs either, so both are skipped there and will stay that way ([note below](#macos-ubertooth-scan-and-ubertooth-follow-are-linux-only)) | ✅ 5.53 verified in CI. Both tools have since run against a real adapter: `ubertooth-scan` ([#1175](https://github.com/SqueakyFloors/ubertooth/pull/1175)) and `ubertooth-follow` ([#518](https://github.com/SqueakyFloors/ubertooth/issues/518)), the latter not yet reliably, for a timing reason rather than a BlueZ one (the `-w` delay, in `host/doc/ubertooth-follow.md`). Neither run recorded the adapter's BlueZ version |
 | **ronn-ng (man pages)** | 0.10.1, exactly | 0.10.1 (`Man pages` CI job on Ubuntu 24.04; macOS 26 via Homebrew) | any other version: it renders the same Markdown differently, so the committed pages would stop matching a refresh | ✅ 0.10.1 verified in CI. Optional: only `refresh-manpages` needs it, and a build neither needs it nor runs it |
-| **Ubertooth firmware (API)** | 1.58 (this tree), exactly | 1.58 on an Ubertooth One, both images reporting this tree's version | any other, 1.57 and 1.07 (`2020-12-R1`) included: refused, except by the three tools that have to work on whatever firmware a board is carrying ([note below](#firmware-api-version-exact-match-bumped-for-a-breaking-change)) | ✅ 1.58 is the generic transmit carrying how many packets to send and framing them with the radio's CRC, verified on two lab Ubertooth Ones: one request for 2000 packets put 2000 on the air in 1.6 s and a board set to the same framing read all 2000 intact, where 1.57 lost half of a fast burst of 30 to failed transfers. ✅ 1.57 is where a processor fault was, verified on a lab Ubertooth One: a board made to branch to 0x40000001, which the Cortex-M3 default memory map refuses to execute, reported `status 0x00000001, the instruction was at 0x40000000`, where 1.56 on the same board and the same deliberate fault reported `no address recorded`. ✅ 1.56 verified on hardware. 🎯 1.52, 1.54, and 1.55 are HWPENDING, and 1.53 is verified only in part ([#824](https://github.com/SqueakyFloors/ubertooth/issues/824)). The symbol transmit mode and the E-GO access code have not been exercised on the air |
-| **Ubertooth bootloader** | whichever one is on the board; no tool checks it (its DFU-mode `bcdDevice` is a fixed 1.00) | the one the boards shipped with; this tree's is compiled and linked in CI, which also checks that it fits its 16 KiB region and carries its version block. `ubertooth-util -B` reports which bootloader a board has: this tree's (2.00 and up) by version and revision, an earlier or factory one by the hash of its region alone | — | ✅ `ubertooth-dfu --update-bootloader` installs one over USB, verified on a real part (an LPC1756): the board reported the region hash the host printed in advance, and the host's refusals all stopped before a board was touched ([#256](https://github.com/SqueakyFloors/ubertooth/issues/256), [#423](https://github.com/SqueakyFloors/ubertooth/issues/423), [#424](https://github.com/SqueakyFloors/ubertooth/issues/424), [#1056](https://github.com/SqueakyFloors/ubertooth/issues/1056)) |
+| **Ubertooth firmware (API)** | 1.58 (this tree), exactly | 1.58 on an Ubertooth One, both images reporting this tree's version | any other, 1.57 and 1.07 (`2020-12-R1`) included: refused, except by the three tools that have to work on whatever firmware a board is carrying ([note below](#firmware-api-version-exact-match-bumped-for-a-breaking-change)) | ✅ 1.58 verified on the air; 1.56 and 1.57 over USB. 🎯 1.52, 1.54, and 1.55 untested on hardware, 1.53 only in part ([#824](https://github.com/SqueakyFloors/ubertooth/issues/824)). The symbol transmit mode and the E-GO access code have not been on the air |
+| **Ubertooth bootloader** | whichever one is on the board; no tool checks it (its DFU-mode `bcdDevice` is a fixed 1.00) | the one the boards shipped with; this tree's is compiled and linked in CI, which also checks that it fits its 16 KiB region and carries its version block. `ubertooth-util -B` reports which bootloader a board has: this tree's (2.00 and up) by version and revision, an earlier or factory one by the hash of its region alone | — | ✅ `ubertooth-dfu --update-bootloader` installs one over USB, verified on a real part (an LPC1756) ([#1056](https://github.com/SqueakyFloors/ubertooth/issues/1056)) |
 
 ---
 
@@ -55,10 +55,6 @@ that is the known-good path for 18.04 — not this fork's current branch. It is
 mirrored on this fork (unmodified upstream code, provided as-is) for convenience:
 <https://github.com/SqueakyFloors/ubertooth/releases/tag/2020-12-R1>
 (original: <https://github.com/greatscottgadgets/ubertooth/releases/tag/2020-12-R1>)
-
-> Note: this reflects first-hand use of the *upstream* release on 18.04 for a
-> maintainer's typical workflow, not exhaustive feature testing, and not any
-> claim about this fork on 18.04.
 
 ### Fedora is the unpinned canary
 Every other row of the matrix names the versions it was exercised against.
@@ -206,26 +202,26 @@ package records no commit for the comparison to use.
 The host tools require firmware whose API version (`UBERTOOTH_API_VERSION`,
 reported as the USB `bcdDevice`) is exactly their own. A release build refuses
 any other. Three tools have to work on whatever firmware a board is carrying,
-so they do not check the version: `ubertooth-dfu`, which is the way back
-from a board that does not match; `ubertooth-util`, whose only exception is
-`-I`, which checks the version itself before it drives a mode; and
+so they do not check the version: `ubertooth-dfu`, which refuses a file its
+image check rejects, or one with no firmware info block, both before the board
+is asked to leave its application, but warns about -- and still writes -- an
+image built for another API version, because it is the way back from a board
+whose firmware does not match; `ubertooth-util`, whose only exception is `-I`,
+which checks the version itself before it drives a mode; and
 `ubertooth-debug`, which checks which of this tree's two images a board runs
-but not the version. `ubertooth-dfu` refuses a file with no firmware info
-block, and warns about -- but still writes -- an image built for another API
-version, because that is the way back from a board whose firmware does not
-match. A build made from a git
-checkout that is not on a tag is a development build: it warns and runs the
-command, because host tools and firmware from different commits are the normal
-state of lab work. `UBERTOOTH_ALLOW_API_MISMATCH` sets either answer whatever
-the build (`1` runs on, `0` refuses). During development the minor version
-stays where it is through an ordinary firmware change, because host tools and
-firmware are built and flashed together and a development build only warns
-when the two disagree; it is bumped for a change that breaks older host
-tools -- a request removed or renumbered, a reply layout an older host would
-misread -- so that such a board is reported rather than used silently: refused
-by a release build, warned about by a development build. The first fork
-release takes 2.00, to mark that its host tools and firmware only work with
-each other.
+but not the version.
+
+A build made from a git checkout that is not on a tag is a development build:
+it warns and runs the command, because host tools and firmware from different
+commits are the normal state of lab work. `UBERTOOTH_ALLOW_API_MISMATCH` sets
+either answer whatever the build (`1` runs on, `0` refuses). During development
+the minor version stays where it is through an ordinary firmware change,
+because host tools and firmware are built and flashed together and a
+development build only warns when the two disagree; it is bumped for a change
+that breaks older host tools -- a request removed or renumbered, a reply layout
+an older host would misread -- so that such a board is reported rather than
+used silently. The first fork release takes 2.00, to mark that its host tools
+and firmware only work with each other.
 
 The bootloader is not covered by that number. It reports a fixed `bcdDevice`
 of 1.00, no host tool checks it, and `./install.sh --flash` writes the
@@ -236,9 +232,9 @@ off a board sitting in DFU.
 
 The number still does not pin down a commit, since every commit that does not
 bump it shares the number before it, which is why the firmware revision shown
-by `ubertooth-util -v` beside the API version is what identifies a build. Host tools and firmware built from the
-same commit always match, so after pulling, rebuild and reflash both from the
-same commit (`./install.sh --flash`).
+by `ubertooth-util -v` beside the API version is what identifies a build. Host
+tools and firmware built from the same commit always match, so after pulling,
+rebuild and reflash both from the same commit (`./install.sh --flash`).
 
 The firmware keeps its largest buffers in the part's second RAM bank (AHB
 SRAM, at `0x2007C000`), so the microcontroller has to have that bank. The
@@ -268,13 +264,13 @@ Python 3; verified from 3.8 (Ubuntu 20.04) through 3.14 (current macOS runner).
 Older distros (e.g. Ubuntu 18.04 / Python 3.6) are out of scope — see above.
 
 **Prefix-safe Python installation.** CMake installs the in-tree pure-Python
-``specan`` and ``ubtbr`` modules directly under ``CMAKE_INSTALL_PREFIX``; it no
-longer invokes the deprecated ``setup.py install`` or requires setuptools for a
-normal CMake build/install. Configured launchers locate those modules relative
-to their own installed path, so custom prefixes and ``DESTDIR`` work without
-``PYTHONPATH`` and without modifying system Python
-([#33](https://github.com/SqueakyFloors/ubertooth/issues/33)). Runtime dependencies
-remain external: NumPy/QtPy/PySide6 for specan_ui and ``libusb1`` for ubtbr.
+`specan` and `ubtbr` modules directly under `CMAKE_INSTALL_PREFIX`, with no
+`setup.py install` and no setuptools. The configured launchers locate those
+modules relative to their own installed path, so custom prefixes and `DESTDIR`
+work without `PYTHONPATH` and without modifying the system Python
+([#33](https://github.com/SqueakyFloors/ubertooth/issues/33)). The runtime
+dependencies stay external: NumPy, QtPy, and PySide6 for specan_ui, and
+`libusb1` for ubtbr.
 
 ### Wireshark extcap: interfaces are named by serial
 `btle-extcap.py` names each capture interface `ubertooth<serial>` rather than
@@ -293,12 +289,9 @@ is not an option or the value of one is refused, as the other host tools refuse
 one. A capture filter is not applied: Wireshark's verification call is answered
 with the reason, which turns the filter box red.
 
-Every call exits 0 or 1
-([#343](https://github.com/SqueakyFloors/ubertooth/issues/343)). `--capture`
-used to pass
-`ubertooth-btle`'s own exit status through, and report 128 plus the number of
-the signal that killed it, so a script reading those statuses sees 1 instead.
-See `host/python/extcap/README.md`.
+Every call exits 0 or 1, `--capture` included
+([#343](https://github.com/SqueakyFloors/ubertooth/issues/343)); see
+`host/python/extcap/README.md`.
 
 ---
 
@@ -309,9 +302,9 @@ a validation report published with the release (tracked in
 [#85](https://github.com/SqueakyFloors/ubertooth/issues/85)). The "on
 hardware" entries in the platform and toolchain rows above reflect the most
 recent runs there, which covered the host tools only (build, unit tests,
-read-only device queries, and firmware flashing), not radio capture. Where
-another row rests on a run of its own, over the air or over USB, that row says
-so and names it.
+read-only device queries, and firmware flashing), not radio capture. A row
+resting on a run of its own says whether that run was over the air or over
+USB; the pull request that did it holds the numbers.
 
 ---
 
@@ -322,34 +315,14 @@ so and names it.
    docs. The Python 3.8 floor is checked in `host/python/cmake/UbertoothPythonFloor.cmake`:
    an older interpreter skips the Python tools with a warning, or fails the
    configure with `-DREQUIRE_ALL=ON`.
-2. **CI matrix = the "tested" column** — the "Tested / known-good" entries above
-   must mirror the pinned full-tier CI matrix in `.github/workflows/build.yml`,
-   which runs weekly, on a published release, or manually. A pull request that
-   changes the code a job covers runs a smaller tier: Ubuntu 22.04, Ubuntu
-   24.04, and macOS 26 for the host tools, and Ubuntu 24.04 and macOS 26 for
-   the firmware. The `scripts` job runs those same two on either tier. A pull
-   request that leaves a job's code alone, a documentation-only one included,
-   gets stand-ins reporting under the same names instead, so nothing is built
-   on either platform. Either way the
-   minimum versions are exercised by the weekly run, not on every pull
-   request. Pin explicit versions (not `-latest`) so the
-   record is reproducible, and test the **minimum and the newest** of each
-   dimension. Four narrower workflows cover one thing each on their own
-   triggers: `install-sh.yml` (Ubuntu 24.04, macOS 15 and a `fedora:latest`
-   container, when `install.sh` changes; the Fedora leg installs nothing
-   beforehand, so the script's own `dnf` package list is what it uses),
-   `libbtbb-pin.yml` (Ubuntu 24.04, on every change with no path
-   filter at all, since the files that must agree on the pin include this one
-   and the build guides), `doc-api-version.yml` (Ubuntu 24.04, on every change
-   with no path filter either, since `build.yml` skips a documentation-only
-   change and documentation is what it reads) and `manpages.yml` (Ubuntu 24.04,
-   when `host/doc` changes), which installs the pinned ronn-ng and fails if the
-   committed man pages no longer match their Markdown. One job in `build.yml`
-   builds the
-   host tools a second way: `host-installed-libubertooth` (Ubuntu 24.04, when
-   the host changed) installs libubertooth and then configures, builds and
-   tests `host/ubertooth-tools` on its own, which is what `FindUBERTOOTH.cmake`
-   is for. Linux alone, because what it covers — which include directory a
-   target is given — is the same on every platform.
+2. **CI matrix = the "tested" column** — the "Tested / known-good" entries
+   above must mirror the pinned full-tier CI matrix in
+   `.github/workflows/build.yml`, which runs weekly, on a published release, or
+   on request; a pull request runs a smaller tier, so the minimum versions are
+   exercised by the weekly run rather than on every pull request. Pin explicit
+   versions (not `-latest`) so the record is reproducible, and test the
+   **minimum and the newest** of each dimension. Which workflow runs when, and
+   what each one checks, is in
+   [CONTRIBUTING.md](CONTRIBUTING.md#the-checks-a-pull-request-has-to-pass).
 3. **Hardware-only claims** — anything about radio behaviour (BLE/BR-EDR
    capture) is only "tested" when run on a real Ubertooth per [validation/TEST_PLAN.md](validation/TEST_PLAN.md).
