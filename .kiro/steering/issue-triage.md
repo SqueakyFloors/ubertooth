@@ -22,8 +22,12 @@ issues first; do not start `post-release` or `backburner` work while
   exit anyway), docs gaps, test and CI improvements.
 - **`backburner`**: new features and design work deferred on purpose (not broken advertised features).
 
-Also used: `needs maintainer` (a decision is needed), `pending hw test`
-(merged or ready, hardware validation outstanding).
+Also used, alongside one of the three: `in progress` (someone is working it
+now; add it before the first build and remove it if the work is abandoned
+without closing the issue), `needs maintainer` (a decision is needed),
+`pending hw test` (merged or ready, hardware validation outstanding),
+`manual test` (needs a person at a bench or a GUI), and `needs dongle` or
+`needs serial adapter` (blocked on that piece of hardware).
 
 ## Filing an issue
 

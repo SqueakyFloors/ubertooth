@@ -28,29 +28,27 @@ stream a line is on.
   not be read. In a listing (`ubertooth-util -U all -b`, and `-V` in every
   tool) a device whose read failed keeps its line where its value would have
   been — `Serial No (1): read failed`, `Board ID Number (1): unavailable,
-  <reason>`, `Last processor fault: ... no address recorded` — because the line
-  is that device's result. It also keeps the listing one stream that can be
-  read or parsed top to bottom: send the failures elsewhere and which device
-  gave which line is ambiguous in a pipe. The `error: ` saying why is on
-  standard error and the status is still 1. Do not move these lines to
-  standard error.
+  <reason>` — because the line is that device's result, and because the
+  listing has to stay one stream that can be read or parsed top to bottom:
+  send the failures elsewhere and which device gave which line is ambiguous in
+  a pipe. The `error: ` saying why is on standard error and the status is
+  still 1. Do not move these lines to standard error.
 - A line summing up the result just printed goes where that result went:
   `ubertooth-btle`'s `note: 312 packets held data that could not be decoded` is
   a trailer on the decode above it, so a run that prints no decode prints no
   such line. A `note: ` about the tool or the board stays on standard error.
 - The usage text when the user asked for it with `-h`.
 - Nothing of an interactive prompt. `ubertooth-btbr`'s `bt> `, its intro line
-  (#800) and what `?` and `? <command>` print (#874) are on standard error: a
-  prompt is the tool saying it is ready, and it carries no newline, so on
-  standard output it lands on the front of the next packet, while `?` is the
-  tool describing itself rather than the capture data a command was asked
-  for. The one exception is a session at a terminal, where the
-  terminal's line editor is the thing drawing the prompt and uses its width
-  to redraw the line being edited: a prompt written behind the editor's back
-  is cleared off the screen on Ctrl-L and leaves the cursor short by its own
+  and what `?` and `? <command>` print are on standard error: a prompt is the
+  tool saying it is ready, and it carries no newline, so on standard output it
+  lands on the front of the next packet, while `?` is the tool describing
+  itself rather than the capture data a command was asked for. The prompt
+  alone is an exception at a terminal, where the line editor draws it and uses
+  its width to redraw the line being edited; a prompt written behind the
+  editor's back is cleared on Ctrl-L and leaves the cursor short by its own
   width on Ctrl-A. Nothing is reading standard output there, so the editor
-  keeps the prompt. The exception is the prompt alone: the intro line and
-  what `?` prints are on standard error at a terminal too.
+  keeps it. The intro line and what `?` prints stay on standard error at a
+  terminal too.
 
 ### `-h` beside another option that ends the command
 
