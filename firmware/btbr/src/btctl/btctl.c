@@ -77,38 +77,34 @@ static void btctl_handle_reset_req(msg_t *msg)
 	 * microseconds after the request handler that asked for it returned --
 	 * while the control transfer's status stage is still sitting in the
 	 * endpoint 0 buffer, waiting for the host's next IN token, which can be
-	 * a whole 1 ms frame away. Going off the bus throws that packet away,
-	 * and the host sees a stalled transfer: ubertooth-dfu reads that as a
-	 * board refusing to enter DFU and gives up, even though the board does
-	 * land in the bootloader, which carries no serial number.
+	 * a whole 1 ms frame away. Going off the bus throws that packet away and
+	 * the host sees a stalled transfer, which ubertooth-dfu reads as a board
+	 * refusing to enter DFU even though the board does land in the
+	 * bootloader.
 	 *
-	 * The delay is spent the way the idle request spends its own: standby
-	 * first, then usb_work() until the time is up. A receiving state would
-	 * otherwise keep filling the queue to the host while nothing emptied it,
-	 * and a state that cannot enqueue a packet calls die(), which never
-	 * returns -- so a board asked to reset mid-capture would stop here
-	 * instead of resetting. The states read this field to see that they have
-	 * been cancelled; usb_work() is what empties the queue.
+	 * The delay goes to standby first and then usb_work(), as the idle
+	 * request's own does: a receiving state would keep filling the queue to
+	 * the host while nothing emptied it, and a state that cannot enqueue
+	 * calls die(), which never returns, so a board asked to reset mid-capture
+	 * would stop here instead of resetting. The states read this field to
+	 * see that they have been cancelled.
 	 *
 	 * The field is set here rather than through btctl_set_state(), which
-	 * prints a line to the host's console and enqueues a state response, and
-	 * either can reach that same die() on a queue that is already full.
+	 * prints to the host's console and enqueues a state response, and either
+	 * can reach that same die() on a queue that is already full.
 	 *
 	 * CENTRAL_CLKN is a free-running hardware counter, so the subtraction
 	 * stays right to within a tick of its wrap, and nothing but a stopped
-	 * timer 1 -- which would have stopped the whole image long before this --
-	 * can hold the board here.
+	 * timer 1 can hold the board here.
 	 */
 	btctl.state = BTCTL_STATE_STANDBY;
 	start = CENTRAL_CLKN;
 	while ((uint32_t)(CENTRAL_CLKN - start) < RESET_DELAY_CLKN)
 		usb_work();
 
-	/* The watchdog time-out that reset() ends in is one this firmware asked
-	 * for, not the board having stopped answering. Said here, at the reset
-	 * itself, rather than where the request arrives: the request is queued,
-	 * and a queue that is full drops it, which would otherwise leave the
-	 * board running with a later real wedge excused. */
+	/* At the reset itself, not where the request arrives, because this
+	 * firmware's reset request is queued and a full queue drops it; see
+	 * watchdog_intent(). */
 	watchdog_intent(WATCHDOG_INTENT_RESET);
 	reset();
 }
@@ -128,10 +124,8 @@ static void btctl_handle_isp_req(msg_t *msg)
 	while ((uint32_t)(CENTRAL_CLKN - start) < RESET_DELAY_CLKN)
 		usb_work();
 
-	/* The programmer keeps the chip running without a reset, so the
-	 * watchdog stays armed and nothing in there feeds it. It cannot be
-	 * switched off before a reset, so the timeout is stretched to the
-	 * longest the counter holds instead. */
+	/* The programmer keeps the chip running without a reset and nothing in
+	 * there feeds the watchdog; see watchdog_stretch(). */
 	watchdog_intent(WATCHDOG_INTENT_ISP);
 	watchdog_stretch();
 

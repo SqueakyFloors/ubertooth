@@ -309,8 +309,8 @@ static void paging_schedule(unsigned delay)
  * link supervision ends it a second later.
  *
  * The page the user asked for still has most of its 45 seconds to run, so the
- * train starts again instead of one stray answer ending the whole attempt.
- * The deadline is the original one, so however many stray answers arrive, the
+ * train starts again rather than one stray answer ending the attempt. The
+ * deadline is the original one, so however many stray answers arrive the
  * command lasts no longer than a single page attempt. */
 void paging_state_resume(void)
 {

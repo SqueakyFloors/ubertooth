@@ -25,15 +25,13 @@
  *    reaching it proves is that a pass completed -- the controller was driven
  *    and anything the host had asked would have been answered.
  *
- *  - watchdog_usb_ready(), called once per pass by the mode loops that service
- *    USB from the interrupt instead of polling it. Those modes get no service
- *    pass of their own while the host is quiet -- the loop in xmas mode waits
- *    for a timer interrupt and nothing else -- so a feed tied to service alone
- *    would reset a board that is working. The loop body runs below every
- *    interrupt handler, so reaching it means no handler is stuck and the USB
- *    interrupt can be taken: the board would answer a request if one arrived.
- *    That is weaker than having answered one, and it is as strong as those
- *    modes allow.
+ *  - watchdog_usb_ready(), called once per pass by the mode loops that
+ *    service USB from the interrupt instead of polling it. Those modes get no
+ *    service pass of their own while the host is quiet, so a feed tied to
+ *    service alone would reset a board that is working. The loop body runs
+ *    below every interrupt handler, so reaching it means no handler is stuck
+ *    and the board would answer a request if one arrived. That is weaker than
+ *    having answered one, and as strong as those modes allow.
  *
  * Nothing feeds it from a timer, which would only show that the CPU is
  * running.
@@ -48,13 +46,10 @@
  *
  * One interrupt does set a priority, in both images: dma_poweron() puts the
  * GPDMA handler at 31, the lowest. That is the safe direction -- USB preempts
- * it, never the other way round -- but it does mean a GPDMA handler that
- * stopped returning would keep being fed through. It is not the fault this
- * watchdog is for: the board would still be answering the host, so the host
- * would see wrong or missing capture data rather than a board that has gone
- * silent.
- * test_watchdog.c pins both halves: nothing else sets a priority, and the one
- * that does sets the lowest.
+ * it, never the other way round -- though it does mean a GPDMA handler that
+ * stopped returning would keep being fed through, which is not the fault this
+ * watchdog is for. test_watchdog.c pins both halves: nothing else sets a
+ * priority, and the one that does sets the lowest.
  */
 
 /* What the board is doing, for the breadcrumb. */
@@ -73,17 +68,15 @@ uint8_t watchdog_mark(uint8_t site);
  * of caller need that:
  *
  *  - an interrupt handler, which borrows the processor and gives it back, so
- *    it is not a level of the nesting at all. Were it to use watchdog_mark(),
- *    the handler would be left named as the outer site after returning -- and
- *    the low-energy engine's byte interrupt fires once per received byte, so
- *    during a capture that would be the usual reading rather than a rare one.
+ *    it is not a level of the nesting at all. With watchdog_mark() the
+ *    handler would be left named as the outer site after returning, and the
+ *    low-energy engine's byte interrupt fires once per received byte.
  *
  *  - a step inside a pass that has already marked itself, such as the parts
  *    of a USB service pass. The outer site is what a reply reports, and it is
  *    set so that a reply written from inside the USB service path names the
- *    wait the mode is really in. A step of that pass claiming it would put a
- *    part of the USB path there instead, which is the one thing the outer site
- *    exists not to say.
+ *    wait the mode is really in; a step of that pass claiming it would name
+ *    part of the USB path instead.
  *
  * So the pair below records the site for the breadcrumb only. Use it in an
  * interrupt handler, or for a step of a pass; use watchdog_mark_wait() in a
@@ -130,7 +123,7 @@ void watchdog_leave_wait(uint8_t site);
  * A reset this firmware asked for, so the breadcrumb does not count it as the
  * board having stopped answering.
  *
- * Set it where the reset actually happens, not where the request arrives. A
+ * Set it where the reset actually happens, not where the request arrives: a
  * request can be dropped -- btbr queues its reset, and a full queue discards
  * it -- and a board left running with the intent set would have its next real
  * wedge excused. Entering the bootloader is a reset too, so it needs no
@@ -149,13 +142,13 @@ void watchdog_intent(uint8_t intent);
  * the channel a capture receives into, so the packet being received is lost.
  * What the mode does about it is the mode's own: the promiscuous path drains
  * the receiver and arms the transfer again, and the low-energy engine does
- * not yet, which leaves that capture stopped.
+ * not, which leaves that capture stopped.
  *
  * Reported by UBERTOOTH_GET_WATCHDOG, for the reason the radio wait counts
- * exist (firmware/common/cc2400_wait.h): carrying on is right, and silent.
- * A capture that is missing packets this way reads as a quiet channel, and
- * this count is what tells the two apart. It stops at 65535 rather than
- * wrapping, and is kept across a reset like the reset count.
+ * exist (cc2400_wait.h): carrying on is right, and silent, so a capture
+ * missing packets this way reads as a quiet channel and this count is what
+ * tells the two apart. It stops at 65535 rather than wrapping, and is kept
+ * across a reset like the reset count.
  */
 void watchdog_count_transfer_error(void);
 
@@ -165,13 +158,12 @@ void watchdog_count_transfer_error(void);
  *
  * Which address depends on what the part recorded, and the status says which
  * it is: the access the processor refused, where the part keeps a register for
- * it, and otherwise the instruction the processor was running, which the
- * handler reads from the exception frame (fault_frame.h). Zero means there was
- * nothing to report.
+ * it, and otherwise the instruction it was running, read from the exception
+ * frame (fault_frame.h). Zero means there was nothing to report.
  *
  * The four fault handlers never return -- they blink a code until the
  * watchdog resets the board -- so this is the only record of where the fault
- * was. Which of the four it was is the site the handler marks. Kept until the
+ * was; which of the four it was is the site the handler marks. Kept until the
  * next power-on, like the reset count.
  */
 void watchdog_fault(uint32_t status, uint32_t addr);
@@ -195,13 +187,13 @@ void watchdog_usb_ready(void);
 /*
  * Stretch the timeout to the longest the counter can hold, about 71 minutes,
  * for a hand-over to code that has no feed of its own. Only the on-chip
- * programmer (set_isp()) needs this: it keeps the chip running without a
- * reset, so the watchdog stays armed and would otherwise reset it mid-session.
- * The watchdog cannot be switched off again before a reset.
+ * programmer (set_isp()) needs it: that keeps the chip running without a
+ * reset, so the watchdog stays armed and would reset the board mid-session.
+ * It cannot be switched off instead, because the part allows that only
+ * through a reset.
  *
- * watchdog_unstretch() puts the timeout and the intent back, for the case
- * where that hand-over returns after all. Without it the board would run on
- * unguarded, and the next wedge would be neither reset in time nor counted.
+ * watchdog_unstretch() puts the timeout and the intent back for the case
+ * where the hand-over returns after all, or the board would run on unguarded.
  */
 void watchdog_stretch(void);
 void watchdog_unstretch(void);

@@ -109,11 +109,11 @@ static void page_scan_fhs_schedule(void)
  * receiver to be on from 312.5 usec after the answer, which would cover both
  * arrival times; this radio cannot, because a receive is tuned in the tick
  * before it listens and that tick is the one the answer goes out in. So an
- * empty window is followed by a window for the central's next repeat -- 8.3.3.1
- * has the board listen until pagerespTO and 8.3.3.2 has the central repeat
- * every 1.25 ms over that time -- taking the two readings in turn. In turn,
- * because which one is right holds for 1.28 seconds at a time, the period of
- * CLK12 on both clocks (hop.h). */
+ * empty window is followed by a window for the central's next repeat --
+ * 8.3.3.1 has the board listen until pagerespTO and 8.3.3.2 has the central
+ * repeat every 1.25 ms over that time -- taking the two readings in turn.
+ * Taking them in turn works because which one is right holds for 1.28 seconds
+ * at a time, the period of CLK12 on both clocks (hop.h). */
 static void page_scan_fhs_missed(uint32_t window_clkn)
 {
 	/* A packet that took two or more ticks to decode -- a stray multi-slot

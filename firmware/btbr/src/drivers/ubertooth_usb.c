@@ -379,19 +379,14 @@ void usb_send_sync(void *buf, int size)
 	 *
 	 * Both endpoint buffers stay full until the host reads them, and the
 	 * host may never read: its process was killed, or it is not reading
-	 * bulk at all. This wait used to have no bound and ran with the USB
-	 * interrupt masked, which is how this firmware services USB, so a host
-	 * that stopped reading left a board that still enumerated and answered
-	 * nothing until it was power-cycled.
+	 * bulk at all. Without the bound such a host would leave a board that
+	 * still enumerated and answered nothing until it was power-cycled.
 	 *
 	 * Room is one free buffer of the endpoint's two, which is all a packet
-	 * needs and what usb_work() below checks for; waiting for both to
-	 * drain, as this did, waits on a host that is reading steadily. The
-	 * USB interrupt is polled between passes, so control requests are
-	 * answered while we wait -- the rest of the firmware is not running,
-	 * which is why the bound matters -- and giving up costs one debug
-	 * message the host was not going to read. bluetooth_rxtx's handle_usb()
-	 * drops one without waiting at all.
+	 * needs and what usb_work() below checks for; waiting for both to drain
+	 * waits on a host that is reading steadily. The USB interrupt is polled
+	 * between passes, so control requests are answered while we wait, and
+	 * giving up costs one debug message the host was not going to read.
 	 */
 	for (i = 0; ; i++) {
 		epstat = USBHwEPGetStatus(BULK_IN_EP);

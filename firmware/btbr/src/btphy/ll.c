@@ -315,16 +315,17 @@ set_flags:
  * (see tx_task.h).
  *
  * Nothing the slot was carrying reached the peer, so the acknowledgment it
- * carried and the repeat it spent go back to the link and the next transmit
- * slot carries them instead. Without that, a packet the host asked to repeat
- * N times would go out N-1 times, and the peer would get no acknowledgment
- * for the packet it had just sent and repeat it, costing the link a slot.
+ * carried and the repeat it spent go back to the link for the next transmit
+ * slot. Without that, a packet the host asked to repeat N times would go out
+ * N-1 times, and the peer would get no acknowledgment for the packet it had
+ * just sent and would repeat it.
  *
- * A slot that did go out costs both, which is what the protocol expects.
+ * A slot that did go out spends both the acknowledgment and the repeat, which
+ * is what the protocol expects.
  *
- * A link that was reset between the slot and this report owes nothing: the
- * message a repeat would belong to has been freed, which is why ll_reset()
- * clears what the slot was carrying. */
+ * A link reset between the slot and this report owes nothing: the message a
+ * repeat would belong to has been freed, which is why ll_reset() clears what
+ * the slot was carrying. */
 void ll_tx_done(link_layer_t *ll, int sent)
 {
 	if (!sent)

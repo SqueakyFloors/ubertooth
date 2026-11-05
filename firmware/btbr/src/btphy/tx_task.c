@@ -71,13 +71,11 @@ static int tx_finalize(uint8_t p1, uint8_t p2, uint16_t p3);
  * The phase belongs to the attempt rather than to the packet, so it moves once
  * per transmit whether that packet reaches the air or not. For the page
  * response that is what keeps the two ends together: the paged device advances
- * its own phase for every window it opens, so a phase left standing here is
- * one behind for the rest of the attempt, with every later transmit going out
- * on the frequency the device's previous window used and nothing in the
- * attempt to close the gap. An inquirer's phase is one of 32 guesses it
- * sweeps, with nothing at the other end to keep level with, so a phase left
- * standing there repeats the guess just made and puts the rest of the sweep a
- * slot later. One step per transmit is the rate either way.
+ * its own phase for every window it opens, so a phase left standing here
+ * stays one behind for the rest of the attempt with nothing to close the gap.
+ * An inquirer's phase is one of 32 guesses it sweeps, so one left standing
+ * there repeats the guess just made and puts the rest of the sweep a slot
+ * later.
  *
  * The substate is read here, before a caller is told its transmit is over,
  * because this is the substate the transmit belonged to; the one in force
