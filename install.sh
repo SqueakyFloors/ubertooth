@@ -273,7 +273,7 @@ if [ "$HELP" -eq 1 ]; then
 	# reads cannot drift from the text in the source. The block starts
 	# below the shebang and the license line, and ends at the first line
 	# that is not a comment, which is where sed quits.
-	sed -n '3,${/^#/!q;p;}' "$0" | sed 's/^#\{1,\} \{0,1\}//; s/^#$//'
+	sed -n '3,${/^#/!q;p;}' "$0" | sed 's/^#\{1,\} \{0,1\}//'
 	# Printed rather than written in the comment above, so the pin itself
 	# lives in exactly one place in this script.
 	printf '\nlibbtbb defaults:\n  --libbtbb-url %s\n  --libbtbb-ref %s\n' \

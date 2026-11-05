@@ -27,6 +27,7 @@ must stay empty throughout.
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -55,11 +56,11 @@ assert result.stderr == "", result
 
 
 def leading_comment_block():
-    """The help text the script should print, read from its own source.
+    """The script's own lines, and the help text it should print.
 
-    The block is every line from the third (below the shebang and the license
-    line) up to the first line that is not a comment, with the "#" and the one
-    space after it taken off.
+    The help text is every line from the third (below the shebang and the
+    license line) up to the first line that is not a comment, with the "#"
+    and the one space after it taken off, which is what the script's sed does.
     """
     with open(SCRIPT) as handle:
         lines = handle.read().split("\n")
@@ -67,14 +68,14 @@ def leading_comment_block():
     for line in lines[2:]:
         if not line.startswith("#"):
             break
-        block.append(line[2:] if line.startswith("# ") else line[1:])
-    return block
+        block.append(re.sub(r"^#+ ?", "", line))
+    return lines, block
 
 
 # The help is that comment block and the two pinned libbtbb defaults, and
 # nothing else: the body of the script is not help text, and a user who asks
 # for help must not be handed the source.
-block = leading_comment_block()
+lines, block = leading_comment_block()
 assert len(block) > 20, block
 help_lines = result.stdout.split("\n")
 assert help_lines[-1] == "", result
@@ -87,9 +88,19 @@ assert tail[0] == "", tail[:8]
 assert tail[1] == "libbtbb defaults:", tail[:8]
 # The pin itself moves, so the test checks that each line names its option and
 # carries a value, not what the value is.
-assert tail[2].startswith("  --libbtbb-url http"), tail[:8]
-assert tail[3].startswith("  --libbtbb-ref "), tail[:8]
-assert len(tail[3].split()) == 2, tail[:8]
+assert [line.split()[0] for line in tail[2:]] == \
+    ["--libbtbb-url", "--libbtbb-ref"], tail[:8]
+assert all(len(line.split()) == 2 for line in tail[2:]), tail[:8]
+
+# The block ends at the first line that is not a comment, so a bare blank line
+# in the middle of the header would end it early and quietly shorten the help.
+# The header separates its paragraphs with "#" lines for that reason: between
+# the end of the block and the first line of shell there is nothing but blank
+# lines.
+for line in lines[2 + len(block):]:
+    if line.strip():
+        assert not line.startswith("#"), line
+        break
 
 # A command line the script will not take: one "error: " line on standard
 # error, nothing on standard output, exit 1. The line is the one every tool in
