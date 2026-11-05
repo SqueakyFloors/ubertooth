@@ -122,11 +122,6 @@ none:
       Device 0: aa1100112233445566778899aabbccdd
       Device 1: ee5500112233445566778899aabbccdd
 
-It used to open whichever board libusb handed over first, which on such a
-host reached an arbitrary one: a board flashed with `btbr` could be ignored
-in favour of one still carrying `bluetooth_rxtx`, whose write timeout then
-looked like the `btbr` board failing.
-
 A board whose serial number cannot be read is listed as `serial unreadable`
 and can still be chosen by index. Reading it means opening the board, so what
 makes it fail is an open that fails — on Linux, usually the udev rules not
@@ -546,11 +541,9 @@ One open for reading only (`ubertooth-btbr --bogus 2<&0`), closed
 (`ubertooth-btbr --bogus 2>&-`), or a pipe whose reader has left
 (`ubertooth-btbr --bogus 2>&1 | true`) all go the same way: the lines are
 dropped and the exit status is the command's own. A session keeps its capture
-through it, wherever standard output is going: a warning in the middle of one
-used to end it and take the rest of the capture with it, and a refused
-command line used to exit 120 rather than 1, from the flush the interpreter
-makes as it exits. A session with that stream closed used to be refused
-before the prompt was read. A child the tool starts for `-V` is handed the
+through it, wherever standard output is going, and a session whose standard
+error is closed still reaches the prompt. A child the tool starts for `-V` is
+handed the
 bin for that stream rather than a closed descriptor, whose number the first
 file it opened would take.
 

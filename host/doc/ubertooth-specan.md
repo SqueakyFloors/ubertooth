@@ -91,12 +91,11 @@ streaming samples to the terminal and dropping the `-v`.
 `-d` chooses where the samples go and `-g` or `-G` how they are written, so
 the two do separate jobs and go together, in either order: `-g -d out.dat`
 writes the gnuplot text into `out.dat`, and `-d out.bin` on its own writes the
-raw records. `-d` used to create the file and leave it empty while a later
-`-g` took the samples to the screen instead.
+raw records.
 
 One sweep is written one way, so `-g` and `-G` in one command are refused
 before any device is opened: `error: -G cannot be combined with -g; a sweep is
-written in one format`. The second one used to be the one used.
+written in one format`.
 
 `-d -` is for a pipe or a redirect when the samples are the raw records, which
 fill a terminal with control characters and can leave it in a strange state,

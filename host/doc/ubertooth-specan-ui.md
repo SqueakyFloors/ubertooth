@@ -122,8 +122,7 @@ opens, with one line starting `error: ` on standard error and exit status 1:
 `error: lower frequency must be <min>-<max> MHz (got <value>)` and the same for
 `upper`, `error: frequency of <n> MHz is below minimum frequency of <min>`,
 `error: frequency of <n> MHz is above maximum frequency of <max>` and
-`error: lower frequency of <n> MHz is above upper frequency of <n> MHz`. They
-used to be `ERROR: ...` on standard output.
+`error: lower frequency of <n> MHz is above upper frequency of <n> MHz`.
 
 A command line the argument parser will not read is refused the same way, in
 the lines the other tools here give for the same mistakes:
@@ -135,11 +134,10 @@ could not place is named whole: `error: unrecognized option '-Zx'`. A `--`
 ends the options, so what follows it is read as a word however it is spelled,
 and `--` on its own asks for nothing beyond the defaults and runs. No usage
 text follows any of these lines, which say what was wrong; `-h` prints it.
-These command lines used to open the window and start a sweep, the unreadable
-part dropped without a word. A value the parser cannot read, as in
-`--padding x`, goes the same way but keeps the parser's own words
-(`error: argument --padding: invalid int value: 'x'`); it used to print the
-usage text and exit 2. `-l` and `-u` are read by the tool itself, so a value
+A value the parser cannot read, as in `--padding x`, goes the same way but
+keeps the parser's own words
+(`error: argument --padding: invalid int value: 'x'`). `-l` and `-u` are read
+by the tool itself, so a value
 that is not a number is refused in the same words as one outside the band:
 `error: lower frequency must be 2402-2480 MHz (got abc)`, as
 `ubertooth-specan` gives.
@@ -179,7 +177,7 @@ only (`ubertooth-specan-ui -l 2000 2<&0`), closed
 (`ubertooth-specan-ui -l 2000 2>&-`), or a pipe whose reader has left
 (`ubertooth-specan-ui -l 2000 2>&1 | true`) all go the same way. The exit
 status is then all that is left to say what happened, and it is the tool's
-own: it used to be 120, from the flush the interpreter makes as it exits.
+own rather than one the interpreter's own failed flush produced.
 
 ## SEE ALSO
 
