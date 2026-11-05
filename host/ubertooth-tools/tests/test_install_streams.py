@@ -9,7 +9,8 @@ faked (see FAKES below) and stop at a device that is not there or a clone that
 cannot succeed.
 
   * --help is what the user asked for, so it goes to standard output and
-    exits 0;
+    exits 0, and it is the leading comment block plus the pinned libbtbb
+    defaults and nothing else, so asking for help never prints the script;
   * a command line the script will not take goes to standard error, as one
     "error: " line, and exits 1, with nothing on standard output, in the
     wording every tool in this project uses;
@@ -51,6 +52,44 @@ result = run(["--help"])
 assert result.returncode == 0, result
 assert "install.sh" in result.stdout, result
 assert result.stderr == "", result
+
+
+def leading_comment_block():
+    """The help text the script should print, read from its own source.
+
+    The block is every line from the third (below the shebang and the license
+    line) up to the first line that is not a comment, with the "#" and the one
+    space after it taken off.
+    """
+    with open(SCRIPT) as handle:
+        lines = handle.read().split("\n")
+    block = []
+    for line in lines[2:]:
+        if not line.startswith("#"):
+            break
+        block.append(line[2:] if line.startswith("# ") else line[1:])
+    return block
+
+
+# The help is that comment block and the two pinned libbtbb defaults, and
+# nothing else: the body of the script is not help text, and a user who asks
+# for help must not be handed the source.
+block = leading_comment_block()
+assert len(block) > 20, block
+help_lines = result.stdout.split("\n")
+assert help_lines[-1] == "", result
+assert help_lines[:len(block)] == block, (block, help_lines[:len(block)])
+# Only the first few lines past the block are reported on a failure: a help
+# text that ran on into the script would otherwise print the whole of it.
+tail = help_lines[len(block):-1]
+assert len(tail) == 4, tail[:8]
+assert tail[0] == "", tail[:8]
+assert tail[1] == "libbtbb defaults:", tail[:8]
+# The pin itself moves, so the test checks that each line names its option and
+# carries a value, not what the value is.
+assert tail[2].startswith("  --libbtbb-url http"), tail[:8]
+assert tail[3].startswith("  --libbtbb-ref "), tail[:8]
+assert len(tail[3].split()) == 2, tail[:8]
 
 # A command line the script will not take: one "error: " line on standard
 # error, nothing on standard output, exit 1. The line is the one every tool in

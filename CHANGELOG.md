@@ -2488,6 +2488,9 @@ Behavior the tools share.
   command line has parsed, so `install.sh -h --bogus` reports the bad option
   instead of printing the help and exiting 0.
   [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
+- Fixed: `install.sh --help` printed its usage text and then the whole script;
+  it now prints the usage text and stops.
+  [#1205](https://github.com/SqueakyFloors/ubertooth/issues/1205)
 - On macOS, `cmake -S host -B build && cmake --build build` builds the whole
   tree. It used to stop on one test unless the configure was given
   `-DCMAKE_C_FLAGS="-I$(brew --prefix)/include"`, because Homebrew keeps
