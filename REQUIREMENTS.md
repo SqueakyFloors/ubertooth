@@ -1,10 +1,10 @@
 # Build Requirements
 
-Dependencies for building the Ubertooth host tools and firmware. The build does
-**not** fail when an *optional* dependency is missing — it quietly builds fewer
-tools. The CMake configure step prints a **build summary** showing which tools
-are enabled/disabled; pass `-DREQUIRE_ALL=ON` to turn a missing optional
-dependency into a hard error (recommended for CI and release builds).
+Dependencies for building the Ubertooth host tools and firmware. A missing
+*optional* dependency does not fail the build; it quietly builds fewer tools,
+and the [build summary](#verifying-what-got-built) the configure step prints
+says which. Pass `-DREQUIRE_ALL=ON` to make a missing optional dependency an
+error instead, as `install.sh` does on Linux.
 
 ## Host tools
 
@@ -23,7 +23,6 @@ Missing a **required** dependency fails the build.
 | Dependency | Enables | If missing | Install |
 |---|---|---|---|
 | libbluetooth (BlueZ) | `ubertooth-scan`, `ubertooth-follow` | those two tools are **not built** | `libbluetooth-dev` / `bluez-libs-devel` (Linux only; on macOS there is nothing to install and those two tools are never built — [why, and what to use instead](COMPATIBILITY.md#macos-ubertooth-scan-and-ubertooth-follow-are-linux-only)) |
-| FFTW3 | specan_ui spectrum GUI deps | GUI may not function | `libfftw3-dev` / `fftw-devel` / `brew install fftw` |
 | Python 3 + runtime modules | specan_ui / ubtbr Python tools | Python tools install, but fail at runtime if deps are missing | `python3` (`python3-venv` on Debian/Ubuntu for `--venv`, `python3-pip` on Fedora); specan_ui: `numpy qtpy` plus `pyside6` (pip) or the distro packages (`python3-numpy python3-qtpy python3-pyqt5` on apt, `python3-numpy python3-QtPy python3-pyside6` on dnf); ubtbr: `libusb1` / distro `python3-usb1` (apt) or `python3-libusb1` (dnf) |
 | ronn-ng **0.10.1** | the `refresh-manpages` target, which regenerates the committed man pages from `host/doc/*.md` | nothing: the committed `.1` pages are the ones installed, and a build never regenerates them ([host/doc/man/README.md](host/doc/man/README.md)) | `gem install ronn-ng -v 0.10.1` |
 
@@ -43,15 +42,24 @@ See [COMPATIBILITY.md](COMPATIBILITY.md) for supported OS / toolchain / Python *
 | arm-none-eabi-gcc + its C library | cross-compile firmware | `gcc-arm-none-eabi libnewlib-arm-none-eabi` | `arm-none-eabi-gcc-cs arm-none-eabi-newlib` | `brew install --cask gcc-arm-embedded` |
 | ARM C++ runtime | only `firmware/bootloader`, the one image written in C++ | `libstdc++-arm-none-eabi-newlib` | `arm-none-eabi-gcc-cs-c++` | carried by the cask above |
 | perl | only `make -C firmware test`, to generate the ToorCon badge's register header | pre-installed | pre-installed | pre-installed |
-| dfu-util | flash firmware over DFU | `dfu-util` | `dfu-util` | `brew install dfu-util` |
-| ubertooth-dfu (host tool) | the `.dfu` packaging step | built with the host tools | same | same |
+| ubertooth-dfu (host tool) | the `.dfu` packaging step, and flashing a board | built with the host tools | same | same |
 
-## Quick install (Ubuntu 22.04 / 24.04, Fedora, macOS with Homebrew)
+## Installed but not needed
+
+**FFTW3** is installed by `install.sh`, by both build guides, and by the
+by-hand commands below; **dfu-util** by `install.sh --with-firmware` and by the
+build guide's Homebrew line. Nothing in this tree uses either: the spectrum GUI
+needs NumPy and a Qt binding, not an FFT library, and `firmware/common.mk`
+flashes with `ubertooth-dfu`. They are kept in those lists so that a machine
+set up by hand matches one set up by the script, not because a build or a tool
+needs them.
+
+## Quick install (Debian/Ubuntu, Fedora, and macOS with Homebrew)
 
 The easiest path is the bootstrap script, which installs all of the below and
-builds/installs libbtbb and the host tools for you. The one exception is the
-ARM C++ runtime: nothing the script builds needs it, so install it by hand if
-you are going to build the bootloader (`make -C firmware bootloader`).
+builds and installs libbtbb and the host tools for you. The one exception is
+the ARM C++ runtime: nothing the script builds needs it, so install it by hand
+if you are going to build the bootloader (`make -C firmware bootloader`).
 
 ```sh
 ./install.sh            # see ./install.sh --help for options (venv, flash, ...)
