@@ -62,7 +62,7 @@ carries over from an earlier capture. See ubertooth-util(1), SQUELCH.
  - `-h` :
    print the usage text on standard output and exit 0. It takes effect once
    the whole command line has parsed, so a bad option value, a stray word or
-   an option given twice is still reported.
+   a value-taking option given twice is still reported.
 
 ## ARGUMENTS
 
@@ -107,9 +107,8 @@ A terminal is refused either way, before any device is opened:
 A dump is written for a file or another program, not for a screen. `-b` is
 refused too, and the line names what it writes:
 `error: stdout is a tty, refusing to write the bitstream dump to it`. That
-stream is text rather than binary, and no more use on a screen at tens of
-thousands of characters a second. Redirect or pipe standard output instead, or
-give `-d` a file.
+stream is text rather than binary, and no more use on a screen. Redirect or
+pipe standard output instead, or give `-d` a file.
 
 A command line the tool will not take is reported as that one `error: ` line
 on standard error, with no usage text after it: the line describes the
@@ -259,11 +258,10 @@ MODE sets a receiving board to the same value.
 read position -- the two bytes after what has been read out of the FIFO,
 against the CRC16 over what was read -- and this capture reads a fixed 32
 bytes, because the framing carries no length. A 32-byte payload is therefore
-the case where the read stops where the CRC is, and it is the case the flag
-has been checked against: there it marked the corrupted packets and only
-those. A shorter payload still tracks whether the transmitter sent a CRC at
-all, so the flag is not simply scrambled, but it has not been shown catching a
-corrupt short packet. Treat it as unverified there rather than as a check.
+the case where the read stops where the CRC is, which is the case to rely on.
+With a shorter payload the read stops short of the CRC, so the flag says
+whether the transmitter sent one at all rather than whether this packet
+arrived intact: treat it as unverified there rather than as a check.
 
 The configuration has to be in the radio before the capture starts, and it
 survives only while the board is idle: a mode ending puts the radio back

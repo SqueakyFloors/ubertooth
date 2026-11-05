@@ -123,8 +123,8 @@ Options:
    Maximum access code bit errors. [Default: 2]
 
  - `-t <seconds>` :
-   Timeout in seconds. If not specified will run indefinitely. Suggested
-   values for `-z`: 20-60 seconds.
+   Timeout in whole seconds. `-t 0`, and omitting `-t`, run until the command
+   is interrupted. Suggested values for `-z`: 20-60 seconds.
 
 Output options:
 
@@ -158,7 +158,7 @@ Miscellaneous:
  - `-h` :
    print the usage text on standard output and exit 0. It takes effect once
    the whole command line has parsed, so a bad option value, a stray word or
-   an option given twice is still reported.
+   a value-taking option given twice is still reported.
 
 ## SIGNAL AND NOISE FIGURES
 
@@ -198,8 +198,9 @@ the estimate belongs to the channel over that stretch, not to one window.
 The signal figure has a limit of its own. The board reports power on a raw
 scale and the dBm figure stops rising at the top of it: one figure, 0 dBm,
 stands for every reading at or above that top, where the step below it is
--5 dBm, so 0 dBm says no more than that the packet was at least that loud. A Classic peer a few tens of
-centimeters away is loud enough to reach it. The screen prints `s=none
+-5 dBm, so 0 dBm says no more than that the packet was at least that loud. A
+Classic peer close to the board is loud enough to reach it. The screen
+prints `s=none
 snr=none` for such a packet rather than a figure the board did not measure, and
 the ratio goes with the level it would have rested on. A capture record has no
 way to say the level was not
@@ -813,10 +814,9 @@ fault. The radio reports the power of each block of air on a scale that runs
 out, and a receiver held at the top of it is also past where it demodulates
 reliably, so a transmitter close enough to pin it is one whose packets the
 capture cannot read. The Basic Rate receive turns the board's amplifier and
-high-gain mode both on, so the near end of a bench is close enough: a
-transmitter a few centimeters away pins the receiver at any transmit power.
-Put more distance or more attenuation between the two, or
-turn the transmit power down.
+high-gain mode both on, so a transmitter close to the board pins the receiver
+at any transmit power. Put more distance or more attenuation between the two,
+or turn the transmit power down.
 
 A receiver held at the top of the scale is what gets reported, not one loud
 packet: a short packet from a board a few centimeters away still decodes, so
