@@ -61,6 +61,8 @@ traffic.
 To sniff Bluetooth 5 traffic, use a sniffer built on a Bluetooth 5 radio,
 for example Nordic's nRF Sniffer for Bluetooth LE on an nRF52840 dongle.
 
+## Versions, libbtbb, and firmware
+
 The most recent upstream release is
 [2020-12-R1](https://github.com/greatscottgadgets/ubertooth/releases/tag/2020-12-R1),
 whose firmware build is on that release page. This fork's own tags are under
@@ -76,24 +78,24 @@ tooling, so no extra policy or compatibility flags are needed.
 Instructions for flashing the firmware are in this tree's
 [firmware page](docs/source/firmware.rst).
 
-The host tools require firmware built from the same source tree (the same
-firmware API version), so flash the firmware whenever you update the tools:
+Host tools and firmware belong together: they are built to run against each
+other's firmware API version, so flash the firmware whenever you update the
+tools, from the same commit or tag —
 `./install.sh --flash-device <index|serial|all>`. The API version is bumped
-when a firmware change breaks older host tools, so the same version does not
-mean the same commit. Tools built from a release refuse
-a board left on older firmware; tools built from a clone, which is what
+only when a firmware change breaks older host tools, so the same version does
+not mean the same commit. Tools built from a release refuse a board whose
+firmware reports a different version; tools built from a clone, which is what
 `./install.sh` gives you, warn about it and run the command anyway, so reflash
 from the commit you built the tools from before trusting what they report.
 
+## Building
+
 Instructions for building libbtbb by hand, with the pin, are in this tree's
 [build guide](docs/source/build_guide.rst). libbtbb and libubertooth both
-install to the directory the system keeps libraries in — `lib`, or `lib64` and
-`lib/<triplet>` on the systems that use those — so the two land together, and
-the host build and `install.sh` ask pkg-config and CMake where that is rather
-than assuming `lib`. `-DCMAKE_INSTALL_LIBDIR=` chooses it.
-The published
-[readthedocs.io build_guide page](https://ubertooth.readthedocs.io/en/latest/build_guide.html)
-documents upstream, not this fork.
+install to whichever library directory the system uses — `lib`, `lib64`, or
+`lib/<triplet>` — so the two land together; the host build and `install.sh`
+ask CMake and pkg-config which it is rather than assuming, and
+`-DCMAKE_INSTALL_LIBDIR=` chooses it.
 
 Build dependencies (required vs optional, and what each enables) are listed in [REQUIREMENTS.md](REQUIREMENTS.md).
 
@@ -104,14 +106,14 @@ hand. A CMake project of your own finds the same install with
 `find_package(ubertooth)` and links `ubertooth::ubertooth`; see
 [host/README.cmake.md](host/README.cmake.md).
 
-## Quick install (Debian/Ubuntu, Fedora and macOS)
+## Quick install (Debian/Ubuntu, Fedora, and macOS)
 
 From a checkout of this repository, [`install.sh`](install.sh) does the whole
 from-source setup in one command — system dependencies, libbtbb, the host
 tools, specan_ui Python deps, and (on Linux) udev rules:
 
 ```sh
-./install.sh                              # host tools only
+./install.sh                              # everything but the firmware
 ./install.sh --venv ~/ubertooth-venv      # isolate the Python tools in a venv
 ./install.sh --flash-device <index|serial|all>   # also build + flash firmware
 ./install.sh --uninstall                  # take it all back off again
@@ -119,10 +121,10 @@ tools, specan_ui Python deps, and (on Linux) udev rules:
 
 `--uninstall` removes the files an earlier run recorded — the tools, the
 libraries, the man pages, the udev rule — and nothing else: the distribution
-or Homebrew packages, the Python packages and a `--venv` directory all stay.
+or Homebrew packages, the Python packages, and a `--venv` directory all stay.
 The libbtbb it installed stays too unless you ask for it with
-`--remove-libbtbb`, because anything else on the machine built against that
-libbtbb stops building until it is put back.
+`--remove-libbtbb`, or say yes when it asks, because anything else
+on the machine built against that libbtbb stops building until it is put back.
 
 On Linux it installs into `/usr/local` with `sudo`, taking the dependencies
 from `apt` on Debian/Ubuntu and from `dnf` on Fedora. On macOS it needs
@@ -149,12 +151,11 @@ has always used:
 Development and release-candidate tags are published as GitHub pre-releases, so
 the release page's "Latest" link always points at a release.
 
-Host tools and firmware from the same tag belong together. Tools built from a
-tagged commit refuse a board carrying a different firmware API version, so
-flash the firmware from the same tag as the tools you installed.
+Flash the firmware from the same tag as the tools you installed, for the reason
+given [above](#versions-libbtbb-and-firmware).
 
 The current pre-release is
-[2026-10-DEV2](https://github.com/SqueakyFloors/ubertooth/releases/tag/2026-10-DEV2).
+[2026-11-DEV1](https://github.com/SqueakyFloors/ubertooth/releases/tag/2026-11-DEV1).
 
 --------------------
 
@@ -290,9 +291,7 @@ See also the [Ubertooth overview man page](host/doc/ubertooth.md).
 The documentation files are in the [docs folder](docs) of this repository:
 [docs/source](docs/source) holds the chapters and `host/doc` the manual pages.
 The [Read the Docs site](https://ubertooth.readthedocs.io/en/latest/) is built
-from upstream, so it describes upstream rather than this fork. Documentation
-changes can be submitted through pull request and suggestions can be made as
-GitHub issues.
+from upstream, so it describes upstream rather than this fork.
 
 [CONTRIBUTING.md](CONTRIBUTING.md) covers what a change to this fork needs:
 the tests to run, and the CI checks a pull request has to pass.
