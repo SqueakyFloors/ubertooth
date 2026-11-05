@@ -125,12 +125,12 @@ Speed matters. Do not wait for every job.
   required, but it is the check such a change exists to satisfy.
 - **Twelve checks are required on `main`** and GitHub refuses the merge until
   each has reported green or skipped. `CONTRIBUTING.md` names them, under
-  "They are required". The rule does not apply to the repository owner, which
-  is there for the one case where the maintainer has looked at a red check and
-  decided to merge anyway. **Never use `--admin`**: a check the maintainer has
-  allowed to be red is the maintainer's merge, not yours, and a required check
-  that is stuck or still pending is the same call. Say on the PR why you think
-  it should not block, and leave it.
+  "They are required". The rule does not apply to the repository owner; that
+  exemption is there for the one case where the maintainer has looked at a red
+  check and decided to merge anyway. **Never use `--admin`**: a check the
+  maintainer has allowed to be red is the maintainer's merge, not yours, and a
+  required check that is stuck or still to report is the same call. Say on the
+  PR why you think it should not block, and leave it.
 - **Gating set: one Linux and one Mac.** A code change is good to merge once
   `host (ubuntu-24.04)` and `host (macos-26)` have passed and nothing has
   failed. A change under `host/` also needs `host-installed-libubertooth`,
