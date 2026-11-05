@@ -2,7 +2,7 @@
 Release 2017-03-R2
 ==================
 
-`for Release 2015-10-R1 see here <https://ubertooth.readthedocs.io/en/latest/Release_2015-10-R1.html>`__
+For Release 2015-10-R1 see :doc:`Release_2015-10-R1`.
 
 
 

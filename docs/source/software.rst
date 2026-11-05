@@ -5,9 +5,11 @@ Software
 Building and Running Ubertooth Software
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-For information on how to download, build and install the Ubertooth software and dependencies, see the `build guide <https://ubertooth.readthedocs.io/en/latest/build_guide.html>`__.
+For how to download, build, and install the Ubertooth software and its
+dependencies, see the :doc:`build guide <build_guide>`.
 
-For an introduction on the capabilities of Ubertooth and how to use it, see the `getting started <https://ubertooth.readthedocs.io/en/latest/getting_started.html>`__ page.
+For an introduction to what Ubertooth can do and how to use it, see the
+:doc:`getting started <getting_started>` page.
 
 
 

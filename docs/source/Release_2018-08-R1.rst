@@ -2,7 +2,7 @@
 Release 2018-08-R1: the DEFCON release
 ======================================
 
-`for Release 2017-03-R2 see here <https://ubertooth.readthedocs.io/en/latest/Release_2017_03_R2.html>`__
+For Release 2017-03-R2 see :doc:`Release_2017_03_R2`.
 
 
 

@@ -9,23 +9,34 @@ FAQ
 check `the upstream releases
 <https://github.com/greatscottgadgets/ubertooth/releases>`__ and `this fork's
 releases <https://github.com/SqueakyFloors/ubertooth/releases>`__ for the most
-up to date information. See the `Build Guide
-<https://ubertooth.readthedocs.io/en/latest/build_guide.html>`__ for
-instructions on how to download and build the software.
+up to date information. See the :doc:`build guide <build_guide>` for how to
+download and build the software.
 
 ----------
 
-**Question: I run Windows or Mac OS X. What's the best way to use Ubertooth?**
+**Question: I run Windows or macOS. What's the best way to use Ubertooth?**
 
-**Answer:** The best way to use Ubertooth is from a native Linux install. If you don't normally run Linux, we recommend you boot Linux from USB using a distro such as `Kali <https://www.kali.org/>`__ or `Pentoo <http://pentoo.ch/>`__.
+**Answer:** On **macOS**, install the host tools natively. ``./install.sh``
+builds them from source, taking its dependencies from `Homebrew
+<https://brew.sh>`__, which has to be installed first. Every tool but
+``ubertooth-scan`` and ``ubertooth-follow`` is built there; those two drive a
+second, ordinary Bluetooth adapter through BlueZ, which is Linux only, and
+:doc:`software` says what to use in their place. Use ``--venv <path>`` on a Mac
+if you want the Python tools, ``ubertooth-specan-ui`` and ``ubertooth-btbr``:
+Homebrew's Python will not take their packages, and the script says so and
+carries on without them.
 
-It **may** be possible to use Ubertooth from within a virtual machine. However, people have reported issues with USB throughput and requests timing out. If you're a newbie, booting directly into Linux is the recommended method.
+On **Windows** there is no supported path. Run the host tools on Linux, either
+natively or in a virtual machine with the Ubertooth passed through; a live
+distro such as `Kali <https://www.kali.org/>`__ booted from USB is the quickest
+way to try one. The entry below covers what to watch for in a virtual
+machine.
 
 ----------
 
 **Question: How do I update firmware?**
 
-**Answer:** Refer to the wiki page `Firmware <https://ubertooth.readthedocs.io/en/latest/firmware.html#>`__.
+**Answer:** See the :doc:`firmware` page.
 
 ----------
 
