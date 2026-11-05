@@ -607,11 +607,14 @@ tree, and the Classic Bluetooth sniffing guide in `docs/`.
 ## COPYRIGHT
 
 ubertooth-btbr(1) and the `ubtbr` module are Copyright (c) 2020 Etienne
-Helluy-Lafont; the `btbr` firmware sources are Copyright (c) 2020 Etienne
-Helluy-Lafont, Univ. Lille, CNRS. All of them are released under the GNU
-General Public License version 2 or, at your option, any later version.
-`firmware/btbr/LICENSE` is the version 3 text that came with the *ubtbr*
-project, which "any later version" permits; the project as a whole is
-distributed under version 2. Refer to
+Helluy-Lafont, and most of the `btbr` firmware is Copyright (c) 2020 Etienne
+Helluy-Lafont, Univ. Lille, CNRS. Those sources are released under the GNU
+General Public License version 2 or, at your option, any later version, so
+`firmware/btbr/LICENSE`, the version 3 text that came with the *ubtbr*
+project, is one of the versions they permit; the project as a whole is
+distributed under version 2. Code from other projects that is built into the
+image keeps its own notice, LGPL and BSD among them, and
+[CREDITS.md](https://github.com/SqueakyFloors/ubertooth/blob/main/CREDITS.md)
+lists each piece. Refer to
 [COPYING](https://github.com/SqueakyFloors/ubertooth/blob/main/COPYING) for
 further details.
