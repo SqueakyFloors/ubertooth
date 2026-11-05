@@ -54,7 +54,7 @@
 /* The most readings one step of the window holds before every step is halved.
  * Halving keeps the mean to within the one reading each step can lose, a part
  * in 134 million, far below the dB the readings are quantized to. A capture
- * reaches it after hours on a quiet channel. */
+ * reaches it after hours of readings that all land on the same step. */
 #define RSSI_POWER_STEP_MAX (1u << 28)
 
 typedef struct {
@@ -99,8 +99,9 @@ int8_t rssi_get_signal(void);
  * The readings admitted outlive the window, unlike the packet's, because a
  * quiet window holds nothing but background and a busy one may hold nothing
  * but packet. The mode loops end their collection wherever they act on the
- * hop timer, so a record reports the last few tens of milliseconds of air on
- * its channel.
+ * hop timer -- on every hop, and 25 times a second even on a fixed channel --
+ * so a record reports the last few tens of milliseconds of air on its
+ * channel.
  *
  * Three things it is not. Not a measurement of clear air: a deeply faded part
  * of a packet sits that far down too and is counted in. Not the floor: the

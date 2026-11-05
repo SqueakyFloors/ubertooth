@@ -83,8 +83,11 @@ rangetest_result rr;
  * stopped, while waiting too little costs the whole test. So this takes the
  * generous end: a second, thirty times the air time.
  */
+#define REPEATER_TURNAROUND_MS 1000
+#define REPEATER_TURNAROUND_TICKS (3200u * REPEATER_TURNAROUND_MS / 1000u)
+
 /*
- * These two modes reach the radio's FIFO through cc2400_fifo_write() and
+ * Both modes below reach the radio's FIFO through cc2400_fifo_write() and
  * cc2400_fifo_read(), not a byte at a time through FIFOREG.
  *
  * A per-byte loop is a separate SPI transfer each time -- CSN drops, the
@@ -100,9 +103,6 @@ rangetest_result rr;
  * FIFO equalling the CRC16 over the bytes already read out of it, so reading
  * zeros out of an empty FIFO sets it.
  */
-
-#define REPEATER_TURNAROUND_MS 1000
-#define REPEATER_TURNAROUND_TICKS (3200u * REPEATER_TURNAROUND_MS / 1000u)
 
 /*
  * Sit out the turnaround delay, servicing USB, and report whether the host
@@ -273,9 +273,8 @@ void cc2400_rangetest(volatile u16 *chan_ptr)
 	 * Wait for the repeater's reply. There is no deadline: the other board
 	 * may be out of range, or not running, so this can wait indefinitely and
 	 * that is not a failure. What it must not do is wait without servicing
-	 * USB, which is how this used to leave a board enumerated and answering
-	 * no control request -- not even the one that stops the mode -- until it
-	 * was re-plugged.
+	 * USB: the board would then answer no control request, not even the one
+	 * that stops the mode, until it was re-plugged.
 	 */
 	while (!got_reply && requested_mode == MODE_RANGE_TEST) {
 		cc2400_wait_fsm(STATE_STROBE_FS_ON, service_usb);
@@ -375,10 +374,9 @@ void cc2400_repeater(volatile u16 *chan_ptr)
 	 * the way out of this mode. */
 	clkn_start();
 
-	/* This used to be `while (1)` with a FIXME asking for a way to turn it
-	 * off. There was none: nothing in here looked at requested_mode and
-	 * nothing serviced USB, so the board answered no control request from
-	 * the moment the mode started and only a re-plug ended it. */
+	/* The loop ends when the mode does, and services USB as it goes:
+	 * without both, the board answers no control request from the moment
+	 * the mode starts and only a re-plug ends it. */
 	while (requested_mode == MODE_REPEATER) {
 		/*
 		 * One channel for the whole exchange. A request serviced while this
@@ -393,11 +391,10 @@ void cc2400_repeater(volatile u16 *chan_ptr)
 		cc2400_set(MANAND,  RANGETEST_MANAND);
 		cc2400_set(LMTST,   0x2b22);
 		cc2400_set(MDMTST0, 0x134b);
-		/* The packet format the sender uses: 4 preamble bytes, a 32-bit sync
-		 * word, CRC on. The repeater used to leave this register alone, so it
-		 * worked only while the radio still held its reset value -- which
-		 * happens to be this. After any mode that writes GRMDM, a capture
-		 * mode or `-q`, it could not decode a request at all. */
+		/* The packet format the sender uses: 4 preamble bytes, a 32-bit
+		 * sync word, CRC on. This value happens to be the radio's reset
+		 * value, so leaving the register alone works on a freshly booted
+		 * board and decodes nothing after any mode that writes GRMDM. */
 		cc2400_set(GRMDM,   0x0df1);
 		cc2400_set(FSDIV,   chan - 1);
 		cc2400_set(SYNCH,   0xf9ae);
@@ -451,8 +448,7 @@ void cc2400_repeater(volatile u16 *chan_ptr)
 		 * Got a packet. Stop receiving before anything else: the rest of
 		 * the sender's burst would otherwise keep arriving through the
 		 * delay below and fill the radio's 32-byte FIFO, which is the same
-		 * FIFO the reply is written into. The delay used to be a loop the
-		 * compiler deleted, so this ordering did not matter before.
+		 * FIFO the reply is written into.
 		 */
 		USRLED_CLR;
 		RXLED_CLR;

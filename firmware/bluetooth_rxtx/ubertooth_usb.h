@@ -125,7 +125,8 @@ typedef struct {
  * is longer than the 50 bytes one record holds.
  *
  * The packet is the four bytes of the access address at `aa` followed by
- * `rest_len` bytes at `rest`. The two are separate because the capture loops
+ * `rest_len` bytes at `rest` -- the PDU header, the payload and the CRC. The
+ * two are separate because the capture loops
  * keep them apart: the access address is what the board synchronized on, not
  * something it received.
  *

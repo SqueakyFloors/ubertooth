@@ -194,13 +194,10 @@ _Static_assert(LE_SAME_EVENT_GAP >= 261u * 80u + 1500u,
  * 2.1 ms long, so a sighting on the answer is up to 2.32 ms late. 2.5 ms
  * covers both, which is why it matches LE_SAME_EVENT_GAP above.
  *
- * It is not a bound the collector can guarantee. The board may have missed
- * the packets before the one it heard -- a length the capture refused, a
- * failed CRC, a packet the radio was not ready for -- and the sighting is
- * then as deep into its event as those went. That degrades the search rather
- * than making it answer wrongly: the allowances below take such a gap for a
- * whole number of intervals, every older sighting's offset shifts, and the
- * winning score falls below the bar.
+ * It is not a bound the collector can guarantee: the board may have missed
+ * the packets before the one it heard, and the sighting is then as deep into
+ * its event as those went. That degrades the search rather than making it
+ * answer wrongly, because the winning score falls below the bar.
  *
  * Two things rest on the figure: the search allows for it on top of the
  * clock's own error, and the follow it hands over to is anchored on the
@@ -285,12 +282,8 @@ _Static_assert(LE_SAME_EVENT_GAP <= LE_CSA2_SIGHTING_SPREAD,
  * seconds at a short interval, where the five-second floor wins anyway, and
  * about two minutes at the longest interval a connection can be recovered
  * at. Waiting is the cheaper mistake, because recovering from the access
- * address takes longer than that.
- *
- * It is not the cheaper mistake for a connection that is still there and that
- * the follow has gone deaf to, which nothing in the follow corrects: two
- * clocks a few tens of parts per million apart cover a millisecond of an
- * event in under a minute.
+ * address takes longer than that -- except for a connection the follow has
+ * gone deaf to, which nothing re-anchors.
  */
 #define LE_CSA2_SILENCE_EVENTS 64
 
@@ -324,7 +317,9 @@ int le_csa2_handoff(const le_csa2_recovery_t *rec, u32 elapsed,
  *
  * LE_MAX_PAYLOAD_LEGACY is the most any PDU carried before that: 37, from an
  * advertising PDU's 6-bit length field. A data channel PDU's own legacy
- * maximum is 31, but the looser number is the one to compare against, because
+ * maximum is 31 (27 payload bytes and a 4-byte message integrity check when
+ * the connection is encrypted), but the looser number is the one to compare
+ * against, because
  * a mode following a host-supplied target starts on the advertising access
  * address and sees advertising PDUs. Being 6 bytes loose costs about 48
  * microseconds of waiting; being tight would drop real packets. */

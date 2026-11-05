@@ -83,7 +83,8 @@ extern volatile uint32_t clkn_next_drift_fix;
  * UBERTOOTH_START_HOPPING let the host put a length of its own in the match
  * register. A reading that went down counts only how far into the new period
  * the wait is, which is never more than the time that really passed, because
- * a period is never shorter than CLK100NS_PER_CLKN. A fixed modulus has no
+ * a period is never shorter than CLK100NS_PER_CLKN: the match value is that
+ * minus one plus an unsigned offset. A fixed modulus has no
  * such bound and for some lengths returns more than the step took, which
  * would end a wait early.
  *

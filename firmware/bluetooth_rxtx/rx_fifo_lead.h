@@ -32,10 +32,12 @@
  * the radio sets that flag when the sync word ends, before the first payload
  * byte exists, so a read that starts there gets a byte the radio has not put
  * in the FIFO yet. Only byte 0 is affected, because the read is slower than
- * the air -- about 14 us a byte against 8 us -- so from the second byte on
- * the radio is further ahead with every byte read.
+ * the air -- cc2400_fifo_read() waits out two delay loops per bit, about
+ * 14 us a byte against 8 us -- so from the second byte on the radio is
+ * further ahead with every byte read.
  *
- * One byte time would do; four leave room for the jitter of the delay loop
+ * One byte time would do, since the wait starts at or after the end of the
+ * sync word; four leave room for the jitter of the delay loop
  * and of the radio writing the byte. It must stay short: the radio goes on
  * writing into the same 32-byte FIFO while the packet is read out of it.
  */
@@ -48,9 +50,10 @@
  * The wait needs a few hundred reads, so this is a backstop and not the
  * bound: a timer 0 that is not running would otherwise leave the wait
  * spinning, answering no control request, until the watchdog reset the board.
- * Reaching it costs 100,000 turns with USB unserviced, by which time the
- * radio has refilled the FIFO several times over, so a wait that gets here
- * counts itself and `ubertooth-util -w` says it happened.
+ * Reaching it costs 100,000 turns with USB unserviced, and by then the radio
+ * has refilled the 32-byte FIFO several times over, so the record is wrong
+ * throughout rather than only at byte 0. A wait that gets here counts itself,
+ * so `ubertooth-util -w` says it happened.
  */
 #define RX_FIFO_LEAD_POLLS 100000
 

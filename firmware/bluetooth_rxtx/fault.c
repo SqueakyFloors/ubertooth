@@ -50,7 +50,9 @@ static void flash_leds(int count) {
  * Each handler also records the part's fault status register and one address:
  * the access the processor refused, where the part keeps a register for it,
  * and otherwise the instruction it was running, read from the exception frame
- * (fault_frame.h). Both are needed, because an instruction fetch the part
+ * (fault_frame.h). The status says which of the two the address is, and
+ * ubertooth-util -w says so in words. Both are needed, because an instruction
+ * fetch the part
  * refuses to execute -- a branch through a corrupted pointer or return
  * address -- records no access address at all, and then the address it would
  * not run is all there is to go on.
@@ -71,11 +73,7 @@ void hard_fault_at(uint32_t *frame) {
 	 * priority. The hard fault status says only "forced", so what gets
 	 * recorded is the configurable fault status, which says which of the
 	 * three it was, and the address register of whichever of them has one
-	 * worth reading.
-	 *
-	 * A board on the bench recorded exactly this during a BLE follow soak,
-	 * and the status alone -- forced, with no address -- was as far as the
-	 * record went. */
+	 * worth reading. */
 	if (val & SCB_HFSR_FORCED) {
 		uint32_t cfsr = SCB_CFSR;
 

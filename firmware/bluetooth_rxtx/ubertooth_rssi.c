@@ -27,10 +27,10 @@
 
 /*
  * Round n/d to the nearest integer (half away from zero). C integer division
- * truncates toward zero, so the old `(n + d/2) / d` idiom only rounds correctly
- * for n >= 0. RSSI values are dBm and therefore negative, so without the signed
- * form every reading was biased upward (reported ~1-2 dB stronger than it was).
- * Adding d/2 with the sign of n fixes both directions.
+ * truncates toward zero, so the plain `(n + d/2) / d` idiom only rounds
+ * correctly for n >= 0. RSSI values are dBm and therefore negative, so that
+ * form biases every reading upward; adding d/2 with the sign of n rounds both
+ * directions.
  */
 static inline int32_t round_div(int32_t n, int32_t d)
 {

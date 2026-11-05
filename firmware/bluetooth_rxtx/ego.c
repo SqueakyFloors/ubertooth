@@ -413,8 +413,7 @@ static void start_jamming_state(ego_fsm_state_t *state) {
 	cc2400_set(FSDIV,   channel); // no IF for TX
 	cc2400_set(MDMCTRL, 0x0026); // 150 kHz frequency deviation
 	cc2400_set(GRDEC,  3);       // 250 kbit
-	// jam at the amplifier level set with `ubertooth-util -a` (7 at power-on,
-	// which is the level this used to force)
+	// jam at the amplifier level set with `ubertooth-util -a` (7 at power-on)
 	cc2400_set(FREND, frend_keep_pa_level(cc2400_get(FREND)));
 
 	/* Bounded, as in rf_on(). */
