@@ -67,38 +67,23 @@
 // default, so a bit-errored data packet reaches the dispatch that reads these
 // packets, and the control LLID, a length of 2 and 0x02 where the opcode goes
 // are all that tell it from a real one. Stopping a healthy follow is the worse
-// of the two mistakes, because nothing re-follows a live connection -- there
-// is no new connection request to hear -- so the capture would go quiet with
-// the connection still running.
+// mistake, because nothing re-follows a live connection -- there is no new
+// connection request to hear. `ubertooth-btle -k1` removes the exposure: a
+// damaged packet never reaches the dispatch.
 //
-// Why two events of it. A close is not one packet but a short exchange: the
-// peer that is closing sends this packet, and the other acknowledges it in its
-// own next packet, which is a connection event later when the peripheral is
-// the one closing. Both of those events carry packets and neither says the
-// connection is alive, so the note has to outlast them. A connection in use
-// carries packets in every event, so it spends the budget just as quickly and
-// the note is gone.
+// Why two events of it: a close is a short exchange, not one packet. The peer
+// that is closing sends this packet and the other acknowledges it in its own
+// next packet, a connection event later when the peripheral is closing. Both
+// events carry packets and neither says the connection is alive, so the note
+// has to outlast them; a connection in use carries packets in every event, so
+// it spends the budget just as quickly.
 //
-// What it costs: a real close ends the follow one or two connection events
-// later than the packet alone would. A connection that keeps talking for
-// longer than that after the packet keeps its follow, and if the packet was
-// genuine the follow then waits out the supervision timeout as it did before.
-// A connection event the board merely missed is silence too, so a damaged
-// packet followed by a quiet event does still end a follow.
-// `ubertooth-btle -k1` is what removes the exposure altogether: a damaged
-// packet never reaches the dispatch.
-//
-// The two differ by one event, and that event is the one the packet itself
-// arrived in. The mode's loop reads a packet after the receive interrupt has
-// queued it, so that event may or may not have closed yet; where it has not,
-// its close is still to come and spends a unit of the budget, and the event
+// The two values differ by the event the packet itself arrived in, which may
+// or may not have closed by the time the loop reads the packet. The event
 // counter the receive interrupt dated the packet with says which case it is.
-//
-// Events that closed while the packet waited in the queue are not charged
-// against the budget. The wait is bounded by the pool, which is
-// LE_BUFFER_POOL_SIZE buffers with one always being received into, and
-// charging for it would be the wrong way round: a note expiring before it was
-// read would leave a genuine close to the supervision timeout.
+// Events that closed while the packet waited in the queue are not charged: a
+// note expiring before it was read would leave a genuine close to the
+// supervision timeout.
 #define TERMINATE_BUDGET_EVENT_CLOSED 2
 #define TERMINATE_BUDGET_EVENT_OPEN   (TERMINATE_BUDGET_EVENT_CLOSED + 1)
 
@@ -107,34 +92,24 @@
 //
 // Every re-check runs in TIMER1_IRQHandler(), with the mode's loop underneath
 // it, and that loop is the only thing servicing USB while this mode runs. A
-// re-check costs a status read on the radio's bit-banged bus -- about 1.6
-// microseconds with interrupts masked -- plus the interrupt's own entry and
-// exit, so at a 3 microsecond interval the loop was left with well under half
-// the processor for as long as the synthesizer did not report locked, which
-// for a lock that never arrives is forever. The interval is armed from a
-// counter reading taken near the end of the handler, so the match is not armed
-// in the past and the loop does keep running; what it does not keep is enough
-// of the processor to be relied on.
+// re-check costs a status read on the radio's bit-banged bus, about 1.6 us
+// with interrupts masked, plus the interrupt's entry and exit, so at a 3 us
+// interval the loop keeps running but is left with well under half the
+// processor for as long as the synthesizer does not report locked.
 //
-// This is not what ends a live capture -- a bench run reproduces that with
-// these intervals in place, and the watchdog breadcrumb lands on the loop
-// inside its USB service pass rather than in this handler. It is worth not
-// leaving in place regardless.
-//
-// So the short interval is kept, because a healthy lock is found inside it and
-// the receiver has to be armed promptly, but only for as long as a healthy
-// lock could possibly take. A re-check and its interval together cost about 6
-// microseconds, so 512 of them span some three milliseconds -- several times
-// the few hundred microseconds the synthesizer needs. Past that the lock is
-// overdue and the interval becomes one no interrupt entry can outrun.
+// So the short interval is kept, because a healthy lock is found inside it
+// and the receiver has to be armed promptly, but only for as long as a
+// healthy lock could take: a re-check and its interval together cost about
+// 6 us, so 512 of them span some three milliseconds against the few hundred
+// microseconds the synthesizer needs. Past that the lock is overdue and the
+// interval becomes one no interrupt entry can outrun.
 //
 // The wait never gives up: retrying slowly keeps the capture alive and picks
 // the radio up again if it recovers, where giving up would leave the receiver
-// disarmed. Every sixteenth slow re-check strobes the synthesizer on again, in
-// case a handler switched it off between re-checks -- the same thing
-// cc2400_wait_fs() does, and at the same pace. Not on every re-check: a strobe
-// arriving while the synthesizer is on its way to a lock starts it over, so
-// strobing often enough would be a lock that never arrives.
+// disarmed. Every sixteenth slow re-check strobes the synthesizer on again,
+// in case a handler switched it off between re-checks, as cc2400_wait_fs()
+// does and at the same pace. Not on every re-check: a strobe arriving while
+// the synthesizer is on its way to a lock starts it over.
 #define FS_LOCK_RECHECK         USEC(3)
 #define FS_LOCK_RECHECK_SLOW    USEC(100)
 #define FS_LOCK_FAST_RECHECKS   512
@@ -148,21 +123,16 @@
 // The drains below empty the SSP's receive buffer after the radio has been
 // strobed off, so symbols that arrived before the strobe took effect are not
 // read back as the start of the next packet. All three run in an interrupt
-// handler: two directly in le_DMA_IRQHandler(), and one in change_channel(),
-// which both TIMER1_IRQHandler() and le_DMA_IRQHandler() reach -- the latter
-// through finish_conn_event(). The loop that services USB runs underneath
-// them, so a drain that never saw the buffer empty left the board answering
-// nothing. Like the overdue lock above, this is not what ends a live capture:
-// a board the watchdog resets in here now says so, and the bench runs that
-// reproduce the capture dying name the loop's USB service pass instead.
+// handler, with the loop that services USB underneath them, so a drain that
+// never saw the buffer empty would leave the board answering nothing.
 //
 // The buffer holds eight frames, so a working SSP empties within a handful of
-// reads even while the receiver is still clocking symbols in at one byte every
-// eight microseconds. 64 is well past that; each read costs two register
-// accesses across the peripheral bus, so running the whole bound against an
-// SSP that has stopped answering is a few microseconds. Reaching it costs the
-// stale symbols at the head of one packet, which the sync word match drops
-// anyway.
+// reads even while the receiver is still clocking symbols in at one byte
+// every eight microseconds. 64 is well past that, and each read is two
+// register accesses across the peripheral bus, so running the whole bound
+// against an SSP that has stopped answering costs a few microseconds.
+// Reaching it costs the stale symbols at the head of one packet, which the
+// sync word match drops anyway.
 #define LE_SSP_DRAIN_READS 64
 
 
@@ -175,14 +145,12 @@ volatile uint16_t rf_channel;
 // The access address the radio is synchronized on, which is what the record of
 // a received packet carries.
 //
-// Held apart from conn.access_address because that one changes as soon as a
-// connection request has been read, which happens in the mode's loop, while
-// the radio goes on listening for the old sync word until the next hop writes
-// the new one. A packet received in between was recorded under an access
-// address it had not been received with: advertising packets from other
-// devices turned up in the capture as the first packets of the connection
-// that had just been opened, hundreds of microseconds before its transmit
-// window had even opened.
+// Held apart from conn.access_address, which changes as soon as the mode's
+// loop has read a connection request while the radio goes on listening for
+// the old sync word until the next hop writes the new one. A packet received
+// in between would be recorded under an access address it was not received
+// with: another device's advertising packets appearing in the capture as the
+// first packets of the connection just opened.
 static volatile uint32_t le_sync_aa = ADVERTISING_AA;
 uint8_t le_dma_dest[2];
 
@@ -238,10 +206,9 @@ queue_t packet_queue;
 // 1 while le_phy_main() owns the radio, DMA, and timer1.
 //
 // The interrupt handlers in this file drive the LE state machine, strobe the
-// CC2400, and dereference current_rxbuf.  Once le_phy_main() has torn the PHY
-// down, none of that is valid any more, so an interrupt that was already
-// latched (or a match left armed in timer1) must do nothing.  See the teardown
-// comment in le_phy_main() for why a stray interrupt here wedged the board.
+// CC2400, and dereference current_rxbuf. Once le_phy_main() has torn the PHY
+// down, none of that is valid, so an interrupt that was already latched -- or
+// a match left armed in timer1 -- must do nothing.
 static volatile int le_phy_active = 0;
 
 
@@ -285,11 +252,9 @@ typedef struct _le_conn_t {
 	//
 	// anchor_error is how much later than the estimate the real anchor can
 	// be, and zero once a received packet has measured it. The estimate is
-	// always the earliest the anchor could be -- neither the transmit window
-	// it starts from nor the central's packet that a reply answers can begin
-	// after the anchor -- so an event opened on it is never opened late, and
-	// is given anchor_error longer to run so that the packet it is waiting
-	// for is still inside its deadline.
+	// always the earliest the anchor could be, so an event opened on it is
+	// never opened late, and is given anchor_error longer to run so that
+	// the packet it waits for is still inside its deadline.
 	uint32_t last_anchor;
 	uint32_t anchor_error;
 	uint32_t last_packet_ts; // used to check supervision timeout
@@ -312,16 +277,13 @@ typedef struct _le_conn_t {
 	// already closed. See TERMINATE_BUDGET_EVENT_CLOSED, which is where the
 	// whole of this is explained.
 	//
-	// It belongs to the connection rather than being a field of its own:
-	// reset_conn() then clears it, and a packet read just after a follow
-	// ended cannot reach into the follow that comes next. A write that
-	// lands after the interrupt has reset the connection leaves the note on
-	// a connection that is no longer followed, which is harmless for the
-	// same reason.
+	// It belongs to the connection rather than being a field of its own, so
+	// that reset_conn() clears it and a packet read just after a follow
+	// ended cannot reach into the follow that comes next.
 	//
 	// The mode's loop writes it with interrupts held off, as it does the
-	// two updates above, because the value it writes depends on the
-	// connection event counter that the timer interrupt moves on.
+	// two updates above, because the value depends on the connection event
+	// counter that the timer interrupt moves on.
 	int      terminate_note;
 } le_conn_t;
 le_conn_t conn = { 0, };
@@ -412,13 +374,10 @@ static void buffer_clear(le_rx_t *buf) {
 // find the same buffer free and take it as well, and the two contexts then
 // receive into one buffer, or hand it to the host twice.
 //
-// Only the test and the clear of the flag are guarded. Clearing the buffer's
-// contents is a 260-byte memset, and by then the buffer belongs to this caller
-// and no other context can reach it, so the pool adds no mask of its own
-// around it. A caller that needs the clear covered as well takes its own guard
-// around the call, and the guards nest -- which is what the end-of-packet
-// handover does, so on that one path the memset does run masked. The span is
-// sized there.
+// Only the test and the clear of the flag are guarded. By the time the
+// 260-byte memset runs the buffer belongs to this caller and no other context
+// can reach it, so the pool adds no mask of its own around it; a caller that
+// needs the clear covered too takes its own guard, and the guards nest.
 static le_rx_t *buffer_get(void) {
 	int i;
 
@@ -461,11 +420,10 @@ static int anchor_measured(void) {
 // The counter is 16 bits wide and wraps, so the comparison is a signed
 // difference, as the specification's own "instant" rule is: an instant is
 // within 32767 events of where the connection is. At or past it, not equal to
-// it, because events can go by unobserved -- timer1_arm_conn_event() skips
+// it, because events can go by unobserved: timer1_arm_conn_event() skips
 // whole intervals when the estimate has gone past, and the counter steps over
-// an instant with them. An equality test then left the change pending for the
-// rest of the connection, and the follow ran on parameters or a channel map
-// the connection had left behind.
+// an instant with them. An equality test would leave the change pending for
+// the rest of the connection.
 static int conn_event_reached(uint16_t instant) {
 	return (int16_t)(conn.conn_event_counter - instant) >= 0;
 }
@@ -483,19 +441,17 @@ static int conn_event_reached(uint16_t instant) {
 // from a single packet, and nothing once a packet has measured the anchor --
 // and the receiver's warmup, because the event opens one before its anchor.
 //
-// Never long enough to run into the next event's own arming, which is one
-// warmup before that event is due. At the shortest interval the specification
-// allows, 7.5 ms, the longest legal window plus a packet runs about 8.7 ms, so
-// an unclamped deadline would fall after the next event was due -- and
-// finish_conn_event() would then count two elapsed intervals as one connection
-// event. Every connection update and channel map instant is matched against
-// that count, so from there on each instant would be matched an event early.
+// Never long enough to run into the next event's own arming, one warmup
+// before that event is due. At the shortest interval the specification
+// allows, 7.5 ms, the longest legal window plus a packet runs about 8.7 ms,
+// and finish_conn_event() would then count two elapsed intervals as one
+// event, so every update and channel map instant would be matched an event
+// early.
 //
-// The clamp costs the end of the window in one case: the first event under the
-// shortest interval with the longest window the specification allows there.
-// That event closes about 1.5 ms before its window does, so a packet starting
-// in that last stretch is missed. Listening through the whole window and being
-// armed for the next event cannot both be done at those parameters.
+// The clamp costs the end of the window in one case, the first event under
+// the shortest interval with the longest window allowed there: it closes
+// about 1.5 ms before its window does. Listening through the whole window and
+// being armed for the next event cannot both be done at those parameters.
 static uint32_t conn_event_deadline(void) {
 	uint32_t deadline = PERIPHERAL_REPLY_LATEST + RX_WARMUP_TIME +
 			conn.anchor_error;
@@ -520,12 +476,11 @@ static uint32_t conn_event_deadline(void) {
 // The estimate can already have gone past: an event may run to a deadline as
 // long as its whole interval, and an interrupt handler can hold the processor
 // across one. A match behind the counter is not reached until the counter
-// wraps, 429 seconds later, which leaves the receiver parked on one data
-// channel and the capture recording nothing, with nothing to recover it: the
-// supervision timeout is only checked when an event closes. So the estimate
-// skips whole intervals until it is far enough ahead, and the events skipped
-// are counted -- that count is what every connection update and channel map
-// instant is matched against.
+// wraps, 429 seconds later, which parks the receiver on one data channel with
+// nothing to recover it, since the supervision timeout is only checked when
+// an event closes. So the estimate skips whole intervals until it is far
+// enough ahead, and the skipped events are counted -- that count is what
+// every connection update and channel map instant is matched against.
 //
 // Far enough ahead means CONN_EVENT_ARM_MARGIN, not simply ahead: the counter
 // runs while this function reads it, divides, and writes the match register,
@@ -668,15 +623,9 @@ static void finish_conn_event(void) {
 	// its one packet was too far from an established anchor to be the
 	// central's. Move the estimate on by one interval.
 	//
-	// This is the path an empty first connection event takes, and it used
-	// to set the estimate to conn_event.anchor -- a field no packet had
-	// written, so it held nothing, or the time of a packet from an earlier
-	// connection. The next event was then armed at a match the counter had
-	// long gone past, which is not reached until the counter wraps 429
-	// seconds later: the receiver stayed parked on one data channel, and
-	// the capture picked the connection up again only when its hopping came
-	// back round to that channel. Measured against a bench peer, that lost
-	// the first 4 to 26 connection events of most connections followed.
+	// It must not be taken from conn_event.anchor, which no packet has
+	// written on this path: the next event would be armed at a match the
+	// counter had long gone past, parking the receiver on one data channel.
 	else {
 		conn.last_anchor += conn.conn_interval;
 	}
@@ -699,20 +648,18 @@ static void finish_conn_event(void) {
 		--conn.terminate_note;
 
 	// Stop following, for either of the two reasons there are: the
-	// connection is over -- it has gone quiet for longer than its
-	// supervision timeout, or the peers announced the end of it on the air
-	// and this event heard nothing -- or the host asked for the follow to be
-	// canceled. Both go back to advertising, and they went back the same
-	// way in two blocks of their own; the flag is cleared whichever reason
-	// got here, so a cancel that arrives in the same event as the end of the
-	// connection is not left set behind the follow it asked to stop.
+	// connection is over -- quiet for longer than its supervision timeout,
+	// or the peers announced the end of it on the air and this event heard
+	// nothing -- or the host canceled the follow. The cancel flag is
+	// cleared whichever reason got here, so a cancel arriving in the same
+	// event as the end of the connection is not left set behind the follow
+	// it asked to stop.
 	//
 	// Every path that stops following disarms the match as well. Connection
 	// events are the only thing it is armed for, and the one left in it has
 	// just been taken, so it is behind the counter: left armed, it would be
 	// taken again when the counter wrapped 429 seconds later, in the middle
-	// of whatever the mode was doing by then -- retuning the radio under an
-	// advertising capture, or under another connection.
+	// of whatever the mode was doing by then.
 	if (NOW - conn.last_packet_ts > conn.supervision_timeout ||
 	    (conn.terminate_note && !had_packets) || cancel_follow) {
 		cancel_follow = 0;
@@ -734,21 +681,15 @@ static void finish_conn_event(void) {
 /*
  * The two interrupt handlers below say so while they run, so a board the
  * watchdog resets while one of them has the processor says which one.
- *
- * Without this the breadcrumb could not tell the two shapes of this wedge
- * apart. The loop in le_phy_main() runs beneath both handlers and is the only
- * thing servicing USB in this mode, so whenever a reset catches that loop it
- * records "servicing USB" -- whether the loop was held up inside the USB
- * service pass or simply never given the processor by a handler above it. That
- * cost a long investigation of the wrong half of the firmware.
+ * Otherwise the breadcrumb records only the loop in le_phy_main(), which runs
+ * beneath both handlers, whether the loop was held up inside its USB service
+ * pass or never given the processor by a handler above it.
  */
 void le_DMA_IRQHandler(void) {
-	/* The counter is read here, before anything else this function does,
-	 * because the body dates a packet by it and the PHY accepts a measured
-	 * connection anchor only within ANCHOR_EPSILON of its estimate. Marking
-	 * the site first would put a call and two writes -- some tenths of a
-	 * microsecond, in the firmware's hottest interrupt -- in front of the
-	 * reading. */
+	/* Read the counter before anything else: the body dates a packet by it,
+	 * and the PHY accepts a measured anchor only within ANCHOR_EPSILON of
+	 * its estimate, so even marking the watchdog site first would put a
+	 * call and two writes in front of the reading. */
 	uint32_t timestamp = NOW;
 	uint8_t site = watchdog_mark_inner(WATCHDOG_SITE_LE_DMA);
 
@@ -788,16 +729,13 @@ static void le_stop_receiving(void) {
 // Give up on the packet a failed capture transfer interrupted, and put the
 // receiver back.
 //
-// A transfer error ends the capture of a packet part way along it, and on its
-// own leaves nothing armed to carry on from. On a data channel the connection
-// event's deadline was cleared when the packet's first byte arrived, and the
-// timeout that waits for the next packet of the event is only armed where a
-// packet ends, which this one never will. The synthesizer-lock and buffer
-// waits were both disarmed when receive was armed. So no match is armed and no
-// interrupt is due: the event never closes, the supervision timeout -- which is
-// only checked when an event closes -- is never reached, and the capture is
-// over, while the mode's loop goes on servicing USB so the board answers the
-// host as if nothing had happened.
+// A transfer error ends the capture of a packet part way along it and leaves
+// nothing armed to carry on from: the connection event's deadline was cleared
+// when the packet's first byte arrived, the inter-frame timeout is only armed
+// where a packet ends, and the synthesizer-lock and buffer waits were
+// disarmed when receive was armed. So without this the event never closes,
+// the supervision timeout -- only checked when an event closes -- is never
+// reached, and the capture is over while the board still answers the host.
 static void le_transfer_error_recover(void) {
 	le_stop_receiving();
 
@@ -809,37 +747,29 @@ static void le_transfer_error_recover(void) {
 
 	// Inside a connection event, close the event: a match a margin ahead of
 	// the counter is the shortest wait that cannot be passed before it is
-	// armed. The timer interrupt takes it and carries the state machine on --
-	// finish_conn_event() counts the event, checks the supervision timeout and
-	// arms the next one, or, if an update's instant has arrived by then, the
-	// handler applies the update -- and either way the event that follows
-	// reaches change_channel(), which puts the DMA channel and the SSP back.
+	// armed. The timer interrupt takes it and carries the state machine on,
+	// and the event that follows reaches change_channel(), which puts the
+	// DMA channel and the SSP back.
 	//
-	// A match already armed is left alone, for two reasons. The error can
-	// arrive before the packet's first byte, which is what clears the event's
-	// deadline, and that deadline is when the event is meant to close. And the
-	// timer interrupt preempts this one, so a match can be taken while this
-	// function runs: finish_conn_event() has armed the next event by then, and
-	// arming over it would open that event an interval early and lose its
-	// packets.
+	// A match already armed is left alone, for two reasons: the error can
+	// arrive before the packet's first byte, which is what clears the
+	// event's deadline, and the timer interrupt preempts this one, so
+	// finish_conn_event() may already have armed the next event -- arming
+	// over it would open that event an interval early.
 	if (btle_channel_index(rf_channel) < 37 && conn.conn_interval != 0) {
 		timer1_set_match_in_if_unarmed(CONN_EVENT_ARM_MARGIN);
 		return;
 	}
 
-	// Everything else waits for the synthesizer, which arms the DMA channel,
-	// the DMA interrupt and receive again when it locks. That is an
-	// advertising channel, where there is no event to close and the engine
-	// stays until the host or a connection request moves it; and a data
-	// channel with no connection left to follow, which is how the state
-	// machine is found if the connection ended at its supervision timeout
-	// while this function ran. Arming a connection event for that one would
-	// open an event with no connection to open it for, and arming nothing at
-	// all would leave exactly the silence this function is here to prevent.
+	// Everything else waits for the synthesizer, which arms the DMA
+	// channel, the DMA interrupt and receive again when it locks: an
+	// advertising channel, where there is no event to close, and a data
+	// channel with no connection left to follow, where arming a connection
+	// event would open an event with no connection to open it for.
 	//
-	// A connection-event match can be armed on an advertising channel, for the
-	// first event of a connection whose request the mode's loop has just read,
-	// so this path leaves MR0 alone.
+	// A connection-event match can be armed on an advertising channel, for
+	// the first event of a connection whose request the mode's loop has
+	// just read, so this path leaves MR0 alone.
 	timer1_wait_fs_lock();
 }
 
@@ -986,34 +916,28 @@ static void le_dma_interrupt(uint32_t timestamp) {
 				// instruction, and the guard covers the handover so that
 				// no match can be taken part way through it.
 				//
-				// Taking a buffer clears its 260 bytes, so the span is
-				// worth a word. Measured from the built image it is 250
-				// to 280 cycles, about 2.6 microseconds at 100 MHz: the
-				// four-entry pool scan, that memset and the queue insert.
-				// This handler reads RSSI over the bit-banged radio bus
-				// for every byte of the packet, a 24-bit transfer that
-				// masks interrupts for about 4.6 microseconds every 8
-				// microseconds of air, so one clear per packet is less
-				// than what this path already holds off for a single
-				// byte. It also lands after the counter reading this
-				// packet is dated by, so no measurement moves; what waits
-				// for it is the next match, and the first one armed below
-				// re-checks every 3 microseconds until the synthesizer
-				// locks.
+				// The span is about 2.6 microseconds at 100 MHz,
+				// including the 260-byte clear taking a buffer does.
+				// This handler already masks interrupts for about 4.6
+				// microseconds of every 8 to read RSSI over the radio's
+				// bit-banged bus, so one clear per packet costs less
+				// than one byte of that, and it lands after the counter
+				// reading this packet is dated by, so no measurement
+				// moves.
 				//
-				// Taking the buffer outside the guard instead would not
-				// help: the pointer would still name the finished packet
-				// while the new one was cleared, which is the same window
-				// a few instructions narrower.
+				// Taking the buffer outside the guard instead would
+				// not help: the pointer would still name the finished
+				// packet while the new one was cleared, which is the
+				// same window a few instructions narrower.
 				//
 				// The new buffer may be NULL if the pool is exhausted;
 				// the waits below and the change_channel() and timer1
-				// paths check for that and wait for a buffer rather than
-				// arm receive without one.
+				// paths wait for a buffer rather than arm receive
+				// without one.
 				//
-				// The insert cannot fail and so has no error
-				// path: the queue holds FIFOSIZE-1 pointers,
-				// nine, and the whole pool is four buffers.
+				// The insert cannot fail and so has no error path: the
+				// queue holds FIFOSIZE-1 pointers, nine, and the whole
+				// pool is four buffers.
 				primask = irq_save_disable();
 				packet = current_rxbuf;
 				current_rxbuf = buffer_get();
@@ -1028,13 +952,10 @@ static void le_dma_interrupt(uint32_t timestamp) {
 				// counting it into the wrong one cost.
 				//
 				// A packet the connection has moved past is still sent
-				// to the host, unless the hop that opened the next event
-				// cleared the buffer it was arriving into, which is a
-				// window this guard does not close. What is dropped is
-				// bookkeeping with nowhere to go, including the refresh
-				// of conn.last_packet_ts: the supervision timeout is 100
-				// ms at the shortest and events are milliseconds apart,
-				// so one event's worth makes no difference to it.
+				// to the host. What is dropped is bookkeeping with
+				// nowhere to go, including the refresh of
+				// conn.last_packet_ts: the supervision timeout is 100
+				// ms at the shortest and events are milliseconds apart.
 				//
 				// Closing the event on the second packet stays outside
 				// the guard, because it reaches change_channel() and the
@@ -1291,43 +1212,26 @@ static void timer1_enable_interrupt(void) {
 //
 // T1MCR holds the enable bit of all three matches this engine uses: the
 // connection event (MR0), the synthesizer-lock wait (MR2), and the buffer
-// wait (MR3). Setting or clearing one bit of it is a read-modify-write, and the
-// three matches do not belong to one context: the main loop arms the event
-// and lock matches on the connection-following path, while both interrupt
-// handlers arm and disarm the lock and buffer waits.
-//
-// So an interrupt landing between the read and the write costs the interrupt
-// its bit. The main loop writes back a value it read before the handler ran,
-// which arms whatever the loop asked for and silently un-arms what the
-// handler asked for. When the bit lost is the lock wait's, nothing is left to
-// arm receive: the engine's main loop runs on, feeding the watchdog and
-// answering the host, while the capture stays silent until the mode is
-// restarted. Every read-modify-write of this register goes through these two,
-// with interrupts held off for the few instructions it takes, so no write
-// can be built on a value another context has already moved on from.
+// wait (MR3). Setting or clearing one bit of it is a read-modify-write, and
+// the three do not belong to one context: the main loop arms the event and
+// lock matches while both interrupt handlers arm and disarm the lock and
+// buffer waits. An interrupt landing between the read and the write costs the
+// interrupt its bit, and when that bit is the lock wait's, nothing is left to
+// arm receive -- the capture stays silent while the loop runs on, feeding the
+// watchdog and answering the host.
 //
 // Writes of the whole register are left as they are: timer1_start() and the
-// teardown path write 0, which cannot lose a bit that is on its way in,
-// because nothing the engine is doing at that point wants one.
+// teardown write 0, and nothing the engine is doing then wants a bit.
 //
-// The moment is written inside the same guard as the bit that arms it, so the
-// two cannot be split by an interrupt: an enable bit that lands after the
-// counter is already by the match waits out a whole period of the counter,
-// which is 429 seconds.
+// The moment is written inside the same guard as the bit that arms it: an
+// enable bit landing after the counter is already past the match waits out a
+// whole period of the counter, 429 seconds.
 //
-// One rule covers the whole file: a moment derived from the counter is derived
-// inside the guard. timer1_arm_match_in() below does that, and every wait and
-// timeout goes through it. This absolute form is only for a moment that does
-// not come from the counter at all -- the connection's own grid, where the
-// next event's time comes from the last anchor -- and the two callers that
-// read the counter to ask whether such a moment has gone by take a guard of
-// their own around the reading, the question and the arming.
-//
-// What these two give is that nothing is set or cleared on a value another
-// context has already moved on from. A caller that has to decide
-// something from the register and then write it -- the transfer-error
-// recovery, which arms the event match only if nothing has armed it -- needs
-// the decision inside the guard as well, and takes its own: see
+// One rule covers the file: a moment derived from the counter is derived
+// inside the guard, which timer1_arm_match_in() below does. This absolute
+// form is only for a moment that does not come from the counter at all -- the
+// connection's own grid -- and a caller that decides something from the
+// register before writing it takes its own guard; see
 // timer1_set_match_in_if_unarmed().
 static void timer1_arm_match(volatile uint32_t *match, uint32_t when, uint32_t bit) {
 	uint32_t primask = irq_save_disable();
@@ -1340,17 +1244,14 @@ static void timer1_arm_match(volatile uint32_t *match, uint32_t when, uint32_t b
 // Arm a match a fixed interval from now, with the counter read inside the
 // guard.
 //
-// For a wait, "when" is only ever "this long from now", and the shortest of
-// them is 3 microseconds -- less than an interrupt entry. Reading the counter
-// before the guard and writing it inside would let an interrupt taken in
-// between spend longer than the interval, and the match would go in behind the
-// counter. So the reading and both writes happen together.
+// The shortest wait is 3 microseconds, less than an interrupt entry, so
+// reading the counter before the guard would let an interrupt taken in
+// between outlast the interval and the match would go in behind the counter.
+// The reading and both writes happen together.
 //
-// Every wait and timeout in the engine arms its match through this, so no
-// interval is measured from a counter reading that an interrupt has had time
-// to overtake. The shortest is the 3 microsecond synthesizer re-check; the
-// connection grid is the one thing that does not come through here, and
-// timer1_arm_match() above says why.
+// Every wait and timeout in the engine arms its match through this. The
+// connection grid is the one thing that does not, and timer1_arm_match()
+// above says why.
 static void timer1_arm_match_in(volatile uint32_t *match, uint32_t delta, uint32_t bit) {
 	uint32_t primask = irq_save_disable();
 
@@ -1388,12 +1289,10 @@ static void timer1_set_match_in(uint32_t delta) {
 
 // The same, unless something has armed that match already.
 //
-// The reading, the test and the arm are one step. The timer interrupt preempts
-// the byte interrupt, which is where this is called from, and it arms this
-// same match for the next event: read, lose the processor to that, and the arm
-// that follows overwrites the time the interrupt set with one a whole interval
-// early -- which is what the caller is trying not to do -- or with one the
-// counter has already gone past, which is worse.
+// The reading, the test and the arm are one step. The timer interrupt
+// preempts the byte interrupt this is called from and arms the same match for
+// the next event, so losing the processor between the test and the arm would
+// overwrite that with a time a whole interval early, or one already past.
 static void timer1_set_match_in_if_unarmed(uint32_t delta) {
 	uint32_t primask = irq_save_disable();
 
@@ -1411,20 +1310,12 @@ static void timer1_set_match_in_if_unarmed(uint32_t delta) {
 //
 // Only while an event is open, and the event is remembered on the buffer so
 // that what is done when the packet ends goes to the event it arrived in. A
-// packet is allowed to begin as late as the deadline itself -- the
-// peripheral's answer may start a whole PERIPHERAL_REPLY_LATEST after the
-// anchor -- so the deadline can expire between the packet's first symbol and
-// this interrupt, and a match already latched is taken the instant the guard
-// below ends, which closes the event while the packet is still arriving.
-// Either way the connection has moved to another event by the time the packet
-// ends, and the event counter says so: every close advances it.
-//
-// Without that, the packet was counted as the first packet of an event it did
-// not arrive in, anchored that event from before it opened, and armed a 300
-// microsecond inter-frame timeout over the event's own match. The event after
-// opened behind a packet instead of on the connection's grid, and the counter
-// every connection update and channel map instant is matched against ended one
-// ahead of the peer's.
+// packet may begin as late as the deadline itself, so the deadline can expire
+// between the packet's first symbol and this interrupt and the event closes
+// while the packet is still arriving. The event counter is what says so:
+// every close advances it. Without it a packet would be counted as the first
+// of an event it did not arrive in, anchoring that event from before it
+// opened and leaving the instant counter one ahead of the peer's.
 //
 // The three steps are one guarded step, for the reason
 // timer1_set_match_in_if_unarmed() gives: the timer interrupt can close the
@@ -1688,13 +1579,10 @@ static void timer1_interrupt(void) {
 // The blink's own counter, timer2, and the moment the LEDs go off again.
 //
 // The blink marks a packet handed to the host, so it is armed from the mode's
-// loop, and it used to arm a fourth match of timer1. Timer1 is the radio's
-// clock: the connection event, the synthesizer-lock wait, and the buffer wait
-// are all matches of it, and its counter is what every deadline in this file
-// is measured against. So the loop wrote that register once for every packet
-// it handed to the host, which is what giving the LED a counter of its own
-// stops. The connection-following path still arms the event and the lock
-// match from the loop, under the guards timer1_arm_match() describes.
+// loop. It gets a counter of its own rather than a fourth match of timer1,
+// which is the radio's clock -- the connection event, the synthesizer-lock
+// wait and the buffer wait are all matches of it -- so that the loop does not
+// write that register once for every packet it hands over.
 //
 // Timer2 is free while this mode runs: the only other user is the xmas LED
 // demo, which is a mode of its own and cannot be running at the same time.
@@ -2459,8 +2347,7 @@ void le_phy_main(void) {
 		// Polled USB handling, control requests only. The host for this
 		// mode (ubertooth-btle -n/-f) collects packets with UBERTOOTH_POLL
 		// and never reads the bulk IN endpoint, so handing packets to that
-		// endpoint loses them: it has two hardware buffers, and this mode's
-		// first two packets went into them every session.
+		// endpoint loses the two its hardware buffers hold.
 		handle_usb_control();
 
 		// XXX maybe LED light show?
@@ -2468,16 +2355,10 @@ void le_phy_main(void) {
 
 	// Tear the PHY down before handing control back to the main loop.
 	//
-	// This used to stop timer1 and clear the LEDs only, leaving the DMA
-	// interrupt enabled, DMA channel 0 and the SSP running, and the CC2400 in
-	// RX. mode was still MODE_BT_FOLLOW_LE, so DMA_IRQHandler() kept
-	// dispatching arriving bytes into le_DMA_IRQHandler(), which strobes the
-	// synthesizer back on (SFSON) and reads RSSI over the CC2400's bit-banged
-	// SPI bus. So the handler kept switching the radio on under the
-	// cc2400_idle() the main loop runs next, whose FS_LOCK wait was unbounded:
-	// the board could sit there forever with USB unserviced, and every later
-	// control request timed out (-7) or stalled (-9) until the board was
-	// physically re-plugged.
+	// All of it: leaving the DMA interrupt enabled, DMA channel 0 and the SSP
+	// running, or the CC2400 in RX lets le_DMA_IRQHandler() keep strobing the
+	// synthesizer back on under the cc2400_idle() the main loop runs next,
+	// and its lock wait would never be satisfied.
 	//
 	// Order matters. Clearing le_phy_active first is what makes this safe: a
 	// write to NVIC ICER0 is not self-synchronising on Cortex-M3, so an
