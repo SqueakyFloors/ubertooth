@@ -63,17 +63,18 @@ btle\-extcap\.py(1) : Wireshark's own capture interface, which puts an Ubertooth
 .nf
 Host tools version: <release> (libbtbb <release>)
 Firmware version: <image> <release> (API:<version>)
-Firmware build: <the date the image was built>
 .fi
 .IP "" 0
 .P
 The first line is the host's and needs no board: the release these tools were built from, with libbtbb's beside it\. A release name, not a commit, so it is the line to quote when reporting a problem; a build after a release carries how many commits it is past that release, as in \fB2026\-11\-R1+22\fR, and a \fB*\fR where the tree it was built from had uncommitted changes\. Where this run loaded a libbtbb from somewhere other than the one these tools were built against \-\- a distribution or Homebrew build beside this fork's, which decodes packets its own way \-\- a \fBwarning:\fR line on standard error says so\.
 .P
-The two firmware lines describe the board \fB\-U\fR names, or the only board attached\. With several boards attached and no \fB\-U\fR, both lines are printed for each of them with its index in the label, as the identity queries of ubertooth\-util(1) are: \fBFirmware version (0): \|\.\|\.\|\.\fR, \fBFirmware build (0): \|\.\|\.\|\.\fR\.
+The firmware line describes the board \fB\-U\fR names, or the only board attached\. With several boards attached and no \fB\-U\fR, it is printed for each of them with its index in the label, as the identity queries of ubertooth\-util(1) are: \fBFirmware version (0): \|\.\|\.\|\.\fR, \fBFirmware version (1): \|\.\|\.\|\.\fR\.
 .P
 With no Ubertooth attached the host line is followed by \fBFirmware version: no Ubertooth attached\fR and the status is still 0: the host half of the answer needs no board, and nothing attached is an answer rather than a failure\. A board sitting in the DFU bootloader is named in a \fBnote:\fR on standard error there, with a second line saying what reaches it where it is the only one waiting, because no tool but ubertooth\-dfu(1) can open one and that is the usual reason a board is not in the answer\. A board that is attached but cannot be read \-\- in use by another program, or not answering \-\- has the reason on its own line (\fBFirmware version: unavailable, in use by another program\fR, or \fBFirmware version: read failed\fR) and the status is 1\. So does a USB bus that cannot be listed at all, which is nothing known rather than nothing attached: \fBFirmware version: unavailable, the USB bus could not be listed\fR\.
 .P
-Part of an answer can go missing on its own, and the status is 1 then too: a board that answered its version but not its build string prints \fBFirmware build: read failed\fR under a good version line, or \fBFirmware build: not reported\fR if the read worked and the board had no build string to give, and one whose API version could not be read prints the version with no ` (API:\|\.\|\.\|\.)` after it\. So a script that cares about the whole answer should test the status, not only look for a reason in place of a version\.
+Part of an answer can go missing on its own, and the status is 1 then too: a board whose API version could not be read prints the version with no ` (API:\|\.\|\.\|\.)` after it\. So a script that cares about the whole answer should test the status, not only look for a reason in place of a version\.
+.P
+Nothing in the answer says when, where or by whom anything was built\. An image records the version it was built from and nothing else, so the same source builds a byte\-identical image; two images that report the same version are told apart by the checksum of the \fB\.dfu\fR file they came from\.
 .P
 Asking for the version does not disturb a board: it is not told to stop, so a mode running on it keeps running, and any firmware is read whatever API version it reports, which is what makes \fB\-V\fR the way to identify an unknown board\.
 .P

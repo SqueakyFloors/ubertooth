@@ -1,0 +1,4 @@
+# RELEASE-VERSION carries a placeholder that git archive fills in with the
+# release the archive was made from, so a source archive reports its release
+# with nothing kept by hand. export-subst is what asks git to fill it in.
+/RELEASE-VERSION export-subst

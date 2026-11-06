@@ -233,8 +233,11 @@ int cmd_get_bootloader_info_quiet(struct libusb_device_handle* devh,
                                   struct ubertooth_bootloader_info *info);
 int cmd_range_test(struct libusb_device_handle* devh);
 int cmd_repeater(struct libusb_device_handle* devh);
-/* Read the firmware revision string / compile info string into a buffer of
- * size bytes (always terminated; a longer string keeps its leading part).
+/* Read the firmware revision string, or the string UBERTOOTH_GET_COMPILE_INFO
+ * answers with, into a buffer of size bytes (always terminated; a longer
+ * string keeps its leading part). Both are the version the image was built
+ * from; the second request is kept for a program built against an earlier
+ * version of this library, and nothing here calls it.
  * Return 0 on success or a negative libusb error code: the transfer error,
  * LIBUSB_ERROR_IO for a short or malformed reply, or
  * LIBUSB_ERROR_INVALID_PARAM for a NULL or zero-size buffer. On error the

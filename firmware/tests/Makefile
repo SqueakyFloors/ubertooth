@@ -858,16 +858,20 @@ $(BINDIR)/test_btbr_usb_send: test_btbr_usb_send.c minunit.h \
 		-o $@ test_btbr_usb_send.c \
 		$(FW_BTBR)/src/drivers/ubertooth_usb.c $(FW_BTBR)/src/util/queue.c
 
-# The build string both images carry: this test scans their definitions and
-# their request handlers as text, the way test_bootloader_flash_bounds puts
-# the bootloader's part table against the host's copy. compile_info itself
-# cannot be compiled here, because it is built from the generated version.h,
-# which only exists once an image has been built.
+# The version string both images answer with: this test scans their
+# definitions and their request handlers as text, the way
+# test_bootloader_flash_bounds puts the bootloader's part table against the
+# host's copy. compile_info itself cannot be compiled here, because it is
+# built from the generated version.h, which only exists once an image has been
+# built. The last two cases read the recipes that generate that header, so the
+# two makefiles carrying one are prerequisites as well.
 $(BINDIR)/test_compile_info: test_compile_info.c minunit.h source_scan.h \
 		$(FW_RXTX)/bluetooth_rxtx.c \
-		$(FW_BTBR)/src/btctl/vendor_request_handler.c | $(BINDIR)
+		$(FW_BTBR)/src/btctl/vendor_request_handler.c \
+		$(FW_DIR)/common.mk $(FW_BOOT)/Makefile | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
-		-DFW_BTBR_DIR='"$(FW_BTBR)"' -o $@ test_compile_info.c
+		-DFW_BTBR_DIR='"$(FW_BTBR)"' -DFW_DIR='"$(FW_DIR)"' \
+		-DFW_BOOTLOADER_DIR='"$(FW_BOOT)"' -o $@ test_compile_info.c
 
 # The bootloader version block and the report an application makes of it.
 # ../bootloader/bl_version.c and ../common/bl_report.c are both compiled here

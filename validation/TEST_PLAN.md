@@ -81,12 +81,12 @@ not be written to.
 
 ### 2b. The version answer
 - [ ] Run `ubertooth-util -V`
-- [ ] Confirm: three lines -- `Host tools version:`, `Firmware version:` and
-      `Firmware build:` -- and exit 0
+- [ ] Confirm: two lines -- `Host tools version:` and `Firmware version:` --
+      and exit 0
 - [ ] Confirm: each version names a release (`2026-11-R1`, or a release and
       how many commits past it such as `2026-11-R1+22`, with `*` where the
       tree had uncommitted changes), and no commit hash appears
-- [ ] Confirm: `Firmware build:` is a date, with no user or host name in it
+- [ ] Confirm: nothing says when, where or by whom anything was built
 - [ ] Confirm: nothing on standard error, unless this machine has a second
       libbtbb install, which is reported as one `warning:` line there
 - [ ] Run `ubertooth-util -V` with no board attached

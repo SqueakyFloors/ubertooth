@@ -19,13 +19,6 @@ UBERTOOTH_RELEASE_TAG_MATCH := \
 	--match '[0-9][0-9][0-9][0-9]-[0-9][0-9]-RC[0-9]*' \
 	--match '[0-9][0-9][0-9][0-9]-[0-9][0-9]-DEV[0-9]*'
 
-# What to report when git finds no release tag at all, which happens in a
-# clone fetched without tags and in a shallow one. The last release of the
-# original project is the honest floor -- the tree is at least that new -- and
-# it is also what a tree with no git history reports (LATEST_RELEASE in
-# host/cmake/set_release.cmake).
-UBERTOOTH_LATEST_RELEASE := 2020-12-R1
-
 DIRTY := $(shell git status -s --untracked-files=no 2>/dev/null)
 ifneq ($(DIRTY), )
 DIRTY_FLAG = *
@@ -46,6 +39,32 @@ HAVE_GIT := $(shell cd $(VERSION_MK_DIR) 2>/dev/null \
 	&& test "`git rev-parse --show-prefix 2>/dev/null`" = firmware/ \
 	&& git rev-parse --is-inside-work-tree 2>/dev/null)
 
+# The release a source archive carries, for wherever git names none below.
+# git archive fills it into RELEASE-VERSION at the top of the tree as the
+# archive is made; see that file. The first line of it that is neither blank
+# nor a comment is the answer git wrote: the nearest release tag, with
+# "-<commits>-g<commit>" after it where the commit archived is past the tag.
+# A release name has dashes of its own, so the count is taken off the end
+# rather than the name read out of the front, and what is left has to be a
+# release name. An untouched placeholder, which is what a git checkout has,
+# is not one and leaves this empty.
+ARCHIVE_VERSION_FILE := $(VERSION_MK_DIR)/../RELEASE-VERSION
+ARCHIVE_RELEASE := $(shell \
+	sed -e '/^[[:space:]]*\#/d' -e '/^[[:space:]]*$$/d' -e q \
+		$(ARCHIVE_VERSION_FILE) 2>/dev/null \
+	| sed -E -e 's/-([0-9]+)-g[0-9a-f]+$$/+\1/' \
+	| grep -E '^[0-9]{4}-[0-9]{2}-(R|RC|DEV)[0-9]+(\+[0-9]+)?$$')
+
+# What to report where git names no release: the archive's release, or that
+# the version is not known. No release this file could carry would be better
+# than that -- the distance from it would be unknown, and whoever edited it
+# last would have decided which release every archive claimed.
+ifeq ($(ARCHIVE_RELEASE),)
+VERSION_WITHOUT_GIT := unknown
+else
+VERSION_WITHOUT_GIT := $(ARCHIVE_RELEASE)
+endif
+
 ifeq ($(HAVE_GIT),true)
 
 # The nearest release tag, named on its own: --abbrev=0 asks for the tag name
@@ -62,13 +81,12 @@ RELEASE_TAG := $(shell git describe --tags --abbrev=0 $(UBERTOOTH_RELEASE_TAG_MA
 
 ifeq ($(RELEASE_TAG),)
 
-# No release tag in reach. The latest release stands in for it, so the version
-# still names a release, and the distance is reported as unknown rather than
-# counted from the start of history: that count is not the distance from the
-# release, and a shallow clone would answer it with its own depth. A clone of
-# one commit saying "+1" would read exactly like a real build one commit past
-# a release.
-VERSION_NOW := $(UBERTOOTH_LATEST_RELEASE)+unknown$(DIRTY_FLAG)
+# No release tag in reach -- a clone fetched without tags, a shallow one, a
+# history with none yet. git names no release here, and counting from the
+# start of history would not be the distance from one: a shallow clone would
+# answer that with its own depth, and a clone of one commit saying "+1" would
+# read exactly like a real build one commit past a release.
+VERSION_NOW := $(VERSION_WITHOUT_GIT)
 
 else
 
@@ -91,9 +109,7 @@ else
 
 # No git history to read. The including makefile uses a version.h shipped
 # beside these sources where there is one, which is what a release archive
-# carries; this is what it reports when there is not, and then the version
-# really is unknown. The host tools answer that case with the latest release
-# instead, because their build has no shipped header to fall back on.
-VERSION_NOW := unknown
+# carries; this is what it reports when there is not.
+VERSION_NOW := $(VERSION_WITHOUT_GIT)
 
 endif

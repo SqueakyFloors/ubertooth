@@ -32,16 +32,6 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
 
     * Create a release directory using git archive
 
-    * Set the release version in these files, which is what a build with no
-      git history reports. Commit the change before tagging, so a source
-      download of the tag reports the release too:
-
-    	* ``ubertooth/host/cmake/set_release.cmake`` (``LATEST_RELEASE``).
-    	  ``tools/ubertooth-release.sh`` also sets it in the archive it builds.
-
-    	* ``libbtbb/cmake/set_release.cmake`` (``LATEST_RELEASE``), which
-    	  ``lib/src/CMakeLists.txt`` includes
-
     * Point the libbtbb pin at libbtbb's release tag, once that tag exists:
       ``LIBBTBB_REF`` in ``.github/workflows/build.yml``, which is where the
       pin is decided. The ``libbtbb pin`` check names every other file that
@@ -95,14 +85,13 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
       the full image; the script takes that name from the image's own
       Makefile.
 
-    * The script pins the firmware build stamp, and a release built by hand
-      should pass the same on every make line:
-      ``HAVE_GIT=false VERSION_BY=ubertooth VERSION_HOST=release``. The last
-      two keep the name of the user and the machine out of a published image.
-      ``HAVE_GIT=false`` stops the build regenerating the shipped
+    * A release built by hand passes ``HAVE_GIT=false`` on every make line, as
+      the script does. It stops the build regenerating the shipped
       ``version.h``, which it would do if the release directory happened to
-      sit inside a git work tree, stamping the images with that tree's
-      revision instead of the release.
+      sit inside a git work tree, stamping the images with that tree's version
+      instead of the release. There is nothing else to pin: an image records
+      the version it was built from and nothing about when, where or by whom
+      it was built.
 
     * Build the bootloader with ``make -C firmware bootloader``, which is what
       ``tools/ubertooth-release.sh`` and CI do. It is not part of ``make -C
@@ -117,13 +106,12 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
       ``version.h`` into ``firmware/bluetooth_rxtx``, ``firmware/btbr``,
       ``firmware/bl_update``, ``firmware/assembly_test`` and
       ``firmware/bootloader`` before building. It has
-      to define ``GIT_REVISION`` (the release number), ``FW_IMAGE_NAME`` (the
-      image directory's name, which ``firmware/common/fw_info.c`` asserts the
-      length of) and ``TIMESTAMP`` (the build date, which is the whole of what
-      ``Firmware build`` reports); a header missing any of them fails to
-      compile. No image records who built it or on what machine. The
-      bootloader uses only ``GIT_REVISION``, for the version block
-      ``ubertooth-util -B`` reads.
+      to define ``GIT_REVISION`` (the release number) and ``FW_IMAGE_NAME``
+      (the image directory's name, which ``firmware/common/fw_info.c`` asserts
+      the length of); a header missing either fails to compile. Nothing else
+      goes in it: no build date, no time, no user, no host, so the same source
+      builds a byte-identical image. The bootloader uses only
+      ``GIT_REVISION``, for the version block ``ubertooth-util -B`` reads.
 
     * A build from a git checkout needs none of that: it works the release out
       from the tags. ``firmware/version.mk`` and
@@ -134,12 +122,17 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
       the tree has uncommitted changes. A tag in any other form is ignored, so
       a new tag has to be named that way to be reported.
 
-    * Those two files also each carry the release a checkout with no tag in
-      reach falls back to: ``LATEST_RELEASE`` in
-      ``host/cmake/set_release.cmake``, which the script below rewrites, and
-      ``UBERTOOTH_LATEST_RELEASE`` in ``firmware/version.mk``, which has to be
-      moved with it. The ``release-version`` test compares the two files'
-      answers, so leaving one behind fails there.
+    * A build with no git history to ask -- a source archive, a release
+      tarball -- takes the release from ``RELEASE-VERSION`` at the top of the
+      tree. ``.gitattributes`` marks that file ``export-subst``, so ``git
+      archive`` fills the release into it from the commit it archived, and
+      nothing has to be edited before a tag. ``tools/ubertooth-release.sh``
+      writes the release it was asked for into the same file, which is the
+      name to carry when a release is built from a commit the tag is not on
+      yet. Filling it in needs git 2.32 or newer where the archive is made;
+      the git that unpacks or builds it does not matter. A build that can read
+      neither git nor that file reports ``unknown``. libbtbb carries the same
+      file and reads it the same way.
 
     * Because the version names a release rather than a commit, two builds of
       different commits between the same pair of tags can report the same

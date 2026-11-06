@@ -77,8 +77,11 @@
 #define UBERTOOTH_BOOTLOADER_API_VERSION 0x0100
 
 /*
- * The build string every image carries, reported by UBERTOOTH_GET_COMPILE_INFO
- * as a one-byte length and then that many characters. A one-byte length cannot
+ * The string UBERTOOTH_GET_COMPILE_INFO answers with, as a one-byte length and
+ * then that many characters. It is the version the image was built from: the
+ * request is older than that and used to answer with a build date, and it
+ * stays so that a host tool built against an earlier firmware still gets a
+ * string back. A one-byte length cannot
  * describe more than 255 characters, and the host reads at most 1 + 255 bytes
  * of the reply (cmd_get_firmware_compile_info()), so a longer string is cut to
  * this. Cutting it leaves the host a shortened string it can see is shortened.

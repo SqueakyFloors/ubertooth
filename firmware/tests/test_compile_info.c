@@ -1,11 +1,12 @@
 /*
- * The two text replies both firmware images carry: the build string and the
- * revision on its own.
+ * The two text replies both firmware images carry: the string
+ * UBERTOOTH_GET_COMPILE_INFO answers with, and the revision on its own.
  *
- * It is what ubertooth-util -V reports, so both images spell it the same way:
- * a board running either one describes its build in the same terms. (Which
- * image a board or a file holds, and which revision it was built from, come
- * from the firmware info block instead -- see test_fw_info.c.)
+ * Both are now the version the image was built from, so both images spell the
+ * first one the same way: a board running either one answers that request in
+ * the same terms. (Which image a board or a file holds, and which version it
+ * was built from, come from the firmware info block instead -- see
+ * test_fw_info.c.)
  *
  * Neither image's request handler can run here, so this test reads the
  * compile_info definition out of each image's source and checks both say the
@@ -32,12 +33,12 @@
 #include "ubertooth_interface.h"
 
 /*
- * The definition both images must carry, spaces collapsed. It is the build
- * date alone: the version is on the firmware info block's own line, and who
- * built the image is in no image at all.
+ * The definition both images must carry, spaces collapsed. It is the version
+ * the image was built from: no date, no time, no user and no host, so the
+ * same source builds a byte-identical image.
  */
 #define COMPILE_INFO_DEFINITION \
-	"const char compile_info[] = TIMESTAMP;"
+	"const char compile_info[] = GIT_REVISION;"
 
 /* The two sources that define it, and what to call them in a message. */
 static const char *const source_paths[] = {
@@ -179,13 +180,158 @@ MU_TEST(both_images_define_the_build_string_the_same_way)
 		mu_assert_fatal(read_definition(source_paths[i], definition,
 		                                sizeof(definition)), message);
 		snprintf(message, sizeof(message),
-		         "%s: compile_info is defined as `%s`, not `%s`. "
-		         "ubertooth-util -V reports this string, so a board "
-		         "running either image has to describe its build in "
-		         "the same terms",
+		         "%s: compile_info is defined as `%s`, not `%s`. Both "
+		         "images answer UBERTOOTH_GET_COMPILE_INFO with it, so "
+		         "a board running either one has to answer in the same "
+		         "terms",
 		         source_paths[i], definition, COMPILE_INFO_DEFINITION);
 		mu_assert(strcmp(definition, COMPILE_INFO_DEFINITION) == 0,
 		          message);
+	}
+}
+
+/* -------------------------------------------------------------------------
+ * Nothing about the build but the version
+ * ------------------------------------------------------------------------- */
+
+/*
+ * The version header a build generates is where anything else about the build
+ * would reach an image, so what the two recipes that write one may define is
+ * named here. Nothing else may be: an image carries no build date, time, user
+ * or host, which is what makes the same source build a byte-identical image,
+ * and a .dfu checksum the way to tell two builds apart when they report the
+ * same version.
+ *
+ * The bootloader's header carries only the version, because that image has no
+ * firmware info block to name.
+ */
+static const struct {
+	const char *makefile;
+	const char *allowed[4];
+} version_recipes[] = {
+	/* UBERTOOTH_VERSION_H is the header's own include guard. */
+	{ FW_DIR "/common.mk",
+	  { "UBERTOOTH_VERSION_H", "GIT_REVISION", "FW_IMAGE_NAME", NULL } },
+	{ FW_BOOTLOADER_DIR "/Makefile",
+	  { "UBERTOOTH_VERSION_H", "GIT_REVISION", NULL } },
+};
+
+/* Is `name` one of the names this recipe may define? */
+static int recipe_allows(const char *const *allowed, const char *name)
+{
+	int i;
+
+	for (i = 0; allowed[i] != NULL; i++)
+		if (strcmp(allowed[i], name) == 0)
+			return 1;
+	return 0;
+}
+
+/*
+ * The recipe runs from the line naming the version header as a target to the
+ * first line that starts no further left than column one and is not a comment
+ * -- which is where make's recipe ends. Each `#define` the recipe echoes is
+ * checked, and so is anything that would run a command: a build stamp came
+ * from `date` in backquotes, and $(shell ...) would do the same.
+ */
+MU_TEST(the_generated_version_header_says_nothing_else_about_the_build)
+{
+	char line[1024], message[2048];
+	size_t i;
+
+	for (i = 0; i < sizeof(version_recipes) / sizeof(version_recipes[0]);
+	     i++) {
+		const char *path = version_recipes[i].makefile;
+		FILE *file = fopen(path, "r");
+		int in_recipe = 0, seen_recipe = 0;
+
+		snprintf(message, sizeof(message), "%s would not open", path);
+		mu_assert_fatal(file != NULL, message);
+		while (fgets(line, sizeof(line), file) != NULL) {
+			char *at;
+
+			if (!in_recipe) {
+				if (strstr(line, "$(VERSION_HEADER):") != NULL) {
+					in_recipe = 1;
+					seen_recipe = 1;
+				}
+				continue;
+			}
+			/* A recipe line starts with a tab. */
+			if (line[0] != '\t' && line[0] != '\n'
+			    && line[0] != '#') {
+				in_recipe = 0;
+				continue;
+			}
+			at = strstr(line, "#define ");
+			if (at != NULL) {
+				char name[128];
+
+				if (sscanf(at + strlen("#define "), "%127[A-Za-z0-9_]",
+				           name) != 1)
+					name[0] = '\0';
+				snprintf(message, sizeof(message),
+				         "%s: the version header recipe defines "
+				         "%s, which is not one of the names an "
+				         "image may carry about its build. An "
+				         "image records the version it was built "
+				         "from and nothing else, so the same "
+				         "source builds a byte-identical image",
+				         path, name);
+				mu_assert(recipe_allows(version_recipes[i].allowed,
+				                        name), message);
+			}
+			if (strchr(line, '`') != NULL
+			    || strstr(line, "$(shell") != NULL) {
+				snprintf(message, sizeof(message),
+				         "%s: the version header recipe runs a "
+				         "command, which is how a build date, "
+				         "user or host would reach an image: %s",
+				         path, line);
+				mu_assert(0, message);
+			}
+		}
+		fclose(file);
+		snprintf(message, sizeof(message),
+		         "%s: no recipe for the version header to read", path);
+		mu_assert(seen_recipe, message);
+	}
+}
+
+/*
+ * The compiler's own build stamps. Nothing in the firmware uses them, and
+ * nothing may: they would put the build date into an image without any
+ * makefile saying so.
+ */
+MU_TEST(no_firmware_source_uses_the_compilers_build_stamps)
+{
+	static const char *const stamps[] = { "__DATE__", "__TIME__",
+	                                      "__TIMESTAMP__" };
+	char line[1024], message[2048];
+	int i;
+	size_t s;
+
+	for (i = 0; i < SOURCE_COUNT; i++) {
+		FILE *file = fopen(source_paths[i], "r");
+		int in_block = 0;
+
+		snprintf(message, sizeof(message), "%s would not open",
+		         source_paths[i]);
+		mu_assert_fatal(file != NULL, message);
+		while (fgets(line, sizeof(line), file) != NULL) {
+			strip_comments(line, &in_block);
+			for (s = 0; s < sizeof(stamps) / sizeof(stamps[0]);
+			     s++) {
+				snprintf(message, sizeof(message),
+				         "%s uses %s, so the image would carry "
+				         "the date it was built and two builds "
+				         "of the same source would differ",
+				         source_paths[i], stamps[s]);
+				mu_assert(!contains_identifier(line, stamps[s]),
+				          message);
+			}
+		}
+		fclose(file);
 	}
 }
 
@@ -425,6 +571,8 @@ int main(void)
 {
 	printf("firmware text reply tests\n");
 	MU_RUN(both_images_define_the_build_string_the_same_way);
+	MU_RUN(the_generated_version_header_says_nothing_else_about_the_build);
+	MU_RUN(no_firmware_source_uses_the_compilers_build_stamps);
 	MU_RUN(a_normal_revision_goes_out_whole);
 	MU_RUN(a_long_revision_is_cut_to_the_cap);
 	MU_RUN(the_old_cast_wrapped_a_long_revision);

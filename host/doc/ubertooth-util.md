@@ -78,14 +78,13 @@ an image from this tree.
 
 `-V` is the version command, and gives the same answer in every tool here: the
 tools written in Python answer it by running this one and passing its answer
-on (ubertooth(7), COMMON OPTIONS). Its firmware lines, and `-v`, read the
+on (ubertooth(7), COMMON OPTIONS). Its firmware line, and `-v`, read the
 firmware info block described below, so they name the image the board is
 running:
 
     $ ubertooth-util -V
     Host tools version: 2026-11-DEV1+22* (libbtbb 2026-11-DEV1+22*)
     Firmware version: bluetooth_rxtx 2026-11-DEV1+22* (API:<version>)
-    Firmware build: Mon Oct 27 11:22:33 2025
     $ ubertooth-util -v
     Firmware version: bluetooth_rxtx 2026-11-DEV1+22* (API:<version>)
 

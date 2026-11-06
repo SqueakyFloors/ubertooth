@@ -435,17 +435,16 @@ void print_version(void);
  * its own cannot label it differently from -V. */
 #define UBERTOOTH_VERSION_LABEL_HOST     "Host tools version"
 #define UBERTOOTH_VERSION_LABEL_FIRMWARE "Firmware version"
-#define UBERTOOTH_VERSION_LABEL_BUILD    "Firmware build"
 
-/* Long enough for any version, revision or build string a board reports:
- * those are read into a buffer of this size and truncated to fit. */
+/* Long enough for any version or revision string a board reports: those are
+ * read into a buffer of this size and truncated to fit. */
 #define UBERTOOTH_VERSION_TEXT_LEN 255
 
 /* The whole answer to -V, which is the same in every tool, written to the
  * caller's stream -- the tools pass their standard output, where the user
- * asked for it: the host tools' version, then the firmware version and build of the
+ * asked for it: the host tools' version, then the firmware version of the
  * board the user named with -U, or of the only board attached. With several
- * boards and no -U, those two lines per board, indexed. With no board
+ * boards and no -U, that firmware line per board, indexed. With no board
  * attached, "Firmware version: no Ubertooth attached".
  *
  * selector is the -U argument, or NULL where the user named no board. The

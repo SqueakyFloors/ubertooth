@@ -242,7 +242,7 @@ Ubertooth One's LPC1756 does. A part without it would fault at the first
 access to one of those buffers, so check the part's own memory map before
 building this firmware for anything else.
 
-### Firmware build: GNU make 3.81 (macOS) and the generated version.h
+### Building the firmware: GNU make 3.81 (macOS) and the generated version.h
 The firmware builds with the stock GNU make on macOS (**3.81**) as well as the
 modern make on Linux (4.3). The build intentionally avoids make ≥ 4.0 features
 (e.g. `$(file ...)`) so a Mac with only Xcode Command Line Tools can build
@@ -257,11 +257,15 @@ report one version between them. It is regenerated only when the build
 identity changes, so `-v` always matches the firmware actually built and
 flashed — verified across incremental rebuilds on make 3.81 and 4.3, and
 end-to-end on real hardware (built version == on-device `-v`) on both macOS
-and the Linux test bench. Two builds of the same commit report the same
-string, so telling two images apart means comparing the `.dfu` file's
-checksum. A source archive with no `.git` (downloaded zip / release tarball)
-uses a shipped `version.h` as-is, or falls back to `unknown`;
-`tools/ubertooth-release.sh` writes the release version into the archive.
+and the Linux test bench. The header carries nothing else about the build —
+no date, no time, no user, no host — so the same source builds a
+byte-identical image. Two builds of the same commit therefore report the same
+string and produce the same bytes, and telling two images apart means
+comparing the `.dfu` file's checksum. A source archive with no `.git`
+(downloaded zip / release tarball) uses a shipped `version.h` as-is, or the
+release `git archive` wrote into `RELEASE-VERSION`, and falls back to
+`unknown`; `tools/ubertooth-release.sh` writes both into the archive it
+builds.
 
 ### Python 3 only
 Python 2 support was removed upstream in 2020-12-R1. This fork targets modern

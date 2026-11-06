@@ -235,7 +235,6 @@ need it on their `PATH`. `-v` is not in every tool: see below.
 $ ubertooth-util -V
 Host tools version: 2026-11-DEV1+22 (libbtbb 2026-11-DEV1+22)
 Firmware version: bluetooth_rxtx 2026-11-DEV1+22 (API:<version>)
-Firmware build: Mon Oct 27 11:22:33 2025
 ```
 
 With no board attached it prints the host line and `Firmware version: no
@@ -275,7 +274,6 @@ as the revision, and answers whichever image is running:
 $ ubertooth-util -U <serial> -V
 Host tools version: 2026-11-DEV1+22 (libbtbb 2026-11-DEV1+22)
 Firmware version: bluetooth_rxtx 2026-11-DEV1+22 (API:<version>)
-Firmware build: Mon Oct 27 11:22:33 2025
 ```
 
 `ubertooth-dfu` names what is in a firmware file before it writes anything
