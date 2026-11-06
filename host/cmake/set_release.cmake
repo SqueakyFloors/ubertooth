@@ -44,10 +44,11 @@
 # file at the top of the tree, which git archive fills in as a source archive
 # is made; see that file. In a git checkout that file still holds the
 # placeholder, which names no release, so a checkout with no release tag in
-# reach -- one fetched without tags, a shallow one -- reports "unknown", and
-# so do sources copied out of an archive by hand. That is what is actually
-# known: a count from the start of history would not be the distance from a
-# release, and a shallow clone would answer it with its own depth.
+# reach -- one fetched without tags, a shallow one -- reports "unknown", and so
+# does a partial copy of these sources with no RELEASE-VERSION in it. That is
+# what is actually known: a count from the start of history would not be the
+# distance from a release, and a shallow clone would answer it with its own
+# depth.
 #
 # Release tags are named YYYY-MM-Rn, with YYYY-MM-RCn and YYYY-MM-DEVn for the
 # candidate and development tags that come before one, so those are the three
@@ -197,7 +198,12 @@ if(NOT DEFINED RELEASE_STRING)
 				# name read out of the front. What is left has
 				# to be a release name; an untouched placeholder
 				# and a tag the globs let through are not, and
-				# leave the version unknown.
+				# leave the version unknown. That check is what
+				# has to hold: git strips the placeholder's own
+				# "$Format:...$" wrapper where it applied the
+				# attribute but could not expand it, so a
+				# placeholder does not always arrive looking
+				# like one.
 				set(ARCHIVE_AHEAD "")
 				if(ARCHIVE_LINE MATCHES "^(.+)-([0-9]+)-g[0-9a-f]+$")
 					set(ARCHIVE_LINE "${CMAKE_MATCH_1}")

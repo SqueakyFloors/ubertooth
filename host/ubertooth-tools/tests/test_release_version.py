@@ -193,6 +193,39 @@ def main():
             print("FAIL: %s does not mark %s export-subst, so git archive "
                   "would not fill the release in" % (ATTRIBUTES, VERSION_FILE))
             sys.exit(1)
+    # The release tag patterns are written three times: as --match arguments
+    # in the makefile, as globs in the module, and inside the placeholder in
+    # the version file, which is what git matches against when it makes an
+    # archive. A kind of tag added to one and not the others would cost
+    # archives their release with nothing failing, so they are counted
+    # against each other.
+    with open(os.path.join(repo_root, VERSION_FILE)) as handle:
+        placeholder = handle.read()
+    patterns = set()
+    for path in (MODULE, FIRMWARE_MK):
+        with open(os.path.join(repo_root, path)) as handle:
+            found = re.findall(r"""--match ["']([^"'\s]+)["']""",
+                               handle.read())
+        if not found:
+            print("FAIL: %s asks git to match no release tag pattern" % path)
+            sys.exit(1)
+        if patterns and set(found) != patterns:
+            print("FAIL: %s and %s ask git to match different release tag "
+                  "patterns" % (MODULE, FIRMWARE_MK))
+            sys.exit(1)
+        patterns = set(found)
+    if placeholder.count("match=") != len(patterns):
+        print("FAIL: %s asks git to match %d release tag patterns and the "
+              "build asks for %d" % (VERSION_FILE,
+                                     placeholder.count("match="),
+                                     len(patterns)))
+        sys.exit(1)
+    for pattern in sorted(patterns):
+        if ("match=" + pattern) not in placeholder:
+            print("FAIL: %s does not ask git to match %r, so an archive made "
+                  "at such a tag would report no release"
+                  % (VERSION_FILE, pattern))
+            sys.exit(1)
 
     with tempfile.TemporaryDirectory() as work:
         # HEAD is the release tag itself: that release, and a release build,

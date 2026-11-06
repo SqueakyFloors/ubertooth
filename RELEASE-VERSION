@@ -1,18 +1,9 @@
-# The release this source came from, for a build that has no git history to
-# ask -- a release tarball, a "Download ZIP", any unpacked source archive.
+# The release this source came from, for a build with no git history to ask --
+# a release tarball, a "Download ZIP", any unpacked source archive.
 #
-# .gitattributes marks this file export-subst, so git archive rewrites the
-# last line below into what `git describe --tags` says about the commit the
-# archive was made from: a release tag on its own, or a release tag with the
-# number of commits past it and the commit. The build reduces that to the
-# version it reports, "2026-11-R1" or "2026-11-R1+22" -- the same two forms a
-# git checkout reports. host/cmake/set_release.cmake does it for the host
-# tools and firmware/version.mk for the firmware images.
-#
-# In a git checkout nothing has rewritten it, so the last line is still the
-# placeholder git wrote it as. A checkout's version comes from git directly
-# and this file is not read at all.
-#
-# Nothing here has to be edited before a release: the tag the release is made
-# from is what git fills in.
+# git archive rewrites the last line below into the release it was made from,
+# because .gitattributes marks this file export-subst. A git checkout has the
+# placeholder git wrote it as, and asks git directly instead. The readers are
+# host/cmake/set_release.cmake and firmware/version.mk; docs/source/
+# release_procedure.rst says what a release does with it.
 $Format:%(describe:tags,match=[0-9][0-9][0-9][0-9]-[0-9][0-9]-R[0-9]*,match=[0-9][0-9][0-9][0-9]-[0-9][0-9]-RC[0-9]*,match=[0-9][0-9][0-9][0-9]-[0-9][0-9]-DEV[0-9]*)$
