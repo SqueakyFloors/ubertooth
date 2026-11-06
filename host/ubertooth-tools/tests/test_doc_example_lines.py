@@ -248,12 +248,6 @@ NOT_PINNED = [
      "Host tools version: 2026-11-DEV1+22* (libbtbb 2026-11-DEV1+22*)"),
     ("ubertooth.md",
      "Host tools version: <release> (libbtbb <release>)"),
-    # The build string is whatever the board reports; the faked board reports
-    # a short one of its own.
-    ("ubertooth-util.md",
-     "Firmware build: Mon Oct 27 11:22:33 2025"),
-    ("ubertooth.md",
-     "Firmware build: <the date the image was built>"),
 ]
 
 

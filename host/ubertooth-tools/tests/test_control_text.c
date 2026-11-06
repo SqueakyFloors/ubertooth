@@ -218,15 +218,15 @@ MU_TEST(revision_rejects_a_missing_buffer_without_a_transfer)
 	mu_assert_int_eq(0, fake.calls);
 }
 
-/* ---- compile info ------------------------------------------------------- */
+/* ---- the string UBERTOOTH_GET_COMPILE_INFO answers with ----------------- */
 
 MU_TEST(compile_info_string_is_returned)
 {
 	char text[128];
 
-	script_compile_info("ubertooth git-1 (user@host) Fri Oct 23", 0);
+	script_compile_info("2026-11-DEV1+22*", 0);
 	mu_assert_int_eq(0, cmd_get_firmware_compile_info(NULL, text, sizeof(text)));
-	mu_assert(strcmp(text, "ubertooth git-1 (user@host) Fri Oct 23") == 0,
+	mu_assert(strcmp(text, "2026-11-DEV1+22*") == 0,
 	          "wrong compile info");
 	mu_assert_int_eq(UBERTOOTH_GET_COMPILE_INFO, fake.last_request);
 }
@@ -256,7 +256,7 @@ MU_TEST(short_or_malformed_compile_info_reply_is_an_error)
 	                 cmd_get_firmware_compile_info(NULL, text, sizeof(text)));
 	mu_assert_int_eq(0, (long)strlen(text));
 
-	script_compile_info("ubertooth git-1", -1);
+	script_compile_info("2026-11-DEV1", -1);
 	mu_assert_int_eq(UBERTOOTH_ERROR_SHORT_REPLY,
 	                 cmd_get_firmware_compile_info(NULL, text, sizeof(text)));
 
@@ -271,11 +271,11 @@ MU_TEST(long_compile_info_is_truncated_and_missing_buffer_rejected)
 {
 	char text[5];
 
-	script_compile_info("ubertooth git-1", 0);
+	script_compile_info("2026-11-DEV1", 0);
 	mu_assert_int_eq(0, cmd_get_firmware_compile_info(NULL, text, sizeof(text)));
-	mu_assert(strcmp(text, "uber") == 0, "compile info not truncated");
+	mu_assert(strcmp(text, "2026") == 0, "compile info not truncated");
 
-	script_compile_info("ubertooth git-1", 0);
+	script_compile_info("2026-11-DEV1", 0);
 	mu_assert_int_eq(LIBUSB_ERROR_INVALID_PARAM,
 	                 cmd_get_firmware_compile_info(NULL, NULL, 5));
 	mu_assert_int_eq(LIBUSB_ERROR_INVALID_PARAM,

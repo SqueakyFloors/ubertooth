@@ -25,12 +25,12 @@
 static struct {
 	int board_id, channel, palevel, squelch, usrled, rxled, txled;
 	uint32_t partnum;
-	int partnum_rc, serial_rc, api_rc, revision_rc, compile_info_rc;
+	int partnum_rc, serial_rc, api_rc, revision_rc;
 	/* the info block read on its own: LIBUSB_ERROR_PIPE is how firmware
 	 * older than the block answers it */
 	int fw_info_rc;
 	uint16_t api_version;
-	const char *image, *revision, *compile_info;
+	const char *image, *revision;
 	/* results of commands that set state or start a mode */
 	int stop_rc, reset_rc, set_channel_rc, set_usrled_rc, set_rxled_rc;
 	int set_txled_rc, set_palevel_rc, set_squelch_rc, isp_rc;
@@ -152,7 +152,6 @@ static void reset_fake(void)
 	fake.api_version = UBERTOOTH_API_VERSION; /* firmware from this tree */
 	fake.image = "bluetooth_rxtx";
 	fake.revision = "2026-11-DEV1";
-	fake.compile_info = "compile-test";
 	fake.device_count = 1;
 	fake.range.valid = 1;
 	fake.range.request_pa = 1;
@@ -523,13 +522,6 @@ int cmd_get_firmware_revision(struct libusb_device_handle *h, char *revision,
 	return 0;
 }
 
-int cmd_get_firmware_compile_info(struct libusb_device_handle *h, char *info,
-                                  size_t size)
-{
-	return fake_text_read(h, info, size, fake.compile_info,
-	                      fake.compile_info_rc, -1);
-}
-
 /*
  * The board as -n sees it, on the fake clock: a test that has been started
  * clears the previous result, reports one once the reply arrives, and leaves
@@ -761,12 +753,11 @@ static struct run_result run_util(const char *const *args)
 #define BOARD_LINE "Board ID Number: 1 (Ubertooth One)\n"
 #define CHANNEL_LINE "Current frequency: 2441 MHz (Bluetooth channel 39)\n"
 #define FIRMWARE_LINE "Firmware version: bluetooth_rxtx 2026-11-DEV1 (API:1.58)\n"
-#define BUILD_LINE "Firmware build: compile-test\n"
 /* The host line is faked above, so it is this. */
 #define HOST_LINE "libubertooth fake\n"
 /* The whole -V answer for the scripted board, which is libubertooth's and the
  * same in every tool (test_version_report.c has its own cases). */
-#define VERSION_ANSWER HOST_LINE FIRMWARE_LINE BUILD_LINE
+#define VERSION_ANSWER HOST_LINE FIRMWARE_LINE
 #define USRLED_LINE "USR LED status: 0\n"
 #define PALEVEL_LINE "PA Level: 7\n"
 #define PART_LINE "Part ID: 25011723\n"
@@ -979,15 +970,6 @@ MU_TEST(each_failing_report_makes_the_command_fail)
 	r = RUN("-v", "-p");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out, PART_LINE) == 0, "part ID still reported");
-
-	/* -V is the version answer, so a build string it could not read is a
-	 * line of its own saying so, and the command fails. */
-	reset_fake();
-	fake.compile_info_rc = LIBUSB_ERROR_IO;
-	r = RUN("-V");
-	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.out, HOST_LINE FIRMWARE_LINE
-	                 "Firmware build: read failed\n") == 0, r.out);
 
 	reset_fake();
 	fake.palevel = -1;

@@ -78,7 +78,6 @@ ran:
 
     Host tools version: <release> (libbtbb <release>)
     Firmware version: <image> <release> (API:<version>)
-    Firmware build: <the date the image was built>
 
 The first line is the host's and needs no board: the release these tools were
 built from, with libbtbb's beside it. A release name, not a commit, so it is
@@ -89,10 +88,10 @@ loaded a libbtbb from somewhere other than the one these tools were built
 against -- a distribution or Homebrew build beside this fork's, which decodes
 packets its own way -- a `warning:` line on standard error says so.
 
-The two firmware lines describe the board `-U` names, or the only board
-attached. With several boards attached and no `-U`, both lines are printed for
-each of them with its index in the label, as the identity queries of
-ubertooth-util(1) are: `Firmware version (0): ...`, `Firmware build (0): ...`.
+The firmware line describes the board `-U` names, or the only board attached.
+With several boards attached and no `-U`, it is printed for each of them with
+its index in the label, as the identity queries of ubertooth-util(1) are:
+`Firmware version (0): ...`, `Firmware version (1): ...`.
 
 With no Ubertooth attached the host line is followed by `Firmware version:
 no Ubertooth attached` and the status is still 0: the host half of the answer
@@ -109,13 +108,16 @@ rather than nothing attached: `Firmware version: unavailable, the USB bus
 could not be listed`.
 
 Part of an answer can go missing on its own, and the status is 1 then too: a
-board that answered its version but not its build string prints `Firmware
-build: read failed` under a good version line, or `Firmware build: not
-reported` if the read worked and the board had no build string to give, and
-one whose API version could not be read prints the version with no
-` (API:...)` after it.
-So a script that cares about the whole answer should test the status, not
-only look for a reason in place of a version.
+board whose API version could not be read prints the version with no
+` (API:...)` after it. So a script that cares about the whole answer should
+test the status, not only look for a reason in place of a version.
+
+Nothing in the answer says when, where or by whom anything was built. An image
+records the version it was built from and nothing else, so the same source
+always builds the same bytes. Because the version names a release rather than
+a commit, two builds from different commits between the same pair of releases
+report the same version; what tells those apart is the checksum of the `.dfu`
+file each came from.
 
 Asking for the version does not disturb a board: it is not told to stop, so a
 mode running on it keeps running, and any firmware is read whatever API

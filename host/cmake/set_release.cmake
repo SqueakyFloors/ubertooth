@@ -40,16 +40,16 @@
 # an option(), which would define the variable on the first configure and
 # leave the probe below with nothing to decide.
 #
-# LATEST_RELEASE is the version string a tree with no git history reports;
-# developers should set it before a release is tagged. A checkout with no
-# release tag in reach -- a clone fetched without tags, a shallow one --
-# reports it with "+unknown" after it: that names the release the tree is at
-# least as new as, and says plainly that the distance is not known. A count
-# from the start of history would be a different number, and a shallow clone
-# would answer it with its own depth.
-
-set(LATEST_RELEASE "2020-12-R1")
-
+# Where git has no release to name, the release comes from the RELEASE-VERSION
+# file at the top of the tree, which git archive fills in as a source archive
+# is made; see that file. In a git checkout that file still holds the
+# placeholder, which names no release, so a checkout with no release tag in
+# reach -- one fetched without tags, a shallow one -- reports "unknown", and so
+# does a partial copy of these sources with no RELEASE-VERSION in it. That is
+# what is actually known: a count from the start of history would not be the
+# distance from a release, and a shallow clone would answer it with its own
+# depth.
+#
 # Release tags are named YYYY-MM-Rn, with YYYY-MM-RCn and YYYY-MM-DEVn for the
 # candidate and development tags that come before one, so those are the three
 # patterns git is asked to look for; it takes a --match for each. The
@@ -132,10 +132,10 @@ if(NOT GIT_DIR_ERROR AND (NOT DEFINED RELEASE_STRING OR NOT DEFINED UBERTOOTH_RE
 		set(GIT_DESCRIBE_ERROR 1)
 	endif()
 	if(GIT_DESCRIBE_ERROR)
-		# No release tag in reach. The tree is at least as new as the
-		# last release there was, and how much newer is not known.
-		set(RELEASE_TAG "${LATEST_RELEASE}")
-		set(RELEASE_AHEAD "unknown")
+		# No release tag in reach, so git names no release here and the
+		# answer comes from the file below instead.
+		set(RELEASE_TAG "")
+		set(RELEASE_AHEAD "")
 	else()
 		execute_process(
 			COMMAND git rev-list --count ${RELEASE_TAG}..HEAD
@@ -155,9 +155,7 @@ if(NOT GIT_DIR_ERROR AND (NOT DEFINED RELEASE_STRING OR NOT DEFINED UBERTOOTH_RE
 endif()
 
 if(NOT DEFINED RELEASE_STRING)
-	if(GIT_DIR_ERROR)
-		set(RELEASE_STRING ${LATEST_RELEASE})
-	else()
+	if(NOT GIT_DIR_ERROR AND NOT "${RELEASE_TAG}" STREQUAL "")
 		# A git that cannot answer here leaves the flag off rather than
 		# printing to the configure output: the release is already
 		# known, so the version string is right either way.
@@ -177,6 +175,57 @@ if(NOT DEFINED RELEASE_STRING)
 		else()
 			set(RELEASE_STRING "${RELEASE_TAG}+${RELEASE_AHEAD}${DIRTY_FLAG}")
 		endif()
+	elseif(NOT GIT_DIR_ERROR)
+		# git placed this tree in a checkout of its own, and its
+		# history names no release. RELEASE-VERSION is not read here:
+		# whatever it says was written for some other source -- an
+		# archive unpacked and committed to a repository of its own
+		# carries the release the archive was made from, and this
+		# checkout's HEAD is not that -- so there is no release to
+		# name.
+		set(RELEASE_STRING "unknown")
+	else()
+		# No git at all, so these sources came out of an archive if
+		# they came from anywhere: the release it carries. Comments and
+		# blank lines are
+		# skipped, so RELEASE-VERSION can explain itself; the first
+		# line that is neither is the answer, whatever it says, so a
+		# file that says nothing useful is not searched past.
+		set(RELEASE_STRING "unknown")
+		set(ARCHIVE_FILE "${CMAKE_CURRENT_LIST_DIR}/../../RELEASE-VERSION")
+		if(EXISTS "${ARCHIVE_FILE}")
+			file(STRINGS "${ARCHIVE_FILE}" ARCHIVE_LINES)
+			foreach(ARCHIVE_LINE IN LISTS ARCHIVE_LINES)
+				string(STRIP "${ARCHIVE_LINE}" ARCHIVE_LINE)
+				if(ARCHIVE_LINE STREQUAL ""
+				   OR ARCHIVE_LINE MATCHES "^#")
+					continue()
+				endif()
+				# git appends "-<commits>-g<commit>" to the tag
+				# where the commit archived is past it. A
+				# release name has dashes of its own, so the
+				# count is taken off the end rather than the
+				# name read out of the front. What is left has
+				# to be a release name; an untouched placeholder
+				# and a tag the globs let through are not, and
+				# leave the version unknown. That check is what
+				# has to hold: git strips the placeholder's own
+				# "$Format:...$" wrapper where it applied the
+				# attribute but could not expand it, so a
+				# placeholder does not always arrive looking
+				# like one.
+				set(ARCHIVE_AHEAD "")
+				if(ARCHIVE_LINE MATCHES "^(.+)-([0-9]+)-g[0-9a-f]+$")
+					set(ARCHIVE_LINE "${CMAKE_MATCH_1}")
+					set(ARCHIVE_AHEAD "+${CMAKE_MATCH_2}")
+				endif()
+				if(ARCHIVE_LINE MATCHES "${RELEASE_TAG_FORM}")
+					set(RELEASE_STRING
+						"${ARCHIVE_LINE}${ARCHIVE_AHEAD}")
+				endif()
+				break()
+			endforeach()
+		endif()
 	endif()
 endif()
 
@@ -193,7 +242,10 @@ endif()
 # The two answers are what this file is for; what it asked git along the way
 # is not, and these names are generic enough to collide in a directory that
 # inherited them.
-unset(LATEST_RELEASE)
+unset(ARCHIVE_FILE)
+unset(ARCHIVE_LINES)
+unset(ARCHIVE_LINE)
+unset(ARCHIVE_AHEAD)
 unset(RELEASE_TAG_MATCH)
 unset(RELEASE_TAG_FORM)
 unset(RELEASE_TAG)

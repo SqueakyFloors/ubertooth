@@ -40,22 +40,30 @@ top="$(pwd)/../release"
 # and answers yes if ${top} happens to sit inside one, which would overwrite
 # the shipped version.h with that tree's version. Saying so on the make
 # command line, which overrides the makefile's own value and reaches every
-# sub-make, makes the shipped header govern whatever ${top} is. No image
-# carries the name of the user or the machine that built it, so there is
-# nothing else to pin.
-#
-# One UTC time for every image of a release, rather than the local time of
-# each build step: the images are stamped the same, and the stamp says nothing
-# about where the release was built.
-build_date="$(date -u)"
+# sub-make, makes the shipped header govern whatever ${top} is. An image
+# records the version it was built from and nothing else -- no date, no time,
+# no user, no host -- so there is nothing else to pin.
 stamp=(HAVE_GIT=false)
 
-case "${version}" in
-	*[!A-Za-z0-9._-]*|"")
-		echo "error: release version '${version}' has characters outside A-Za-z0-9._-" >&2
-		exit 1
-		;;
-esac
+# The release has to be one of the names a build reports: YYYY-MM-Rn, with
+# YYYY-MM-RCn and YYYY-MM-DEVn for the candidate and development tags that come
+# before one. host/cmake/set_release.cmake and firmware/version.mk both turn
+# down anything else, so an archive named anything else would report that name
+# from its images and "unknown" from its host tools -- the board and the tools
+# that talk to it disagreeing about which release they are. Refusing it here is
+# the only place that can say why.
+#
+# With no argument the version is the branch name, which is how this reads as a
+# refusal of `tools/ubertooth-release.sh` run on `main` by mistake.
+# The same expression both readers use, so what passes here is what they
+# accept; a shell glob cannot say "one or more digits".
+if ! printf '%s\n' "${version}" \
+	| grep -qE '^[0-9]{4}-[0-9]{2}-(R|RC|DEV)[0-9]+$' ; then
+	echo "error: release version '${version}' is not a release name" \
+	     "(YYYY-MM-Rn, YYYY-MM-RCn or YYYY-MM-DEVn), which is what a build" \
+	     "reports" >&2
+	exit 1
+fi
 
 releasename="ubertooth-${version}"
 targetdir="${top}/${releasename}"
@@ -99,25 +107,25 @@ write_version_headers() {
 #define UBERTOOTH_VERSION_H
 #define GIT_REVISION "${version}"
 #define FW_IMAGE_NAME "${imgname}"
-#define TIMESTAMP "${build_date}"
 #endif
 EOF
 	done
 }
 
 # The version a build with no git history reports -- which is what this
-# archive is -- comes from LATEST_RELEASE in host/cmake/set_release.cmake, so
-# set it to the release. BSD and GNU sed disagree about `-i`, so the edit goes
-# through a temporary file. The grep stops a silent no-op if the line moves
-# again.
-relfile="${targetdir}/host/cmake/set_release.cmake"
-sed -e "s/^set(LATEST_RELEASE .*/set(LATEST_RELEASE \"${version}\")/" \
-	"${relfile}" > "${relfile}.tmp"
-mv "${relfile}.tmp" "${relfile}"
-if ! grep -q "^set(LATEST_RELEASE \"${version}\")$" "${relfile}" ; then
-	echo "error: LATEST_RELEASE not set in ${relfile}" >&2
-	exit 1
-fi
+# archive is -- comes from RELEASE-VERSION at the top of the tree. git archive
+# fills that in from the commit it archived, and does so here too, but the
+# release this script was asked for is the name to carry: a release built from
+# a commit the tag is not on yet would otherwise report the distance to the
+# previous one. The file is written with the release on its own line, in the
+# form the build reads.
+relfile="${targetdir}/RELEASE-VERSION"
+cat > "${relfile}" <<EOF
+# The release these sources came from, written by tools/ubertooth-release.sh.
+# host/cmake/set_release.cmake and firmware/version.mk read it, because an
+# archive has no git history to ask.
+${version}
+EOF
 
 ############################
 # Software

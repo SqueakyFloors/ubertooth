@@ -85,7 +85,7 @@ COMPATIBILITY.md for the comparison.
    select an Ubertooth by enumeration index or serial number; see
    ubertooth(7), SELECTING A DEVICE
  - `-V` :
-   print the version: the host tools, then the firmware version and build of
+   print the version: the host tools, then the firmware version of
    each attached board; see ubertooth(7), COMMON OPTIONS
  - `-r <filename>` :
    capture packets to a PCAPNG file. A PcapNG writer seeks back over what it

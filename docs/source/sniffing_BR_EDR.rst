@@ -94,7 +94,6 @@ either switch:
 		$ ubertooth-util -U <serial> -V
 		Host tools version: 2026-11-DEV1+22 (libbtbb 2026-11-DEV1+22)
 		Firmware version: btbr 2026-11-DEV1+22 (API:<version>)
-		Firmware build: Mon Oct 27 11:22:33 2025
 
 
 

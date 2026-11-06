@@ -49,14 +49,13 @@ firmware API version, because both images report this tree's.
 ``ubertooth-util -V`` names the image a board is carrying, so it is how you
 check which one is on there now, or that a switch worked. Its ``Firmware
 version:`` line is the one to read; the host line above it says which tools
-you are running, and the build line below it when that image was built:
+you are running:
 
 	.. code-block:: sh
 
 		$ ubertooth-util -U <serial> -V
 		Host tools version: 2026-11-DEV1+22 (libbtbb 2026-11-DEV1+22)
 		Firmware version: bluetooth_rxtx 2026-11-DEV1+22 (API:<version>)
-		Firmware build: Mon Oct 27 11:22:33 2025
 		$ ubertooth-util -U <serial> -V | grep '^Firmware version:'   # flashed with btbr
 		Firmware version: btbr 2026-11-DEV1+22 (API:<version>)
 
@@ -185,18 +184,21 @@ In non-DFU mode, you can obtain firmware information with ``ubertooth-util -V``.
 		$ ubertooth-util -V
 		Host tools version: 2026-11-DEV1+22* (libbtbb 2026-11-DEV1+22*)
 		Firmware version: bluetooth_rxtx 2026-11-DEV1+22* (API:<version>)
-		Firmware build: Tue Aug  7 15:33:06 PDT 2018
 
 The ``Firmware version:`` line starts with the image the board is running,
 read from its firmware info block; a board running firmware from before the
-block shows the revision alone. The ``Firmware build:`` line is the date
-the image was built.
+block shows the revision alone.
 
-A firmware built from a git checkout reports its git revision as above, with
-a trailing ``*`` if the working tree had uncommitted changes; a
-release build reports the release name instead. The version is
-generated into a ``version.h`` at build time and tracks the exact source it was
-built from, so ``-V`` always reflects the firmware actually running.
+A firmware built from a git checkout reports the release it was built from, or
+the nearest release and how many commits are past it, with a trailing ``*`` if
+the working tree had uncommitted changes. The version is generated into a
+``version.h`` at build time and tracks the source it was built from, so ``-V``
+always reflects the firmware actually running. Nothing else about the build is
+recorded -- no date, no time, no user, no host -- so the same source always
+builds the same bytes. Because the version names a release rather than a
+commit, two builds from different commits between the same pair of releases
+report the same version; what tells those apart is the checksum of the ``.dfu``
+file each came from.
 
 
 

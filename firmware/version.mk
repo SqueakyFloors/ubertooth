@@ -19,13 +19,6 @@ UBERTOOTH_RELEASE_TAG_MATCH := \
 	--match '[0-9][0-9][0-9][0-9]-[0-9][0-9]-RC[0-9]*' \
 	--match '[0-9][0-9][0-9][0-9]-[0-9][0-9]-DEV[0-9]*'
 
-# What to report when git finds no release tag at all, which happens in a
-# clone fetched without tags and in a shallow one. The last release of the
-# original project is the honest floor -- the tree is at least that new -- and
-# it is also what a tree with no git history reports (LATEST_RELEASE in
-# host/cmake/set_release.cmake).
-UBERTOOTH_LATEST_RELEASE := 2020-12-R1
-
 DIRTY := $(shell git status -s --untracked-files=no 2>/dev/null)
 ifneq ($(DIRTY), )
 DIRTY_FLAG = *
@@ -42,7 +35,7 @@ endif
 # tools/ubertooth-release.sh also passes HAVE_GIT=false on the command line, to
 # build the shipped sources as the archive they are about to become.
 VERSION_MK_DIR := $(patsubst %/,%,$(dir $(lastword $(MAKEFILE_LIST))))
-HAVE_GIT := $(shell cd $(VERSION_MK_DIR) 2>/dev/null \
+HAVE_GIT := $(shell cd '$(VERSION_MK_DIR)' 2>/dev/null \
 	&& test "`git rev-parse --show-prefix 2>/dev/null`" = firmware/ \
 	&& git rev-parse --is-inside-work-tree 2>/dev/null)
 
@@ -62,13 +55,18 @@ RELEASE_TAG := $(shell git describe --tags --abbrev=0 $(UBERTOOTH_RELEASE_TAG_MA
 
 ifeq ($(RELEASE_TAG),)
 
-# No release tag in reach. The latest release stands in for it, so the version
-# still names a release, and the distance is reported as unknown rather than
-# counted from the start of history: that count is not the distance from the
-# release, and a shallow clone would answer it with its own depth. A clone of
-# one commit saying "+1" would read exactly like a real build one commit past
-# a release.
-VERSION_NOW := $(UBERTOOTH_LATEST_RELEASE)+unknown$(DIRTY_FLAG)
+# No release tag in reach -- a clone fetched without tags, a shallow one, a
+# history with none yet. git names no release here, and counting from the
+# start of history would not be the distance from one: a shallow clone would
+# answer that with its own depth, and a clone of one commit saying "+1" would
+# read exactly like a real build one commit past a release.
+#
+# The archive's release is not read here either: git placed this tree in a
+# checkout of its own, and a RELEASE-VERSION beside it was written for some
+# other source -- an archive unpacked and committed to a repository of its own
+# carries the release the archive was made from, and this checkout's HEAD is
+# not that.
+VERSION_NOW := unknown
 
 else
 
@@ -89,11 +87,42 @@ endif
 
 else
 
-# No git history to read. The including makefile uses a version.h shipped
-# beside these sources where there is one, which is what a release archive
-# carries; this is what it reports when there is not, and then the version
-# really is unknown. The host tools answer that case with the latest release
-# instead, because their build has no shipped header to fall back on.
+# No git history to read, so these sources came out of an archive if they came
+# from anywhere, and the release it carries is in RELEASE-VERSION at the top of
+# the tree; git archive fills it in as the archive is made, and see that file.
+# The including makefile uses a version.h shipped beside these sources where
+# there is one, which is what a release archive carries; this is what it
+# reports when there is not.
+#
+# The first line of the file that is neither blank nor a comment is the answer
+# git wrote: the nearest release tag, with "-<commits>-g<commit>" after it
+# where the commit archived is past the tag. A release name has dashes of its
+# own, so the count is taken off the end rather than the name read out of the
+# front, and what is left has to be a release name. An untouched placeholder,
+# which is what a git checkout has, is not one.
+#
+# Surrounding blanks and a carriage return are taken off the line first, so
+# that a file edited by hand, or carried through a download that rewrote its
+# line endings, reads the same here as in host/cmake/set_release.cmake, which
+# strips the line as CMake's file(STRINGS) gives it. The two have to agree, or
+# a board and the tools that talk to it would name different releases.
+#
+# No release this file could carry instead would be better than "unknown": the
+# distance from it would not be known, and whoever edited it last would have
+# decided what every archive claimed.
+ARCHIVE_VERSION_FILE := $(VERSION_MK_DIR)/../RELEASE-VERSION
+ARCHIVE_RELEASE := $(shell \
+	sed -e '/^[[:space:]]*\#/d' -e '/^[[:space:]]*$$/d' -e q \
+		'$(ARCHIVE_VERSION_FILE)' 2>/dev/null \
+	| tr -d '\r' \
+	| sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$$//' \
+	| sed -E -e 's/-([0-9]+)-g[0-9a-f]+$$/+\1/' \
+	| grep -E '^[0-9]{4}-[0-9]{2}-(R|RC|DEV)[0-9]+(\+[0-9]+)?$$')
+
+ifeq ($(ARCHIVE_RELEASE),)
 VERSION_NOW := unknown
+else
+VERSION_NOW := $(ARCHIVE_RELEASE)
+endif
 
 endif

@@ -12,7 +12,7 @@ ubertooth\-util [\-V] [\-v] [\-I] [\-d [0\-1]] [\-l [0\-1]]
 [\-w] [\-N] [\-x] [\-h]
 .fi
 .SH "DESCRIPTION"
-ubertooth\-util(1) is a catch\-all tool for doing generally useful things with, to, and about Ubertooth\. To get the host tools' version and the firmware version and build of each attached board, run:
+ubertooth\-util(1) is a catch\-all tool for doing generally useful things with, to, and about Ubertooth\. To get the host tools' version and the firmware version of each attached board, run:
 .IP "" 4
 .nf
 ubertooth\-util \-V
@@ -56,13 +56,12 @@ ubertooth\-util \-U <serial> \-S      # stop; the LEDs end off
 .P
 \fB\-I\fR needs firmware of this tree's API version, and treats any other the way the rest of the tools do: a release build refuses it, a development build warns and blinks anyway (see ubertooth(7), FIRMWARE OF ANOTHER API VERSION)\. The other options are not gated on the API version, and ubertooth\-dfu(1) reflashes a board whatever firmware it is running, so a board is always recoverable with an image from this tree\.
 .P
-\fB\-V\fR is the version command, and gives the same answer in every tool here: the tools written in Python answer it by running this one and passing its answer on (ubertooth(7), COMMON OPTIONS)\. Its firmware lines, and \fB\-v\fR, read the firmware info block described below, so they name the image the board is running:
+\fB\-V\fR is the version command, and gives the same answer in every tool here: the tools written in Python answer it by running this one and passing its answer on (ubertooth(7), COMMON OPTIONS)\. Its firmware line, and \fB\-v\fR, read the firmware info block described below, so they name the image the board is running:
 .IP "" 4
 .nf
 $ ubertooth\-util \-V
 Host tools version: 2026\-11\-DEV1+22* (libbtbb 2026\-11\-DEV1+22*)
 Firmware version: bluetooth_rxtx 2026\-11\-DEV1+22* (API:<version>)
-Firmware build: Mon Oct 27 11:22:33 2025
 $ ubertooth\-util \-v
 Firmware version: bluetooth_rxtx 2026\-11\-DEV1+22* (API:<version>)
 .fi
@@ -93,7 +92,7 @@ To put a board into the DFU bootloader and reflash it, use ubertooth\-dfu(1), wh
 Common options:
 .TP
 \fB\-V\fR
-print the version and end the command: the host tools, then the firmware version and build of the board \fB\-U\fR names, or of each attached board\. The same answer the other C tools give, including with no board attached; see ubertooth(7), COMMON OPTIONS
+print the version and end the command: the host tools, then the firmware version of the board \fB\-U\fR names, or of each attached board\. The same answer the other C tools give, including with no board attached; see ubertooth(7), COMMON OPTIONS
 .TP
 \fB\-v\fR
 get the image and revision the firmware was built from, as the \fBFirmware version:\fR line alone; exits non\-zero if the read fails\. \fBDeprecated\fR: use \fB\-V\fR, which prints that line among the others\. \fB\-v\fR keeps working, and prints no warning, so scripts that parse it are left alone

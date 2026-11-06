@@ -63,10 +63,10 @@ endif
 # UBERTOOTH_FW_INFO_IMAGE_LEN (16) bytes, which fw_info.c asserts.
 IMAGE_NAME ?= $(TARGET)
 
-# The firmware version and build date (GIT_REVISION, TIMESTAMP) are provided
-# by a generated version.h, not -D flags -- see the
-# "Version identity tracking" section below. VERSION_NOW and HAVE_GIT, set by
-# the include below, are what that section writes into the header.
+# The firmware version (GIT_REVISION) is provided by a generated version.h,
+# not a -D flag -- see the "Version identity tracking" section below.
+# VERSION_NOW and HAVE_GIT, set by the include below, are what that section
+# writes into the header.
 include ../version.mk
 
 # CPU architecture
@@ -205,8 +205,8 @@ CFLAGS += -mfix-cortex-m3-ldrd
 CFLAGS += -Wa,-alhms=$(call per_image,$(<:%.c=%.lst))
 CFLAGS += $(patsubst %,-I%,$(EXTRAINCDIRS))
 CFLAGS += $(CSTANDARD)
-# GIT_REVISION and TIMESTAMP now come from the generated version.h, not
-# -D flags -- see "Version identity tracking" below.
+# GIT_REVISION comes from the generated version.h, not a -D flag -- see
+# "Version identity tracking" below.
 
 #---------------- Compiler Options C++ ----------------
 #  -g*:          generate debugging information
@@ -419,80 +419,59 @@ DEPFILES = $(call per_image,$(SRC:%.c=%.d) $(CPPSRC:%.cpp=%.d)) \
 
 # Version identity tracking.
 #
-# The firmware version string (-v / -V) must match the git revision it was
-# built from. We generate a header, version.h, containing the revision and the
-# compile info, and the version-bearing sources #include it. Because version.h
+# The firmware version string (-v / -V) must match the release the image was
+# built from. We generate a header, version.h, carrying that version and the
+# image name, and the version-bearing sources #include it. Because version.h
 # is a real compiler input, make's normal file-dependency tracking (via the
 # -MMD depfiles -include'd above) rebuilds exactly the objects that include it,
 # and only when the header actually changes -- no stale version strings, no
 # full-project rebuilds.
 #
-# The header is regenerated every build but only REWRITTEN when its contents
-# change (write to a temp file, cmp, replace), so its mtime -- and therefore a
+# The header is written every build but only REPLACED when its contents change
+# (write to a temp file, cmp, replace), so its mtime -- and therefore a
 # recompile -- is triggered exactly on a real change. GIT_REVISION carries an
 # optional "*" dirty flag.
 #
+# Nothing in it depends on when, where or by whom the build ran: no date, no
+# time, no user, no host. An image is handed around, so none of that tells a
+# reader of the version anything they need, and leaving it out means the same
+# source always builds the same bytes -- which is what makes the .dfu file's
+# checksum worth comparing when two builds report the same release, as two
+# commits between one pair of releases do.
+#
 # version.h is generated (listed in .gitignore), not committed; a source
-# distribution that ships it keeps the revision available without a .git dir.
+# distribution that ships it keeps the version available without a .git dir.
 #
 # Plain shell + cmp only, so this works on GNU make 3.81 (macOS); no $(file ...)
 # (that needs make >= 4.0).
 VERSION_HEADER := $(OBJDIR)/version.h
-VERSION_IDFILE := $(OBJDIR)/version.id
 # VERSION_NOW is the release this build reports and HAVE_GIT says whether
 # there was any git history to work it out from; both come from version.mk,
-# included above. Without git we must NOT regenerate version.h -- we rely on
-# the one shipped in the archive (see the `dist` target) -- and if none exists
-# we fall back to a clearly-marked "unknown" rather than blanking the version.
-# The build identity: the version (incl. the "*" dirty flag) and the image
-# name. The header is only regenerated -- and the TIMESTAMP refreshed -- when
-# THIS string changes, so the recorded timestamp reflects the actual build of
-# the flashed firmware. Preserving the timestamp otherwise matters for A->B->A
-# switches: returning to A must keep A's original build time, not re-stamp it.
-# The identity is stored verbatim in a sidecar file (version.id) and compared
-# exactly, rather than parsed back out of the header. The image name is part of
-# it because the header carries that too, and the firmware info block is built
-# from it.
-#
-# Who built an image and on what machine are not recorded: an image is handed
-# around, and a builder's user and host names are theirs rather than something
-# a reader of the version needs.
-VERSION_ID := $(VERSION_NOW)|$(IMAGE_NAME)
-
+# included above. Without git we must NOT overwrite version.h -- we rely on the
+# one shipped in the archive (see the `dist` target) -- and write one only when
+# the archive shipped none, from whatever version.mk could work out.
 .PHONY: force-version-check
 $(VERSION_HEADER): force-version-check
 	@mkdir -p $(OBJDIR)
-	@# With git: regenerate (fresh TIMESTAMP) when the identity changes OR the
-	@# header is missing; otherwise leave it (and its timestamp) untouched so
-	@# dependent objects are not recompiled.
-	@# Without git (distribution archive): keep an existing shipped version.h as
-	@# the authoritative source and never overwrite it; only synthesize a
-	@# "unknown" header if none was shipped.
-	@if [ "$(HAVE_GIT)" = "true" ]; then \
-		if [ "`cat $(VERSION_IDFILE) 2>/dev/null`" != "$(VERSION_ID)" ] || [ ! -f $(VERSION_HEADER) ]; then \
-			printf '%s' "$(VERSION_ID)" > $(VERSION_IDFILE); \
-			{ \
-				echo '/* Generated by common.mk -- do not edit, not committed. */'; \
-				echo '#ifndef UBERTOOTH_VERSION_H'; \
-				echo '#define UBERTOOTH_VERSION_H'; \
-				echo '#define GIT_REVISION "$(VERSION_NOW)"'; \
-				echo '#define FW_IMAGE_NAME "$(IMAGE_NAME)"'; \
-				echo '#define TIMESTAMP "'"`date`"'"'; \
-				echo '#endif'; \
-			} > $(VERSION_HEADER); \
-			echo "  version.h -> $(VERSION_NOW)"; \
-		fi; \
-	elif [ ! -f $(VERSION_HEADER) ]; then \
+	@# With git: write what this build is, and replace the header only if that
+	@# changed, so dependent objects are not recompiled for nothing.
+	@# Without git (distribution archive): keep the shipped version.h as the
+	@# authoritative source and never overwrite it.
+	@if [ "$(HAVE_GIT)" = "true" ] || [ ! -f $(VERSION_HEADER) ]; then \
 		{ \
-			echo '/* Generated by common.mk (no git, no shipped version.h). */'; \
+			echo '/* Generated by common.mk -- do not edit, not committed. */'; \
 			echo '#ifndef UBERTOOTH_VERSION_H'; \
 			echo '#define UBERTOOTH_VERSION_H'; \
-			echo '#define GIT_REVISION "unknown"'; \
+			echo '#define GIT_REVISION "$(VERSION_NOW)"'; \
 			echo '#define FW_IMAGE_NAME "$(IMAGE_NAME)"'; \
-			echo '#define TIMESTAMP "'"`date`"'"'; \
 			echo '#endif'; \
-		} > $(VERSION_HEADER); \
-		echo "  version.h -> unknown (no git, no shipped header)"; \
+		} > $(VERSION_HEADER).tmp; \
+		if cmp -s $(VERSION_HEADER).tmp $(VERSION_HEADER); then \
+			rm -f $(VERSION_HEADER).tmp; \
+		else \
+			mv $(VERSION_HEADER).tmp $(VERSION_HEADER); \
+			echo "  version.h -> $(VERSION_NOW)"; \
+		fi; \
 	else \
 		echo "  version.h: using shipped header (no git)"; \
 	fi
@@ -810,7 +789,7 @@ clean_list:
 	$(REMOVE) $(LST)
 	$(REMOVE) $(call per_image,$(ASRC:%.S=%.o.d))
 	$(REMOVE) $(DEPFILES)
-	$(REMOVE) $(VERSION_HEADER) $(VERSION_IDFILE)
+	$(REMOVE) $(VERSION_HEADER) $(VERSION_HEADER).tmp
 	$(REMOVE) $(BUILD_FLAGS_FILE) $(BUILD_FLAGS_FILE).tmp
 	@# The shared/ tree the lines above emptied. addsuffix yields nothing at
 	@# all if OBJDIR is somehow blank, rather than a path at the root.

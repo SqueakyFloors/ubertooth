@@ -16,7 +16,7 @@
 # at, which is the one thing a reader needs and cannot guess, and so the
 # configure step can compare it with the libbtbb it found.
 set(LIBBTBB_PINNED_REPO "SqueakyFloors/libbtbb")
-set(LIBBTBB_PINNED_REF "c70de76afbe13f3740bcd906952a36c849383810")
+set(LIBBTBB_PINNED_REF "d356e9da7fb03969371aa14d603a8aad2f0ef198")
 
 # Every libbtbb function this tree calls. libbtbb carries no version macro, so
 # "new enough" is decided by asking the installed one for the declarations the

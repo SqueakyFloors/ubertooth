@@ -46,7 +46,7 @@ To pick one of several Ubertooths, run:
    2402-2480 MHz
  - `-V` :
    print the version and end the command, before the window opens: the host
-   tools, then the firmware version and build of the board `-U` names, or of
+   tools, then the firmware version of the board `-U` names, or of
    each attached board. The same answer every other tool gives, including
    with no board attached; see ubertooth(7), COMMON OPTIONS. This tool answers
    it by running ubertooth-util(1) `-V`, so that tool has to be on the `PATH`,

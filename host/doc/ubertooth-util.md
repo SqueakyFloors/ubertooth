@@ -12,7 +12,7 @@
 
 ubertooth-util(1) is a catch-all tool for doing generally useful things
 with, to, and about Ubertooth. To get the host tools' version and the
-firmware version and build of each attached board, run:
+firmware version of each attached board, run:
 
     ubertooth-util -V
 
@@ -78,14 +78,13 @@ an image from this tree.
 
 `-V` is the version command, and gives the same answer in every tool here: the
 tools written in Python answer it by running this one and passing its answer
-on (ubertooth(7), COMMON OPTIONS). Its firmware lines, and `-v`, read the
+on (ubertooth(7), COMMON OPTIONS). Its firmware line, and `-v`, read the
 firmware info block described below, so they name the image the board is
 running:
 
     $ ubertooth-util -V
     Host tools version: 2026-11-DEV1+22* (libbtbb 2026-11-DEV1+22*)
     Firmware version: bluetooth_rxtx 2026-11-DEV1+22* (API:<version>)
-    Firmware build: Mon Oct 27 11:22:33 2025
     $ ubertooth-util -v
     Firmware version: bluetooth_rxtx 2026-11-DEV1+22* (API:<version>)
 
@@ -144,7 +143,7 @@ Common options:
 
  - `-V` :
    print the version and end the command: the host tools, then the firmware
-   version and build of the board `-U` names, or of each attached board. The
+   version of the board `-U` names, or of each attached board. The
    same answer the other C tools give, including with no board attached; see
    ubertooth(7), COMMON OPTIONS
  - `-v` :

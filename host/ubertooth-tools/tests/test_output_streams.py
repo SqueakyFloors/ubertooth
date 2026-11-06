@@ -204,11 +204,14 @@ if combination is not None:
 # line carries the release these tools are and libbtbb's beside it.
 HOST_VERSION_PREFIX = "Host tools version: "
 NO_BOARD_LINE = "Firmware version: no Ubertooth attached"
-# A release name: a release, or a release and how far past it this build is,
-# with a * where the tree had uncommitted changes. "unknown" stands for a
-# distance that could not be worked out, in a shallow clone or one fetched
-# without tags.
-RELEASE = r"\d{4}-\d{2}-(?:R|RC|DEV)\d+(?:\+(?:\d+|unknown))?\*?"
+# A release name, as a build that can name one reports it, or "unknown" from
+# one that cannot: a checkout whose history reaches no release tag, which is
+# what a shallow clone and one fetched without tags are, and which is what the
+# checkout this test runs in usually is. Either way it is a word a reader can
+# use, and never a commit hash and never an empty label, which is what the
+# line is checked for below. The forms themselves are pinned on checkouts
+# built for the purpose, in test_release_version.py.
+RELEASE = r"\d{4}-\d{2}-(?:R|RC|DEV)\d+(?:\+\d+)?\*?|unknown"
 # The one line -V may write to standard error: this machine has a second
 # libbtbb install, and which one decodes packets is the thing to say.
 BTBB_ELSEWHERE = "warning: libbtbb was loaded from "

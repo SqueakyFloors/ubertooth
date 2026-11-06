@@ -23,11 +23,11 @@
 
 /* One scripted board: what each of its reads answers. */
 struct fake_board {
-	const char *image, *revision, *compile_info;
+	const char *image, *revision;
 	uint16_t api;
 	/* 0, or the negative result the read fails with. LIBUSB_ERROR_PIPE is
 	 * how firmware older than the info block answers a read of it. */
-	int info_rc, revision_rc, api_rc, compile_rc;
+	int info_rc, revision_rc, api_rc;
 	int opens; /* 0, or the negative result the open fails with */
 };
 
@@ -55,7 +55,6 @@ static void make_fake(int boards)
 	for (i = 0; i < MAX_BOARDS; i++) {
 		fake.board[i].image = "bluetooth_rxtx";
 		fake.board[i].revision = "2026-11-DEV1";
-		fake.board[i].compile_info = "compile-test";
 		fake.board[i].api = 0x0107;
 	}
 }
@@ -174,21 +173,6 @@ int cmd_get_firmware_revision(struct libusb_device_handle *devh, char *revision,
 	return 0;
 }
 
-int cmd_get_firmware_compile_info(struct libusb_device_handle *devh, char *info,
-                                  size_t size)
-{
-	struct fake_board *board = current_board();
-
-	(void)devh;
-	if (board->compile_rc < 0) {
-		if (size > 0)
-			info[0] = '\0';
-		return board->compile_rc;
-	}
-	snprintf(info, size, "%s", board->compile_info);
-	return 0;
-}
-
 /* ---- running the answer ------------------------------------------------ */
 
 /* A main()-shaped wrapper, so run_main.h captures both streams: argv[1] is
@@ -249,7 +233,7 @@ MU_TEST(hidden_devices_read_as_no_board)
 	mu_assert_int_eq(0, fake.opens);
 }
 
-MU_TEST(one_board_prints_the_three_lines)
+MU_TEST(one_board_prints_the_two_lines)
 {
 	struct run_result r;
 
@@ -257,8 +241,7 @@ MU_TEST(one_board_prints_the_three_lines)
 	r = RUN_PLAIN();
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out, HOST_LINE
-	                 "Firmware version: bluetooth_rxtx 2026-11-DEV1 (API:1.07)\n"
-	                 "Firmware build: compile-test\n") == 0,
+	                 "Firmware version: bluetooth_rxtx 2026-11-DEV1 (API:1.07)\n") == 0,
 	          "the single-board answer changed");
 	mu_assert_int_eq(1, fake.opens);
 	/* The note is for the paths that found no board at all. */
@@ -276,13 +259,11 @@ MU_TEST(firmware_without_an_info_block_is_still_reported)
 	r = RUN_PLAIN();
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out, HOST_LINE
-	                 "Firmware version: 2026-11-DEV1 (API:1.07)\n"
-	                 "Firmware build: compile-test\n") == 0,
+	                 "Firmware version: 2026-11-DEV1 (API:1.07)\n") == 0,
 	          "a board with no info block was not reported from what it answers");
 }
 
-/* A board that answers nothing: the line says so once, rather than a second
- * line saying the build string could not be read either. */
+/* A board that answers nothing: the line says so, and the status is 1. */
 MU_TEST(a_board_that_cannot_be_read_says_so_and_fails)
 {
 	struct run_result r;
@@ -306,8 +287,7 @@ MU_TEST(a_board_that_cannot_be_read_says_so_and_fails)
 }
 
 /* Part of the answer missing is still a failure, and what was read is still
- * printed: the API version is a separate read from the version itself, and
- * the build string a third. */
+ * printed: the API version is a separate read from the version itself. */
 MU_TEST(a_partial_answer_prints_what_it_read_and_fails)
 {
 	struct run_result r;
@@ -317,18 +297,8 @@ MU_TEST(a_partial_answer_prints_what_it_read_and_fails)
 	r = RUN_PLAIN();
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out, HOST_LINE
-	                 "Firmware version: bluetooth_rxtx 2026-11-DEV1\n"
-	                 "Firmware build: compile-test\n") == 0,
+	                 "Firmware version: bluetooth_rxtx 2026-11-DEV1\n") == 0,
 	          "the answer without an API version changed");
-
-	make_fake(1);
-	fake.board[0].compile_rc = -1;
-	r = RUN_PLAIN();
-	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.out, HOST_LINE
-	                 "Firmware version: bluetooth_rxtx 2026-11-DEV1 (API:1.07)\n"
-	                 "Firmware build: read failed\n") == 0,
-	          "the answer without a build string changed");
 }
 
 MU_TEST(several_boards_are_indexed)
@@ -341,9 +311,7 @@ MU_TEST(several_boards_are_indexed)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out, HOST_LINE
 	                 "Firmware version (0): bluetooth_rxtx 2026-11-DEV1 (API:1.07)\n"
-	                 "Firmware build (0): compile-test\n"
-	                 "Firmware version (1): bluetooth_rxtx 2026-11-DEV2 (API:1.07)\n"
-	                 "Firmware build (1): compile-test\n") == 0,
+	                 "Firmware version (1): bluetooth_rxtx 2026-11-DEV2 (API:1.07)\n") == 0,
 	          "the several-boards answer changed");
 	mu_assert_int_eq(2, fake.opens);
 }
@@ -361,8 +329,7 @@ MU_TEST(a_board_that_will_not_open_is_named_and_the_rest_reported)
 	mu_assert(strcmp(r.out, HOST_LINE
 	                 "Firmware version (0): unavailable, in use by another "
 	                 "program\n"
-	                 "Firmware version (1): bluetooth_rxtx 2026-11-DEV1 (API:1.07)\n"
-	                 "Firmware build (1): compile-test\n") == 0,
+	                 "Firmware version (1): bluetooth_rxtx 2026-11-DEV1 (API:1.07)\n") == 0,
 	          "a board in use was not reported beside the others");
 }
 
@@ -377,8 +344,7 @@ MU_TEST(a_selected_board_is_reported_without_an_index)
 	r = RUN("1");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out, HOST_LINE
-	                 "Firmware version: bluetooth_rxtx 2026-11-DEV2 (API:1.07)\n"
-	                 "Firmware build: compile-test\n") == 0,
+	                 "Firmware version: bluetooth_rxtx 2026-11-DEV2 (API:1.07)\n") == 0,
 	          "the selected-board answer changed");
 	mu_assert_int_eq(1, fake.opens);
 
@@ -404,9 +370,7 @@ MU_TEST(an_empty_selector_reports_every_board)
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out, HOST_LINE
 	                 "Firmware version (0): bluetooth_rxtx 2026-11-DEV1 (API:1.07)\n"
-	                 "Firmware build (0): compile-test\n"
-	                 "Firmware version (1): bluetooth_rxtx 2026-11-DEV2 (API:1.07)\n"
-	                 "Firmware build (1): compile-test\n") == 0,
+	                 "Firmware version (1): bluetooth_rxtx 2026-11-DEV2 (API:1.07)\n") == 0,
 	          "an empty -U did not report every board");
 	mu_assert_int_eq(2, fake.opens);
 
@@ -415,35 +379,7 @@ MU_TEST(an_empty_selector_reports_every_board)
 	r = RUN("");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out, HOST_LINE
-	                 "Firmware version: bluetooth_rxtx 2026-11-DEV1 (API:1.07)\n"
-	                 "Firmware build: compile-test\n") == 0, r.out);
-}
-
-/* A board that answers an empty build string has nothing to show, so the line
- * says it was not reported rather than that the read failed, and the status is
- * 1 either way. */
-MU_TEST(an_empty_build_string_is_not_reported)
-{
-	struct run_result r;
-
-	make_fake(1);
-	fake.board[0].compile_info = "";
-	r = RUN_PLAIN();
-	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.out, HOST_LINE
-	                 "Firmware version: bluetooth_rxtx 2026-11-DEV1 (API:1.07)\n"
-	                 "Firmware build: not reported\n") == 0, r.out);
-
-	/* And the two reads are judged separately: an API version that could not
-	 * be read must not make the empty build string look like a failed read. */
-	make_fake(1);
-	fake.board[0].api_rc = -1;
-	fake.board[0].compile_info = "";
-	r = RUN_PLAIN();
-	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.out, HOST_LINE
-	                 "Firmware version: bluetooth_rxtx 2026-11-DEV1\n"
-	                 "Firmware build: not reported\n") == 0, r.out);
+	                 "Firmware version: bluetooth_rxtx 2026-11-DEV1 (API:1.07)\n") == 0, r.out);
 }
 
 /* A bus that cannot be listed is a failure, not an empty one: the host line
@@ -466,7 +402,7 @@ int main(void)
 {
 	MU_RUN(no_board_is_an_answer_not_a_failure);
 	MU_RUN(hidden_devices_read_as_no_board);
-	MU_RUN(one_board_prints_the_three_lines);
+	MU_RUN(one_board_prints_the_two_lines);
 	MU_RUN(firmware_without_an_info_block_is_still_reported);
 	MU_RUN(a_board_that_cannot_be_read_says_so_and_fails);
 	MU_RUN(a_partial_answer_prints_what_it_read_and_fails);
@@ -474,7 +410,6 @@ int main(void)
 	MU_RUN(a_board_that_will_not_open_is_named_and_the_rest_reported);
 	MU_RUN(a_selected_board_is_reported_without_an_index);
 	MU_RUN(an_empty_selector_reports_every_board);
-	MU_RUN(an_empty_build_string_is_not_reported);
 	MU_RUN(a_bus_that_cannot_be_listed_fails_after_the_host_line);
 	return mu_report();
 }

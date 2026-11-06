@@ -48,7 +48,7 @@ Other options:
  - `-e <0-5>` :
    maximum access code errors (default: 2, range: 0-5)
  - `-V` :
-   print the version: the host tools, then the firmware version and build of
+   print the version: the host tools, then the firmware version of
    each attached board; see ubertooth(7), COMMON OPTIONS
  - `-U <index|serial>` :
    select an Ubertooth by enumeration index or serial number; see

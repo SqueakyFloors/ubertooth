@@ -47,7 +47,7 @@ USAGE = ("Usage: ubertooth-btbr [-U <index|serial>] [-f <freq_offset>] "
 	"  -b max_ac_errors: Max bit errors in Syncword detection "
 	"(range: 0-3)\n"
 	"  -V: print version information: the host tools, and the\n"
-	"      firmware version and build of each attached board\n"
+	"      firmware version of each attached board\n"
 	"  -h: print this help\n")
 
 # The tool that prints the -V answer. One function in libubertooth builds that

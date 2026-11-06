@@ -78,7 +78,7 @@ worth running by hand when a board does not appear in Wireshark.
    reported invalid; see CAPTURE FILTERS
  - `-V` :
    print the version and end the call: the host tools, then the firmware
-   version and build of each attached board. The same answer every other tool
+   version of each attached board. The same answer every other tool
    gives, including with no board attached; see ubertooth(7), COMMON OPTIONS.
    The script answers it by running ubertooth-util(1) `-V`, which it needs on
    the `PATH` as it does for the listing, and reports one that is not there as

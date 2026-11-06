@@ -1,0 +1,9 @@
+# The release this source came from, for a build with no git history to ask --
+# a release tarball, a "Download ZIP", any unpacked source archive.
+#
+# git archive rewrites the last line below into the release it was made from,
+# because .gitattributes marks this file export-subst. A git checkout has the
+# placeholder git wrote it as, and asks git directly instead. The readers are
+# host/cmake/set_release.cmake and firmware/version.mk; docs/source/
+# release_procedure.rst says what a release does with it.
+$Format:%(describe:tags,match=[0-9][0-9][0-9][0-9]-[0-9][0-9]-R[0-9]*,match=[0-9][0-9][0-9][0-9]-[0-9][0-9]-RC[0-9]*,match=[0-9][0-9][0-9][0-9]-[0-9][0-9]-DEV[0-9]*)$

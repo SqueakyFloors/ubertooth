@@ -14,6 +14,11 @@ directory and only answers for a checkout that has it where this project does,
 so each scratch checkout is laid out the way this one is: the module in
 host/cmake, the makefile in firmware.
 
+A build with no git history to ask -- a source archive -- reads the release
+out of RELEASE-VERSION instead, which git archive fills in as it makes the
+archive. The cases for that write the file themselves, and one of them makes
+a real archive of a tag and builds the answer from it.
+
 firmware/version.mk works the same string out the same way for the firmware
 images, and the two are checked against each other at the end: a board and
 the tools that talk to it have to report one version between them.
@@ -30,11 +35,10 @@ import tempfile
 
 MODULE = os.path.join("host", "cmake", "set_release.cmake")
 FIRMWARE_MK = os.path.join("firmware", "version.mk")
-
-# The release a tree with no git history reports, which the release procedure
-# moves. Read out of the module rather than written here, so moving it does
-# not have to be done twice.
-LATEST_RELEASE_LINE = re.compile(r'^set\(LATEST_RELEASE "([^"]+)"\)', re.M)
+# The file git archive fills the release into, and the attribute that asks it
+# to. A build with no git history reads the release there.
+VERSION_FILE = "RELEASE-VERSION"
+ATTRIBUTES = ".gitattributes"
 
 # What the driver below prints, one line each.
 DRIVER = """\
@@ -84,6 +88,20 @@ def put_module(repo_root, tree):
     with open(os.path.join(cmake_dir, "driver.cmake"), "w") as handle:
         handle.write(DRIVER)
     return cmake_dir
+
+
+def put_version_file(tree, contents):
+    """The file a source archive carries the release in, with <contents>."""
+    with open(os.path.join(tree, VERSION_FILE), "w") as handle:
+        handle.write(contents)
+
+
+def git_version():
+    """git's own version, as (major, minor)."""
+    done = subprocess.run(["git", "--version"], stdout=subprocess.PIPE,
+                          text=True)
+    found = re.search(r"(\d+)\.(\d+)", done.stdout)
+    return (int(found.group(1)), int(found.group(2))) if found else (0, 0)
 
 
 def new_tree(root, repo_root, name, commits=1):
@@ -164,13 +182,50 @@ def main():
         sys.exit(1)
     cmake, repo_root = sys.argv[1:]
     repo_root = os.path.abspath(repo_root)
-    with open(os.path.join(repo_root, MODULE)) as handle:
-        found = LATEST_RELEASE_LINE.search(handle.read())
-    if not found:
-        print("FAIL: %s does not set LATEST_RELEASE, so this test cannot say "
-              "what a tree with no release tag reports" % MODULE)
+    # Without the attribute, git archive would copy the placeholder through
+    # untouched and every source archive would report no release at all,
+    # which nothing else here would notice.
+    if not os.path.exists(os.path.join(repo_root, VERSION_FILE)):
+        print("FAIL: these sources carry no %s" % VERSION_FILE)
         sys.exit(1)
-    latest = found.group(1)
+    with open(os.path.join(repo_root, ATTRIBUTES)) as handle:
+        if not re.search(r"%s\s+export-subst" % VERSION_FILE, handle.read()):
+            print("FAIL: %s does not mark %s export-subst, so git archive "
+                  "would not fill the release in" % (ATTRIBUTES, VERSION_FILE))
+            sys.exit(1)
+    # The release tag patterns are written three times: as --match arguments
+    # in the makefile, as globs in the module, and inside the placeholder in
+    # the version file, which is what git matches against when it makes an
+    # archive. A kind of tag added to one and not the others would cost
+    # archives their release with nothing failing, so they are counted
+    # against each other.
+    with open(os.path.join(repo_root, VERSION_FILE)) as handle:
+        placeholder = handle.read()
+    patterns = set()
+    for path in (MODULE, FIRMWARE_MK):
+        with open(os.path.join(repo_root, path)) as handle:
+            found = re.findall(r"""--match ["']([^"'\s]+)["']""",
+                               handle.read())
+        if not found:
+            print("FAIL: %s asks git to match no release tag pattern" % path)
+            sys.exit(1)
+        if patterns and set(found) != patterns:
+            print("FAIL: %s and %s ask git to match different release tag "
+                  "patterns" % (MODULE, FIRMWARE_MK))
+            sys.exit(1)
+        patterns = set(found)
+    if placeholder.count("match=") != len(patterns):
+        print("FAIL: %s asks git to match %d release tag patterns and the "
+              "build asks for %d" % (VERSION_FILE,
+                                     placeholder.count("match="),
+                                     len(patterns)))
+        sys.exit(1)
+    for pattern in sorted(patterns):
+        if ("match=" + pattern) not in placeholder:
+            print("FAIL: %s does not ask git to match %r, so an archive made "
+                  "at such a tag would report no release"
+                  % (VERSION_FILE, pattern))
+            sys.exit(1)
 
     with tempfile.TemporaryDirectory() as work:
         # HEAD is the release tag itself: that release, and a release build,
@@ -216,23 +271,98 @@ def main():
         git(untagged, "tag", "wip-something")
         git(untagged, "tag", "2025-03-snapshot")
         git(untagged, "tag", "2026-11-R1-local")
-        expect(cmake, untagged, "no release tag in reach",
-               "%s+unknown" % latest, "OFF")
+        expect(cmake, untagged, "no release tag in reach", "unknown", "OFF")
+
+        # The same checkout with a filled-in version file beside it, which is
+        # what an archive unpacked and committed to a repository of its own
+        # has. git placed this tree in a checkout, so the file is not read:
+        # what it says was written for the archive, and this HEAD is not that.
+        put_version_file(untagged, "2015-09-R2\n")
+        expect(cmake, untagged, "a checkout with no release tag, beside a "
+               "filled-in version file", "unknown", "OFF")
 
         # A shallow clone, which is what a continuous integration checkout is
         # by default.
         shallow = os.path.join(work, "shallow")
         git(work, "clone", "-q", "--depth", "1", "--no-tags",
             "file://%s" % tagged, shallow)
-        expect(cmake, shallow, "a shallow clone", "%s+unknown" % latest,
-               "OFF")
+        expect(cmake, shallow, "a shallow clone", "unknown", "OFF")
 
-        # No git history at all, which is what a source archive is: the
-        # release the procedure wrote into the tree, and a release build, so
-        # what shipped keeps the guard.
+        # No git history and no version file: nothing says which release this
+        # is. Still a release build, so sources that shipped with no history
+        # to read keep the guard that refuses firmware of another API version.
         plain = os.path.join(work, "plain")
         put_module(repo_root, plain)
-        expect(cmake, plain, "no git history", latest, "ON")
+        expect(cmake, plain, "no git history", "unknown", "ON")
+
+        # No git history, and the version file as git archive fills it in:
+        # that release, or that release and how far past it the archive was
+        # made. The forms are git's own describe output.
+        put_version_file(plain, "# a comment\n2026-11-R2\n")
+        expect(cmake, plain, "an archive of a release tag", "2026-11-R2", "ON")
+        put_version_file(plain, "2026-11-R2-22-gf0fe176\n")
+        expect(cmake, plain, "an archive made 22 commits past a release",
+               "2026-11-R2+22", "ON")
+
+        # A line with blanks around it, or carried through a download that
+        # rewrote its line endings. Both readers have to make the same of it,
+        # or a board and the tools that talk to it would name different
+        # releases, so each of these is checked against the firmware's answer
+        # as well, below.
+        odd_lines = [("    2026-11-R2", "blanks before the release"),
+                     ("2026-11-R2    ", "blanks after the release"),
+                     ("\t2026-11-R2\t", "tabs around the release"),
+                     ("2026-11-R2\r", "a carriage return after the release")]
+        for line, what in odd_lines:
+            put_version_file(plain, "# a comment\n%s\n" % line)
+            expect(cmake, plain, "an archive with %s" % what,
+                   "2026-11-R2", "ON")
+
+        # The file as a git checkout has it, with nothing filled in, and the
+        # cases that name no release: a history with no release tag leaves the
+        # line empty, and a tag the globs let through is not a release.
+        shutil.copy(os.path.join(repo_root, VERSION_FILE),
+                    os.path.join(plain, VERSION_FILE))
+        expect(cmake, plain, "the placeholder, untouched", "unknown", "ON")
+        put_version_file(plain, "# a comment\n\n")
+        expect(cmake, plain, "an archive with no release tag in its history",
+               "unknown", "ON")
+        put_version_file(plain, "2026-11-R1-local\n")
+        expect(cmake, plain, "an archive of a tag that is not a release",
+               "unknown", "ON")
+        os.remove(os.path.join(plain, VERSION_FILE))
+
+        # And the real thing: a git archive of a tag, which is what a release
+        # download is. git fills the release in as it makes the archive, so
+        # this is the whole path end to end rather than a file written here.
+        archived = None
+        # 2.35 is where git archive understands every option in the
+        # placeholder: %(describe) arrived in 2.32 and its "tags" option in
+        # 2.35.
+        if git_version() < (2, 35):
+            print("git is older than 2.35, so the archive it makes goes "
+                  "unchecked")
+        else:
+            source = new_tree(work, repo_root, "to-archive")
+            for name in (VERSION_FILE, ATTRIBUTES):
+                shutil.copy(os.path.join(repo_root, name),
+                            os.path.join(source, name))
+            git(source, "add", VERSION_FILE, ATTRIBUTES)
+            git(source, "commit", "-q", "-m", "the version file")
+            git(source, "tag", "2026-11-R3")
+            archived = os.path.join(work, "archived")
+            tarball = os.path.join(work, "archived.tar")
+            git(source, "archive", "--format=tar", "-o", tarball, "2026-11-R3")
+            shutil.unpack_archive(tarball, archived, "tar")
+            expect(cmake, archived, "a git archive of a release tag",
+                   "2026-11-R3", "ON")
+
+            commit(source, "past the tag")
+            past = os.path.join(work, "archived-past")
+            git(source, "archive", "--format=tar", "-o", tarball, "HEAD")
+            shutil.unpack_archive(tarball, past, "tar")
+            expect(cmake, past, "a git archive made past a release tag",
+                   "2026-11-R3+1", "ON")
 
         # Both settings given on the command line are what the build is told,
         # whatever git would have said: that is how the release procedure
@@ -257,14 +387,14 @@ def main():
         nested = os.path.join(tagged, "vendor", "ubertooth")
         put_module(repo_root, nested)
         expect(cmake, nested, "an archive inside another repository",
-               latest, "ON")
+               "unknown", "ON")
         # The same copy, committed to that repository, which is what a
         # vendored copy is. Still not a checkout of this project: the tag it
         # would otherwise be given is that repository's.
         git(tagged, "add", "vendor")
         git(tagged, "commit", "-q", "-m", "vendor a copy")
         expect(cmake, nested, "a vendored copy another repository tracks",
-               latest, "ON")
+               "unknown", "ON")
 
         # The firmware works the string out the same way, so a board and the
         # tools report one version between them. Asked of the same checkouts,
@@ -272,9 +402,27 @@ def main():
         if shutil.which("make") is None:
             print("no make was found, so the firmware's answer goes unchecked")
         else:
-            for tree, what in ((tagged, "a checkout two commits past a tag"),
-                               (untagged, "no release tag in reach"),
-                               (shallow, "a shallow clone")):
+            trees = [(tagged, "a checkout two commits past a tag"),
+                     (untagged, "a checkout with no release tag, beside a "
+                                "filled-in version file"),
+                     (shallow, "a shallow clone")]
+            if archived is not None:
+                trees.append((archived, "a git archive of a release tag"))
+            for line, what in odd_lines:
+                put_version_file(plain, "# a comment\n%s\n" % line)
+                trees.append((plain, "an archive with %s" % what))
+                host_release, _ = answers(
+                    cmake, os.path.join(plain, os.path.dirname(MODULE)))
+                firmware = firmware_version(repo_root, plain)
+                if firmware != host_release:
+                    fail("an archive with %s: the firmware reports %r and the "
+                         "host tools %r; a board and the tools that talk to it "
+                         "have to report one version"
+                         % (what, firmware, host_release))
+            os.remove(os.path.join(plain, VERSION_FILE))
+            for tree, what in trees:
+                if tree == plain:
+                    continue
                 host_release, _ = answers(
                     cmake, os.path.join(tree, os.path.dirname(MODULE)))
                 firmware = firmware_version(repo_root, tree)

@@ -306,7 +306,7 @@ def read_command_line():
                       help="print this help")
     parser.add_argument("-V", action="store_true", dest="version",
                       help="print version information: the host tools, and "
-                           "the firmware version and build of each attached "
+                           "the firmware version of each attached "
                            "board")
     parser.add_argument("-U", type=str, dest="device", metavar="index|serial",
                       help="select Ubertooth by index or serial; see ubertooth(7)")

@@ -225,7 +225,7 @@ for the operation-by-operation comparison and the alternatives.
 
 `-h` prints a tool's usage text. `-V` prints the version, in the same words
 whichever tool you ask: the release the host tools and libbtbb were built
-from, then the firmware version and build date of the board `-U` names, or of
+from, then the firmware version of the board `-U` names, or of
 each attached board. Both are in every tool, including the three written in
 Python — `ubertooth-btbr`, `btle-extcap.py` and `ubertooth-specan-ui` — which
 answer `-V` by running `ubertooth-util -V` and passing its answer on, so they
@@ -235,7 +235,6 @@ need it on their `PATH`. `-v` is not in every tool: see below.
 $ ubertooth-util -V
 Host tools version: 2026-11-DEV1+22 (libbtbb 2026-11-DEV1+22)
 Firmware version: bluetooth_rxtx 2026-11-DEV1+22 (API:<version>)
-Firmware build: Mon Oct 27 11:22:33 2025
 ```
 
 With no board attached it prints the host line and `Firmware version: no
@@ -275,7 +274,6 @@ as the revision, and answers whichever image is running:
 $ ubertooth-util -U <serial> -V
 Host tools version: 2026-11-DEV1+22 (libbtbb 2026-11-DEV1+22)
 Firmware version: bluetooth_rxtx 2026-11-DEV1+22 (API:<version>)
-Firmware build: Mon Oct 27 11:22:33 2025
 ```
 
 `ubertooth-dfu` names what is in a firmware file before it writes anything

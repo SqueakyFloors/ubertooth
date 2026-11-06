@@ -33,9 +33,10 @@ Legend:
 | **GCC (host)** | 9.4 | 9.4 (Ubuntu 20.04 CI), 11.4 (22.04), 13.3 (24.04), 16.2 (Fedora CI); Apple clang 15 (macOS 14), 17 (macOS 15), 21 (macOS 26); also `-std=c17`/`-std=c2x` | older than 9.4 (not tested) | ✅ 9.4 verified in CI (oldest tested) |
 | **arm-none-eabi-gcc (firmware)** | 9-2019-q4 (GCC 9.2.1) | 9-2019-q4 (Ubuntu 20.04 CI), 10.3-2021.07 (22.04), 13.2.rel1 (24.04), 15.3.1 (macOS 14/15/26 CI); 13.2 (Linux) and 15.3 (macOS) on hardware | older than 9-2019-q4 (not tested) | ✅ 9-2019-q4 verified in CI (oldest tested) |
 | **libusb** | 1.0.23 | 1.0.23 (Ubuntu 20.04 CI), 1.0.25 (22.04), 1.0.27 (24.04), 1.0.30 (macOS) | pre-1.0; older than 1.0.23 (not tested) | ✅ 1.0.23 verified in CI (oldest tested) |
-| **libbtbb** | the pinned fork commit ([`c70de76`](https://github.com/SqueakyFloors/libbtbb/commit/c70de76afbe13f3740bcd906952a36c849383810), C lib) | that commit (CI, `install.sh`); upstream master was CI's dependency until the switch to the pin | one missing a function the tools call or a macro they read: refused at configure time; one from another commit: a warning. Any other libbtbb, upstream's included: untested here | ✅ the pin is what CI builds |
+| **libbtbb** | the pinned fork commit ([`d356e9d`](https://github.com/SqueakyFloors/libbtbb/commit/d356e9da7fb03969371aa14d603a8aad2f0ef198), C lib) | that commit (CI, `install.sh`); upstream master was CI's dependency until the switch to the pin | one missing a function the tools call or a macro they read: refused at configure time; one from another commit: a warning. Any other libbtbb, upstream's included: untested here | ✅ the pin is what CI builds |
 | **libbluetooth (BlueZ)** — optional, for `ubertooth-scan` and `ubertooth-follow` | 5.53 | 5.53 (Ubuntu 20.04 CI), 5.64 (22.04), 5.72 (24.04), 5.87 (Fedora CI) | macOS: no BlueZ, and the operations these tools need are not in macOS's public APIs either, so both are skipped there and will stay that way ([note below](#macos-ubertooth-scan-and-ubertooth-follow-are-linux-only)) | ✅ 5.53 verified in CI. Both tools have since run against a real adapter: `ubertooth-scan` ([#1175](https://github.com/SqueakyFloors/ubertooth/pull/1175)) and `ubertooth-follow` ([#518](https://github.com/SqueakyFloors/ubertooth/issues/518)), the latter not yet reliably, for a timing reason rather than a BlueZ one (the `-w` delay, in `host/doc/ubertooth-follow.md`). Neither run recorded the adapter's BlueZ version |
 | **ronn-ng (man pages)** | 0.10.1, exactly | 0.10.1 (`Man pages` CI job on Ubuntu 24.04; macOS 26 via Homebrew) | any other version: it renders the same Markdown differently, so the committed pages would stop matching a refresh | ✅ 0.10.1 verified in CI. Optional: only `refresh-manpages` needs it, and a build neither needs it nor runs it |
+| **git (only to make a source archive)** | 2.35 | 2.48 and 2.51 (`git archive` of a release tag, read back and built) | older than 2.35: `git archive` does not fill the release into `RELEASE-VERSION` (`%(describe)` arrived in 2.32 and its `tags` option in 2.35), so an archive it makes reports its release as `unknown` | ✅ verified by building an archive of a tag. Optional: building from a git checkout, or from an archive someone else made, needs no particular git |
 | **Ubertooth firmware (API)** | 1.58 (this tree), exactly | 1.58 on an Ubertooth One, both images reporting this tree's version | any other, 1.57 and 1.07 (`2020-12-R1`) included: refused, except by the three tools that have to work on whatever firmware a board is carrying ([note below](#firmware-api-version-exact-match-bumped-for-a-breaking-change)) | ✅ 1.58 verified on the air; 1.56 and 1.57 over USB. 🎯 1.52, 1.54, and 1.55 untested on hardware, 1.53 only in part ([#824](https://github.com/SqueakyFloors/ubertooth/issues/824)). The symbol transmit mode and the E-GO access code have not been on the air |
 | **Ubertooth bootloader** | whichever one is on the board; no tool checks it (its DFU-mode `bcdDevice` is a fixed 1.00) | the one the boards shipped with; this tree's is compiled and linked in CI, which also checks that it fits its 16 KiB region and carries its version block. `ubertooth-util -B` reports which bootloader a board has: this tree's (2.00 and up) by version and revision, an earlier or factory one by the hash of its region alone | — | ✅ `ubertooth-dfu --update-bootloader` installs one over USB, verified on a real part (an LPC1756) ([#1056](https://github.com/SqueakyFloors/ubertooth/issues/1056)) |
 
@@ -242,7 +243,7 @@ Ubertooth One's LPC1756 does. A part without it would fault at the first
 access to one of those buffers, so check the part's own memory map before
 building this firmware for anything else.
 
-### Firmware build: GNU make 3.81 (macOS) and the generated version.h
+### Building the firmware: GNU make 3.81 (macOS) and the generated version.h
 The firmware builds with the stock GNU make on macOS (**3.81**) as well as the
 modern make on Linux (4.3). The build intentionally avoids make ≥ 4.0 features
 (e.g. `$(file ...)`) so a Mac with only Xcode Command Line Tools can build
@@ -257,11 +258,14 @@ report one version between them. It is regenerated only when the build
 identity changes, so `-v` always matches the firmware actually built and
 flashed — verified across incremental rebuilds on make 3.81 and 4.3, and
 end-to-end on real hardware (built version == on-device `-v`) on both macOS
-and the Linux test bench. Two builds of the same commit report the same
-string, so telling two images apart means comparing the `.dfu` file's
-checksum. A source archive with no `.git` (downloaded zip / release tarball)
-uses a shipped `version.h` as-is, or falls back to `unknown`;
-`tools/ubertooth-release.sh` writes the release version into the archive.
+and the Linux test bench. The header carries nothing else about the build —
+no date, no time, no user, no host — so the same source always builds the same
+bytes, and telling apart two builds that report the same release means
+comparing the `.dfu` file's checksum. A source archive with no `.git`
+(downloaded zip / release tarball) uses a shipped `version.h` as-is, or the
+release `git archive` wrote into `RELEASE-VERSION`, and reports `unknown` where
+it has neither; `tools/ubertooth-release.sh` writes both into the archive it
+builds.
 
 ### Python 3 only
 Python 2 support was removed upstream in 2020-12-R1. This fork targets modern
