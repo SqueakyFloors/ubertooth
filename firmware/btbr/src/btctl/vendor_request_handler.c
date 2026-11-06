@@ -33,14 +33,15 @@
 #include <ubtbr/btctl_intf.h>
 
 /*
- * The build string reported by UBERTOOTH_GET_COMPILE_INFO, which is what
- * ubertooth-util -V prints: "ubertooth ", the revision, then who built it,
- * where, and when. Keep this identical to the one in bluetooth_rxtx.c. The
- * image name and revision a host matches against are in the firmware info
- * block (../../../common/fw_info.c), not here.
+ * The build string reported by UBERTOOTH_GET_COMPILE_INFO, which is the date
+ * this image was built and what ubertooth-util -V prints as "Firmware build".
+ * Keep this identical to the one in bluetooth_rxtx.c. The image name and
+ * version a host matches against are in the firmware info block
+ * (../../../common/fw_info.c), not here, and who built it is in neither: an
+ * image is handed around, so a builder's user and host names say nothing a
+ * reader of it needs.
  */
-const char compile_info[] =
-	"ubertooth " GIT_REVISION " (" COMPILE_BY "@" COMPILE_HOST ") " TIMESTAMP;
+const char compile_info[] = TIMESTAMP;
 
 static void request_reset(void)
 {

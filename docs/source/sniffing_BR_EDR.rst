@@ -92,10 +92,9 @@ either switch:
 	.. code-block:: sh
 
 		$ ubertooth-util -U <serial> -V
-		Host tools version: libubertooth <version> (git-26d4c11), libbtbb <version> (git-2fd0d39)
-		libbtbb loaded from: /usr/local/lib/libbtbb.so.1
-		Firmware version: btbr git-26d4c11 (API:<version>)
-		Firmware build: ubertooth git-26d4c11 (builder@buildhost) Mon Oct 27 11:22:33 2025
+		Host tools version: 2026-11-DEV1+22 (libbtbb 2026-11-DEV1+22)
+		Firmware version: btbr 2026-11-DEV1+22 (API:<version>)
+		Firmware build: Mon Oct 27 11:22:33 2025
 
 
 

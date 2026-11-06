@@ -316,7 +316,7 @@ int LIBUSB_CALL libusb_control_transfer(libusb_device_handle *devh,
 		snprintf((char *)data + UBERTOOTH_FW_INFO_OFF_IMAGE,
 		         UBERTOOTH_FW_INFO_IMAGE_LEN, "%s", fd->image);
 		snprintf((char *)data + UBERTOOTH_FW_INFO_OFF_REVISION,
-		         UBERTOOTH_FW_INFO_REVISION_LEN, "git-test");
+		         UBERTOOTH_FW_INFO_REVISION_LEN, "2026-11-DEV1");
 	}
 	return wLength;
 }

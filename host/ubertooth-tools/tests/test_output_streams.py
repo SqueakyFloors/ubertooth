@@ -27,6 +27,7 @@ they all do now, so there is no longer a list of the ones that do.
 """
 
 import os
+import re
 import subprocess
 import sys
 
@@ -199,29 +200,46 @@ if combination is not None:
 # error. No board is attached here, which the answer says on its own line and
 # still exits 0: the host half of it needs no board.
 #
-# Each line names what it is, so neither can be read as the other.
-HOST_VERSION_PREFIX = "Host tools version: libubertooth "
-# And the libbtbb the run loaded gets a labelled line of its own, because a
-# machine can have a distribution or Homebrew libbtbb beside this fork's and
-# the version alone does not say which one is being used.
-BTBB_PATH_PREFIX = "libbtbb loaded from: "
+# Each line names what it is, so neither can be read as the other. The host
+# line carries the release these tools are and libbtbb's beside it.
+HOST_VERSION_PREFIX = "Host tools version: "
 NO_BOARD_LINE = "Firmware version: no Ubertooth attached"
+# A release name: a release, or a release and how far past it this build is,
+# with a * where the tree had uncommitted changes. "unknown" stands for a
+# distance that could not be worked out, in a shallow clone or one fetched
+# without tags.
+RELEASE = r"\d{4}-\d{2}-(?:R|RC|DEV)\d+(?:\+(?:\d+|unknown))?\*?"
+# The one line -V may write to standard error: this machine has a second
+# libbtbb install, and which one decodes packets is the thing to say.
+BTBB_ELSEWHERE = "warning: libbtbb was loaded from "
 
 result = run(["-V"])
 assert result.returncode == 0, result
-assert result.stderr == "", result
+# Nothing on standard error, unless this machine loads a libbtbb from
+# somewhere other than the one these tools were built against, which is one
+# line and nothing else. One run loads one libbtbb, so there is never more
+# than one of them.
+stderr_lines = result.stderr.splitlines()
+assert len(stderr_lines) <= 1, result
+for line in stderr_lines:
+    assert line.startswith(BTBB_ELSEWHERE), result
 lines = result.stdout.splitlines()
-# Three lines with no board attached: the versions, where libbtbb came from,
-# and what the firmware half has to say. Each is labelled, so any of them can
-# be grepped for on its own.
-assert len(lines) == 3, result
+# Two lines with no board attached: the versions, and what the firmware half
+# has to say. Each is labelled, so either can be grepped for on its own.
+assert len(lines) == 2, result
 assert lines[0].startswith(HOST_VERSION_PREFIX), result
-assert "libbtbb " in lines[0], result
-assert lines[1].startswith(BTBB_PATH_PREFIX), result
-# A path, not an empty label: the fallback when the loader cannot say is the
-# word "unknown".
-assert lines[1][len(BTBB_PATH_PREFIX):].strip() != "", result
-assert lines[2] == NO_BOARD_LINE, result
+# A release, not an empty label, and not a commit: naming the release a build
+# came from is what this line is for, and a hash sends a user looking it up.
+# libbtbb's own half is whatever libbtbb reports, which a build against a
+# distribution package does not decide here, so it is only required to be
+# there and to say something.
+assert re.fullmatch(r"%s(?:%s) \(libbtbb \S.*\)" % (HOST_VERSION_PREFIX,
+                                                    RELEASE),
+                    lines[0]), result
+# The libraries' interface versions moved out of this line: they say nothing
+# about which release a user has.
+assert "libubertooth " not in lines[0], result
+assert lines[1] == NO_BOARD_LINE, result
 
 # ---- a command line with nothing to do -------------------------------------
 

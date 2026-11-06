@@ -6,9 +6,9 @@ that only changes how libbtbb behaves adds no function, so it also reports the
 commit the library it found was built from beside the commit the tree is built
 against, and warns when they differ.
 
-libbtbb compiles that commit into the library, and the module reads the string
-back out of the library file, so each case here is a file holding the release
-string a real libbtbb would hold. Every case must configure successfully: the
+libbtbb compiles that commit into the library behind a prefix of its own, and
+the module reads the string back out of the library file, so each case here is
+a file holding the strings a real libbtbb would hold. Every case must configure successfully: the
 report is advisory, and making it fatal would stop a build against a
 distribution-packaged libbtbb that is otherwise fine. Every case must name the
 pin, which is what a reader of a measurement needs in the log.
@@ -32,6 +32,10 @@ PROBE_GUARD = "LIBBTBB_FUNCTIONS_CHECKED"
 
 MODULE = "FindBTBB.cmake"
 
+# The prefix libbtbb puts in front of the commit it records, which is what
+# makes it findable in the library file.
+MARKER = "libbtbb-commit:"
+
 # The pin is a commit while libbtbb fixes are landing, and the release
 # procedure tags both repositories and pins the tag. Both kinds are covered,
 # whichever one the tree carries today: the other is given to a copy of the
@@ -45,7 +49,7 @@ SAMPLE_TAG = "2021-01-R1"
 # the probe, so a case that no longer skips it is told apart from one that did.
 PROBE = "LIBBTBB_HAS_REQUIRED_FUNCTIONS"
 
-# How many printable bytes to put in front of the release string for the
+# How many printable bytes to put in front of the recorded string for the
 # long-run cases: each one is a few bytes short of a power-of-two boundary, so
 # the string lies across it.
 LONG_RUN_OFFSETS = (4090, 8186, 16378)
@@ -140,8 +144,8 @@ def pinned_ref(repo_root):
     return found.group(1)
 
 
-def library(work, name, *releases, padding=0):
-    """A file holding the release strings a libbtbb would hold, and nothing else.
+def library(work, name, *strings, padding=0):
+    """A file holding the strings a libbtbb would hold, and nothing else.
 
     Each string is surrounded the way it is in a real library: the bytes
     around it are whatever the compiler put there, so the run of printable
@@ -153,10 +157,10 @@ def library(work, name, *releases, padding=0):
     """
     path = os.path.join(work, name)
     with open(path, "wb") as handle:
-        handle.write(b"btbb_get_release\0")
-        for release in releases:
+        handle.write(b"btbb_get_commit\0")
+        for text in strings:
             handle.write(b"A" * padding + b"\t"
-                         + release.encode("ascii") + b"\0")
+                         + text.encode("ascii") + b"\0")
         handle.write(b"1.3\0")
     return path
 
@@ -188,11 +192,12 @@ def main():
                                                "commit")
             tag_modules, tag_pin = modules, ref
 
-        # What libbtbb records: git's abbreviation of the commit, not the full
-        # hash the pin is written as. The report has to see through that.
-        short = commit_pin[:7]
+        # libbtbb records the commit in full, as the pin is written.
+        recorded = commit_pin
         # A commit the pin cannot be, for the cases that need a different one.
-        other = "0176769" if not commit_pin.startswith("0176769") else "52b2afc"
+        other = "0176769" * 5 + "01234"
+        if other == commit_pin:
+            other = "52b2afc" * 5 + "56789"
 
         source = project(work, "commit-pin", commit_modules)
 
@@ -206,32 +211,42 @@ def main():
         cases = (
             # name, release strings in the library, must warn, wording the
             # report has to carry
-            ("pinned", ["git-%s" % short], False, ["built from commit %s" % short]),
-            # The commit as git may abbreviate it in capitals, which must read
-            # as the same commit and not as another one.
-            # The commit is echoed as the library records it; only the
-            # comparison against the pin folds case.
-            ("pinned-upper", ["git-%s" % short.upper()], False,
-             ["built from commit %s" % short.upper()]),
-            ("other-commit", ["git-%s" % other], True,
+            ("pinned", [MARKER + recorded], False,
+             ["built from commit %s" % recorded]),
+            # The same commit written in capitals, which must read as the
+            # same commit and not as another one. The commit is echoed as the
+            # library records it; only the comparison against the pin folds
+            # case.
+            ("pinned-upper", [MARKER + recorded.upper()], False,
+             ["built from commit %s" % recorded.upper()]),
+            ("other-commit", [MARKER + other], True,
              ["built from commit %s" % other]),
-            ("modified", ["git-%s*" % short], True,
-             ["built from commit %s with uncommitted changes" % short]),
+            ("modified", [MARKER + recorded + "*"], True,
+             ["built from commit %s with uncommitted changes" % recorded]),
             # Nothing a commit can be read from. No warning: a libbtbb from a
             # distribution package looks like this and may be fine.
             ("no-commit", [], False, ["commit unknown"]),
-            # A string too short to be compared against the pin on enough
-            # characters to mean anything, so it is not read as a commit.
-            ("too-short", ["git-abc"], False, ["commit unknown"]),
+            # A libbtbb installed before the commit field, which recorded
+            # the commit in its release string instead. That is the library a
+            # machine with an older install has, and it is not the pinned one,
+            # so it has to be read and warned about rather than passing as a
+            # library that records nothing.
+            ("older-libbtbb", ["git-%s" % other[:7]], True,
+             ["built from commit %s" % other[:7]]),
+            # The same form, holding the pinned commit: a libbtbb built at the
+            # pin before the field existed is the right library, and must not
+            # be warned about.
+            ("older-libbtbb-pinned", ["git-%s" % recorded[:7]], False,
+             ["built from commit %s" % recorded[:7]]),
             # The library's own commit and another string that looks like one.
             # This one does warn: the library may well be the wrong one, and a
             # status line among hundreds is how that went unnoticed before.
-            ("two-commits", ["git-%s" % short, "git-%s" % other], True,
+            ("two-commits", [MARKER + recorded, MARKER + other], True,
              ["commit unknown", "more than one commit"]),
         )
 
-        for name, releases, must_warn, wanted in cases:
-            path = library(work, "libbtbb-%s.bin" % name, *releases)
+        for name, strings, must_warn, wanted in cases:
+            path = library(work, "libbtbb-%s.bin" % name, *strings)
             status, output = configure(cmake, source,
                                        os.path.join(work, "build-%s" % name),
                                        include_dir, path)
@@ -294,14 +309,14 @@ def main():
         # bound would fall on.
         for offset in LONG_RUN_OFFSETS:
             name = "long-run-%d" % offset
-            path = library(work, "libbtbb-%s.bin" % name, "git-%s" % short,
+            path = library(work, "libbtbb-%s.bin" % name, MARKER + recorded,
                            padding=offset)
             status, output = configure(cmake, source,
                                        os.path.join(work, "build-%s" % name),
                                        include_dir, path)
             if status != 0:
                 fail("the %s libbtbb was refused:\n%s" % (name, output))
-            if "built from commit %s" % short not in output:
+            if "built from commit %s" % recorded not in output:
                 fail("a commit %d printable bytes into one run is not read, "
                      "so a library whose string sits in a long run of data "
                      "reports no commit:\n%s" % (offset, output))
@@ -310,7 +325,7 @@ def main():
         # subdirectories does, must report once: the line is read by a person,
         # and a report per call would be noise they learn to skip.
         twice = project(work, "twice", commit_modules, calls=2)
-        path = library(work, "libbtbb-twice.bin", "git-%s" % short)
+        path = library(work, "libbtbb-twice.bin", MARKER + recorded)
         status, output = configure(cmake, twice,
                                    os.path.join(work, "build-twice"),
                                    include_dir, path)
@@ -343,7 +358,7 @@ def main():
         tag_cases = (
             # name, release strings in the library, must warn, wording it has
             # to carry
-            ("tag-pin", ["git-%s" % other], False,
+            ("tag-pin", [MARKER + other], False,
              ["built from commit %s" % other,
               "names no commit to compare it with"]),
             ("tag-pin-no-commit", [], False, ["commit unknown"]),
@@ -351,16 +366,16 @@ def main():
             # one of them may be a stale library's and the other something
             # else in the file. Against a tag neither would decide anything,
             # so this one is as quiet as the case above.
-            ("tag-pin-two-commits", ["git-%s" % short, "git-%s" % other],
+            ("tag-pin-two-commits", [MARKER + recorded, MARKER + other],
              False, ["commit unknown", "more than one commit"]),
             # A library built from an edited tree is not the pinned libbtbb
             # whatever the pin is, which needs no comparison, so this one
             # warns as it does against a commit pin.
-            ("tag-pin-modified", ["git-%s*" % other], True,
+            ("tag-pin-modified", [MARKER + other + "*"], True,
              ["built from commit %s with uncommitted changes" % other]),
         )
-        for name, releases, must_warn, wanted in tag_cases:
-            path = library(work, "libbtbb-%s.bin" % name, *releases)
+        for name, strings, must_warn, wanted in tag_cases:
+            path = library(work, "libbtbb-%s.bin" % name, *strings)
             status, output = configure(cmake, tag_source,
                                        os.path.join(work, "build-%s" % name),
                                        include_dir, path)

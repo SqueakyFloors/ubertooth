@@ -60,12 +60,11 @@ ubertooth\-util \-U <serial> \-S      # stop; the LEDs end off
 .IP "" 4
 .nf
 $ ubertooth\-util \-V
-Host tools version: libubertooth <version> (git\-ed30131d*), libbtbb <version> (git\-2fd0d39)
-libbtbb loaded from: /usr/local/lib/libbtbb\.so\.1
-Firmware version: bluetooth_rxtx git\-ed30131d* (API:<version>)
-Firmware build: ubertooth git\-ed30131d* (builder@buildhost) Mon Oct 27 11:22:33 2025
+Host tools version: 2026\-11\-DEV1+22* (libbtbb 2026\-11\-DEV1+22*)
+Firmware version: bluetooth_rxtx 2026\-11\-DEV1+22* (API:<version>)
+Firmware build: Mon Oct 27 11:22:33 2025
 $ ubertooth\-util \-v
-Firmware version: bluetooth_rxtx git\-ed30131d* (API:<version>)
+Firmware version: bluetooth_rxtx 2026\-11\-DEV1+22* (API:<version>)
 .fi
 .IP "" 0
 .P
@@ -255,7 +254,7 @@ The last two are above zero only in the modes that wait those two ways\. \fBpack
 .IP "" 4
 .nf
 $ ubertooth\-util \-B
-Bootloader: 2\.00 git\-1a2b3c4, CRC32:0x9d2fe1b4
+Bootloader: 2\.00 2026\-11\-DEV1+22, CRC32:0x9d2fe1b4
 .fi
 .IP "" 0
 .P
@@ -350,8 +349,8 @@ $ ubertooth\-util \-s
 Serial No (0): aa1100112233445566778899aabbccdd
 Serial No (1): 19bb00112233445566778899aabbccdd
 $ ubertooth\-util \-v
-Firmware version (0): bluetooth_rxtx git\-747484c (API:<version>)
-Firmware version (1): bluetooth_rxtx git\-747484c (API:<version>)
+Firmware version (0): bluetooth_rxtx 2026\-11\-DEV1+22 (API:<version>)
+Firmware version (1): bluetooth_rxtx 2026\-11\-DEV1+22 (API:<version>)
 .fi
 .IP "" 0
 .P
@@ -605,6 +604,13 @@ When a \fB\-b\fR, \fB\-c\fR, \fB\-a\fR, \fB\-z\fR, \fB\-l\fR, \fB\-d\fR, \fB\-p\
 \fB\-V\fR reads the attached board, so it exits 1 when a board is attached and cannot be read, or when the USB bus cannot be listed at all; see ubertooth(7), COMMON OPTIONS\.
 .SH "DIAGNOSTICS"
 Standard output carries only what was asked for: the values the queries read, the device listing, the result of the range test \fB\-n\fR runs, and the usage text for \fB\-h\fR\. Everything else goes to standard error, so a script reading a value is not fed anything else\.
+.P
+\fB\-V\fR writes one line to standard error where this machine loads a libbtbb other than the one these tools were built against, because the two decode packets their own way and nothing else in a run says which is in use:
+.IP "" 4
+.nf
+warning: libbtbb was loaded from /opt/homebrew/lib, not the /usr/local/lib these tools were built against; packets may decode differently
+.fi
+.IP "" 0
 .P
 \fB\-n\fR follows the range test it starts, and its \fBwaiting for the repeater\|\.\|\.\|\. (<n> s)\fR lines are progress, so they go to standard error with \fBStarting range test\fR\. Standard output carries the four result lines \fB\-m\fR gives and nothing else, so a script reading \fB\-n\fR for a result reads only that\.
 .P

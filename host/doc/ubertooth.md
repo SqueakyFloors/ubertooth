@@ -76,21 +76,25 @@ that cannot be listed at all. Every tool answers it in the same words, one
 labelled line each, so a script can take the line it wants whichever tool it
 ran:
 
-    Host tools version: libubertooth <version> (<revision>), libbtbb <version> (<revision>)
-    libbtbb loaded from: <path>
-    Firmware version: <image> <revision> (API:<version>)
-    Firmware build: <build string the board reports>
+    Host tools version: <release> (libbtbb <release>)
+    Firmware version: <image> <release> (API:<version>)
+    Firmware build: <the date the image was built>
 
-The first two lines are the host's and need no board: the versions these tools
-were built from, and which libbtbb this run loaded, which is what tells a
-distribution or Homebrew build apart from this fork's.
+The first line is the host's and needs no board: the release these tools were
+built from, with libbtbb's beside it. A release name, not a commit, so it is
+the line to quote when reporting a problem; a build after a release carries
+how many commits it is past that release, as in `2026-11-R1+22`, and a `*`
+where the tree it was built from had uncommitted changes. Where this run
+loaded a libbtbb from somewhere other than the one these tools were built
+against -- a distribution or Homebrew build beside this fork's, which decodes
+packets its own way -- a `warning:` line on standard error says so.
 
 The two firmware lines describe the board `-U` names, or the only board
 attached. With several boards attached and no `-U`, both lines are printed for
 each of them with its index in the label, as the identity queries of
 ubertooth-util(1) are: `Firmware version (0): ...`, `Firmware build (0): ...`.
 
-With no Ubertooth attached the host lines are followed by `Firmware version:
+With no Ubertooth attached the host line is followed by `Firmware version:
 no Ubertooth attached` and the status is still 0: the host half of the answer
 needs no board, and nothing attached is an answer rather than a failure. A
 board sitting in the DFU bootloader is named in a `note:` on standard error

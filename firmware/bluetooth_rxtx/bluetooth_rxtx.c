@@ -76,13 +76,14 @@ overflow_the_stack(unsigned long depth)
 #endif
 
 /*
- * The build string reported by UBERTOOTH_GET_COMPILE_INFO. Keep it identical
- * to the one in btbr/src/btctl/vendor_request_handler.c. The image name and
- * revision a host matches against are in the firmware info block
- * (../common/fw_info.c), not here.
+ * The build string reported by UBERTOOTH_GET_COMPILE_INFO, which is the date
+ * this image was built. Keep it identical to the one in
+ * btbr/src/btctl/vendor_request_handler.c. The image name and version a host
+ * matches against are in the firmware info block (../common/fw_info.c), not
+ * here, and who built it is in neither: an image is handed around, so a
+ * builder's user and host names say nothing a reader of it needs.
  */
-const char compile_info[] =
-	"ubertooth " GIT_REVISION " (" COMPILE_BY "@" COMPILE_HOST ") " TIMESTAMP;
+const char compile_info[] = TIMESTAMP;
 
 /* hopping stuff */
 volatile uint8_t  hop_mode = HOP_NONE;

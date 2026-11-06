@@ -16,7 +16,7 @@
 # at, which is the one thing a reader needs and cannot guess, and so the
 # configure step can compare it with the libbtbb it found.
 set(LIBBTBB_PINNED_REPO "SqueakyFloors/libbtbb")
-set(LIBBTBB_PINNED_REF "7e1cdf0336857a714da1af8c7496fe32453ac6d0")
+set(LIBBTBB_PINNED_REF "c70de76afbe13f3740bcd906952a36c849383810")
 
 # Every libbtbb function this tree calls. libbtbb carries no version macro, so
 # "new enough" is decided by asking the installed one for the declarations the
@@ -38,7 +38,6 @@ set(LIBBTBB_REQUIRED_FUNCTIONS
   btbb_find_ac_n
   btbb_gen_syncword
   btbb_get_release
-  btbb_get_version
   btbb_init
   btbb_init_piconet
   btbb_init_survey
@@ -134,14 +133,17 @@ endfunction()
 # uncommitted changes. <reason> says why it could not be read, for the report
 # to give the right one: "none", "ambiguous", or "no-file".
 #
-# libbtbb's build compiles its release string into the library
-# (-DRELEASE="git-<abbreviated commit>") and returns it from
-# btbb_get_release(). That is the only commit it records anywhere: the version
+# libbtbb's build compiles the commit into the library, prefixed, and returns
+# it from btbb_get_commit(). That is the only commit it records anywhere: the
+# release string beside it names a release rather than a commit, the version
 # in libbtbb.pc is the library's ABI version, which moves with the ABI and not
 # with a commit, and btbb.h has no version macro. So the string is read out of
 # the library file, which needs no compiler to build a program and no loader
 # to run one, and so works for a static library and for a cross-compiled
-# build.
+# build. A libbtbb installed before that field carried the commit in its
+# release string instead, as "git-" and git's abbreviation of it, and that
+# form is read too: it is what a machine with an older install has. One from a
+# distribution package records no commit at all, and then the report says so.
 # The pin is a commit while libbtbb fixes are landing, and a release points it
 # at a matching tag of the libbtbb fork instead. A tag names no commit here,
 # and resolving it would need libbtbb's repository, which a build of these
@@ -174,17 +176,27 @@ function(btbb_library_commit out reason)
     return()
   endif()
 
-  # Seven hex digits at least, written out because CMake's regular
-  # expressions have no repetition count: a shorter match would be compared
-  # against the pin on too few characters to mean anything. Not anchored, and
-  # the hex digits are matched greedily, because libbtbb's string sits in the
-  # library next to whatever the compiler put beside it. Text run up against
-  # the string leaves a second candidate, and more hex digits run up against
-  # it read as a longer abbreviation that then does not match the pin, so such
-  # a library warns rather than passing quietly. libbtbb writes the string as
-  # its own NUL-terminated literal, so nothing is run up against it.
+  # Two forms, because a libbtbb installed before the pin that records a
+  # commit of its own still has to be recognized -- that is the library every
+  # machine with an older install has, and the one this report most needs to
+  # warn about.
+  #
+  # The prefix libbtbb puts in front of the commit it records is what makes
+  # the new form findable: the library holds every other string the compiler
+  # put there too, and a commit on its own is forty characters that could be
+  # anything. The older form is the release string those libbtbb builds
+  # carried, "git-" and git's abbreviation of the commit; seven hex digits at
+  # least, written out because CMake's regular expressions have no repetition
+  # count, since a shorter match would be compared against the pin on too few
+  # characters to mean anything.
+  #
+  # Neither is anchored, and the hex digits are matched greedily, because the
+  # string sits next to whatever the compiler put beside it. libbtbb writes
+  # each as its own NUL-terminated literal, so nothing is run up against one.
   set(hex "[0-9a-fA-F]")
-  set(pattern "git-${hex}${hex}${hex}${hex}${hex}${hex}${hex}+\\*?")
+  set(patterns
+    "libbtbb-commit:[0-9a-fA-F]+\\*?"
+    "git-${hex}${hex}${hex}${hex}${hex}${hex}${hex}+\\*?")
 
   # Each run of printable bytes holding the pattern, then the pattern out of
   # each run. Two steps, because the pattern cannot be anchored.
@@ -194,17 +206,26 @@ function(btbb_library_commit out reason)
   # of printable bytes around libbtbb's string would report no commit at all,
   # which is the silence this whole report exists to remove. Reading a 34 MB
   # library costs about a second, and libbtbb installs at about 250 KB.
-  file(STRINGS "${library}" runs REGEX "${pattern}")
+  #
+  # The forms are tried in turn and the first one that is there decides: a
+  # libbtbb that records a commit of its own is read from that field, and the
+  # release string beside it, which names a release, is not searched at all.
   set(candidates "")
-  foreach(run IN LISTS runs)
-    string(REGEX MATCHALL "${pattern}" matches "${run}")
-    list(APPEND candidates ${matches})
+  foreach(pattern IN LISTS patterns)
+    file(STRINGS "${library}" runs REGEX "${pattern}")
+    foreach(run IN LISTS runs)
+      string(REGEX MATCHALL "${pattern}" matches "${run}")
+      list(APPEND candidates ${matches})
+    endforeach()
+    list(REMOVE_DUPLICATES candidates)
+    if(NOT candidates STREQUAL "")
+      break()
+    endif()
   endforeach()
 
-  list(REMOVE_DUPLICATES candidates)
   list(LENGTH candidates count)
   if(count EQUAL 1)
-    string(REGEX REPLACE "^git-" "" commit "${candidates}")
+    string(REGEX REPLACE "^(libbtbb-commit:|git-)" "" commit "${candidates}")
     set(${out} "${commit}" PARENT_SCOPE)
     set(${reason} "" PARENT_SCOPE)
   elseif(count EQUAL 0)
@@ -252,9 +273,9 @@ function(btbb_report_pin)
     elseif(reason STREQUAL "no-file")
       set(why "there is no library file behind that name")
     else()
-      # No cause asserted: a libbtbb built from a source archive records a
-      # release name instead of a commit, and one built with git's
-      # abbreviation set unusually short records a commit this does not read.
+      # No cause asserted: a libbtbb built from a source archive records no
+      # commit, and one older than the prefix this reads, or from a
+      # distribution package, records none this can find.
       set(why "nothing in it reads as the commit it was built from")
     endif()
     message(STATUS "libbtbb: ${library}, commit unknown (${why}); this tree "
@@ -305,11 +326,13 @@ function(btbb_report_pin)
       return()
     endif()
 
-    # libbtbb records git's abbreviation and the pin is written in full,
+    # libbtbb records the commit in full and the pin is written in full,
     # which the libbtbb pin workflow enforces by reading it out of build.yml,
-    # so the recorded commit has to be a prefix of the pin and not the other
-    # way about. A prefix search rather than a regular expression match, so a
-    # commit is only ever compared as text.
+    # so the two agree exactly. Still a prefix search rather than an equality
+    # test, because a libbtbb that records an abbreviation -- one built with
+    # RELEASE and BTBB_COMMIT given by hand -- is then compared on what it
+    # does record. A prefix search rather than a regular expression match, so
+    # a commit is only ever compared as text.
     string(TOLOWER "${commit}" commit_lower)
     string(TOLOWER "${LIBBTBB_PINNED_REF}" pin_lower)
     string(FIND "${pin_lower}" "${commit_lower}" commit_at)

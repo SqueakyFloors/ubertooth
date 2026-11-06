@@ -60,7 +60,7 @@ int nanosleep(const struct timespec *requested, struct timespec *remaining)
  * API version is the host's own, as a real image from this tree carries: an
  * image that reports another one is warned about, which one case below asks
  * for on purpose. */
-#define IMAGE_REVISION "git-2671234"
+#define IMAGE_REVISION "2026-11-DEV1+22"
 #define IMAGE_NAME "bluetooth_rxtx"
 #define IMAGE_API UBERTOOTH_API_VERSION
 
@@ -1403,10 +1403,10 @@ MU_TEST(a_detach_race_followed_by_the_old_firmware_fails_the_command)
 
 	board_in_dfu();
 	fake.detach_rc = LIBUSB_ERROR_PIPE;
-	snprintf(fake.revision, sizeof(fake.revision), "git-0000000");
+	snprintf(fake.revision, sizeof(fake.revision), "2026-11-DEV1+21");
 	r = RUN("-d", image_path, "-r");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "error: the board came back running git-0000000, "
+	mu_assert(strstr(r.err, "error: the board came back running 2026-11-DEV1+21, "
 	                 "not " IMAGE_REVISION ": the firmware was not written, "
 	                 "so flash it again\n") != NULL,
 	          "the unchanged revision was not reported");

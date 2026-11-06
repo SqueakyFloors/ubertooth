@@ -151,7 +151,7 @@ static void reset_fake(void)
 	fake.partnum = 0x25011723;
 	fake.api_version = UBERTOOTH_API_VERSION; /* firmware from this tree */
 	fake.image = "bluetooth_rxtx";
-	fake.revision = "git-test";
+	fake.revision = "2026-11-DEV1";
 	fake.compile_info = "compile-test";
 	fake.device_count = 1;
 	fake.range.valid = 1;
@@ -760,7 +760,7 @@ static struct run_result run_util(const char *const *args)
 /* Exact expected report lines, in the order ubertooth-util prints them. */
 #define BOARD_LINE "Board ID Number: 1 (Ubertooth One)\n"
 #define CHANNEL_LINE "Current frequency: 2441 MHz (Bluetooth channel 39)\n"
-#define FIRMWARE_LINE "Firmware version: bluetooth_rxtx git-test (API:1.58)\n"
+#define FIRMWARE_LINE "Firmware version: bluetooth_rxtx 2026-11-DEV1 (API:1.58)\n"
 #define BUILD_LINE "Firmware build: compile-test\n"
 /* The host line is faked above, so it is this. */
 #define HOST_LINE "libubertooth fake\n"
@@ -778,7 +778,7 @@ static struct run_result run_util(const char *const *args)
 /* The same lines as the multi-device listing prints them: the report's own
  * label with the board's index in it. i is the index, as a string. */
 #define LISTED_BOARD(i)    "Board ID Number (" i "): 1 (Ubertooth One)\n"
-#define LISTED_FIRMWARE(i) "Firmware version (" i "): bluetooth_rxtx git-test (API:1.58)\n"
+#define LISTED_FIRMWARE(i) "Firmware version (" i "): bluetooth_rxtx 2026-11-DEV1 (API:1.58)\n"
 #define LISTED_PART(i)     "Part ID (" i "): 25011723\n"
 #define LISTED_SERIAL(i)   "Serial No (" i "): " FAKE_SERIAL "\n"
 
@@ -931,7 +931,7 @@ MU_TEST(a_board_without_an_info_block_is_still_identified)
 	fake.fw_info_rc = LIBUSB_ERROR_PIPE;
 	r = RUN("-v");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "Firmware version: git-test (API:1.58)\n") == 0,
+	mu_assert(strcmp(r.out, "Firmware version: 2026-11-DEV1 (API:1.58)\n") == 0,
 	          r.out);
 	mu_assert_int_eq(0, (long)strlen(r.err));
 
@@ -965,7 +965,7 @@ MU_TEST(each_failing_report_makes_the_command_fail)
 	fake.api_rc = -1;
 	r = RUN("-v");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strcmp(r.out, "Firmware version: bluetooth_rxtx git-test\n") == 0,
+	mu_assert(strcmp(r.out, "Firmware version: bluetooth_rxtx 2026-11-DEV1\n") == 0,
 	          "firmware line without API");
 
 	reset_fake();
@@ -1193,11 +1193,11 @@ MU_TEST(the_bootloader_is_reported_with_or_without_a_version_block)
 	 * the hash of the region comes with it either way. */
 	reset_fake();
 	script_bootloader(0x9d2fe1b4, UBERTOOTH_BL_VERSION_MAGIC,
-	                  UBERTOOTH_BL_VERSION_FORMAT, 0x0200, "git-1a2b3c4");
+	                  UBERTOOTH_BL_VERSION_FORMAT, 0x0200, "2026-11-DEV1+22");
 	r = RUN("-B");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert_int_eq(1, fake.bootloader_calls);
-	mu_assert(strcmp(r.out, "Bootloader: 2.00 git-1a2b3c4, "
+	mu_assert(strcmp(r.out, "Bootloader: 2.00 2026-11-DEV1+22, "
 	                 "CRC32:0x9d2fe1b4\n") == 0, r.out);
 	mu_assert(strcmp(r.err, "") == 0, r.err);
 
@@ -1220,7 +1220,7 @@ MU_TEST(the_bootloader_is_reported_with_or_without_a_version_block)
 	 * with the hash still printed, which is all that can be trusted. */
 	reset_fake();
 	script_bootloader(0x11223344, UBERTOOTH_BL_VERSION_MAGIC,
-	                  UBERTOOTH_BL_VERSION_FORMAT + 1, 0x0300, "git-9999999");
+	                  UBERTOOTH_BL_VERSION_FORMAT + 1, 0x0300, "2026-11-DEV9");
 	r = RUN("-B");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.out, "format this host does not know, "
@@ -3296,8 +3296,8 @@ MU_TEST(a_failed_read_on_one_device_is_reported_and_fails_the_listing)
 	r = RUN("-v");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out,
-	                 "Firmware version (0): bluetooth_rxtx git-test\n"
-	                 "Firmware version (1): bluetooth_rxtx git-test\n") == 0,
+	                 "Firmware version (0): bluetooth_rxtx 2026-11-DEV1\n"
+	                 "Firmware version (1): bluetooth_rxtx 2026-11-DEV1\n") == 0,
 	          "revision without API");
 
 	reset_fake();

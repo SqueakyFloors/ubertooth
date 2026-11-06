@@ -24,7 +24,8 @@
 add_definitions( -DRELEASE="${RELEASE_STRING}" )
 
 # Targets
-set(c_sources ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth.c
+set(c_sources ${CMAKE_CURRENT_SOURCE_DIR}/libbtbb_origin.c
+              ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth.c
               ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth_api_version.c
               ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth_callback.c
               ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth_control.c
@@ -43,6 +44,24 @@ set(c_headers ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth.h
 # Include and link to libbtbb and libusb-1.0
 find_package(BTBB REQUIRED)
 find_package(USB1 REQUIRED)
+
+# The directory the libbtbb this build links lives in. -V compares it with the
+# one the loader actually opened and warns when they differ, which is how a
+# machine with a second libbtbb install shows up: the two decode packets
+# differently, and nothing else in a run would say so. An entry that is not an
+# absolute path is a bare link name the user set, and names no directory, so
+# nothing is recorded and nothing is compared. It is the directory as this
+# build sees it, so a build staged into a sysroot or a package root records
+# where libbtbb was then rather than where it will be; such a build should
+# give the directory it will run against, or an empty one to say nothing.
+list(GET LIBBTBB_LIBRARIES 0 _btbb_library)
+set(_btbb_libdir "")
+if(IS_ABSOLUTE "${_btbb_library}")
+	get_filename_component(_btbb_libdir "${_btbb_library}" DIRECTORY)
+endif()
+add_definitions( -DBTBB_BUILD_LIBDIR="${_btbb_libdir}" )
+unset(_btbb_library)
+unset(_btbb_libdir)
 
 # ubertooth.c runs the capture ring buffer on its own thread. glibc 2.34 and
 # later fold the pthread calls into libc, so a missing -lpthread goes unnoticed

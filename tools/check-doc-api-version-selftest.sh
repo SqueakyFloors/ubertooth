@@ -65,7 +65,7 @@ new_repo() {
         "$repo/host/doc/man" "$repo/validation" || exit 1
     i=0
     while [ "$i" -lt 80 ]; do
-        printf 'Filler page %s\n\n    Firmware version: bluetooth_rxtx git-test (API:<version>)\n' \
+        printf 'Filler page %s\n\n    Firmware version: bluetooth_rxtx 2026-11-DEV1+22 (API:<version>)\n' \
             "$i" > "$repo/docs/source/filler$i.rst"
         i=$((i + 1))
     done
@@ -142,7 +142,7 @@ grep -q "no pinned version" "$out" || fail "stdout does not report a clean tree"
 
 case_name="a pinned version in the README is caught"
 new_repo
-add_doc README.md "    Firmware version: bluetooth_rxtx git-test (API:$stale)"
+add_doc README.md "    Firmware version: bluetooth_rxtx 2026-11-DEV1+22 (API:$stale)"
 run_check
 [ "$status" -eq 1 ] || fail "expected exit 1, got $status"
 grep -q "README.md:1: .*API:$stale" "$err" ||
@@ -152,7 +152,7 @@ grep -q "README.md:1: .*API:$stale" "$err" ||
 case_name="a pinned version in a man page's Markdown source is caught"
 new_repo
 add_doc host/doc/ubertooth-util.md \
-    "    Firmware version: bluetooth_rxtx git-test (API:$stale)"
+    "    Firmware version: bluetooth_rxtx 2026-11-DEV1+22 (API:$stale)"
 run_check
 [ "$status" -eq 1 ] || fail "expected exit 1, got $status"
 grep -q "host/doc/ubertooth-util.md:1:" "$err" ||
@@ -173,7 +173,7 @@ case_name="the current version pinned into a sample is caught too"
 # Not only a stale one: a sample that happens to be right today is the one
 # that goes stale at the next bump, which is the whole point of the rule.
 new_repo
-add_doc README.md "    Firmware version: bluetooth_rxtx git-test (API:$current)"
+add_doc README.md "    Firmware version: bluetooth_rxtx 2026-11-DEV1+22 (API:$current)"
 run_check
 [ "$status" -eq 1 ] || fail "expected exit 1, got $status"
 grep -q "README.md:1:" "$err" || fail "the planted line is not reported"
@@ -186,7 +186,7 @@ case_name="1.06 is no longer excused, in a btbr sample or any other"
 # excused.
 new_repo
 add_doc docs/source/firmware.rst \
-    "		Firmware version: btbr git-test (API:1.06)"
+    "		Firmware version: btbr 2026-11-DEV1+22 (API:1.06)"
 run_check
 [ "$status" -eq 1 ] || fail "expected exit 1, got $status"
 grep -q "docs/source/firmware.rst:1:" "$err" ||
@@ -194,7 +194,7 @@ grep -q "docs/source/firmware.rst:1:" "$err" ||
 
 new_repo
 add_doc docs/source/firmware.rst \
-    "		Firmware version: bluetooth_rxtx git-test (API:1.06)"
+    "		Firmware version: bluetooth_rxtx 2026-11-DEV1+22 (API:1.06)"
 run_check
 [ "$status" -eq 1 ] || fail "expected exit 1, got $status"
 grep -q "docs/source/firmware.rst:1:" "$err" ||

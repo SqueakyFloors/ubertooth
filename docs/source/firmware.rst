@@ -53,12 +53,11 @@ you are running, and the build line below it when that image was built:
 	.. code-block:: sh
 
 		$ ubertooth-util -U <serial> -V
-		Host tools version: libubertooth <version> (git-26d4c11), libbtbb <version> (git-2fd0d39)
-		libbtbb loaded from: /usr/local/lib/libbtbb.so.1
-		Firmware version: bluetooth_rxtx git-26d4c11 (API:<version>)
-		Firmware build: ubertooth git-26d4c11 (builder@buildhost) Mon Oct 27 11:22:33 2025
+		Host tools version: 2026-11-DEV1+22 (libbtbb 2026-11-DEV1+22)
+		Firmware version: bluetooth_rxtx 2026-11-DEV1+22 (API:<version>)
+		Firmware build: Mon Oct 27 11:22:33 2025
 		$ ubertooth-util -U <serial> -V | grep '^Firmware version:'   # flashed with btbr
-		Firmware version: btbr git-26d4c11 (API:<version>)
+		Firmware version: btbr 2026-11-DEV1+22 (API:<version>)
 
 ``ubertooth-dfu`` names what is in a firmware file before it writes anything,
 so the ``Image:`` line says which image is about to be flashed, and a file that
@@ -68,7 +67,7 @@ is not an Ubertooth image is refused before the board is touched:
 
 		$ ubertooth-dfu -U <serial> -d firmware/btbr/btbr.dfu -r
 		Checking firmware signature
-		Image: btbr git-26d4c11 (API:<version>)
+		Image: btbr 2026-11-DEV1+22 (API:<version>)
 
 The ``Image:`` line takes its version from the file and ``-v`` reports the USB
 ``bcdDevice`` the running firmware answers with; both images carry the same
@@ -93,13 +92,13 @@ hand, build the image with ``make -C firmware/bluetooth_rxtx`` and run the
 
 		$ ubertooth-dfu -d bluetooth_rxtx.dfu -r
 		Checking firmware signature
-		Image: bluetooth_rxtx git-ed30131d* (API:<version>)
+		Image: bluetooth_rxtx 2026-11-DEV1+22* (API:<version>)
 		Switching selected device to DFU mode...
 		........................................
 		........................................
 		................
 		Detached
-		Verified firmware revision: git-ed30131d*
+		Verified firmware revision: 2026-11-DEV1+22*
 
 All of that is progress and goes to standard error, except the last line: the
 revision read back from the board is the result, and it is the only thing on
@@ -114,7 +113,7 @@ it fails rather than choosing one ambiguously.
 Every image built from this tree carries a firmware info block at a fixed
 offset, naming the image and the revision it was built from. The tool reads it
 out of the file before it writes anything, says what it is about to write
-(``Image: bluetooth_rxtx git-ed30131d* (API:<version>)``), and refuses a file
+(``Image: bluetooth_rxtx 2026-11-DEV1+22* (API:<version>)``), and refuses a file
 that carries no such block, which includes every image built before the block
 existed.
 
@@ -183,15 +182,14 @@ In non-DFU mode, you can obtain firmware information with ``ubertooth-util -V``.
 	.. code-block:: sh
 
 		$ ubertooth-util -V
-		Host tools version: libubertooth <version> (git-ed30131d*), libbtbb <version> (git-2fd0d39)
-		libbtbb loaded from: /usr/local/lib/libbtbb.so.1
-		Firmware version: bluetooth_rxtx git-ed30131d* (API:<version>)
-		Firmware build: ubertooth git-ed30131d* (builder@host) Tue Aug  7 15:33:06 PDT 2018
+		Host tools version: 2026-11-DEV1+22* (libbtbb 2026-11-DEV1+22*)
+		Firmware version: bluetooth_rxtx 2026-11-DEV1+22* (API:<version>)
+		Firmware build: Tue Aug  7 15:33:06 PDT 2018
 
 The ``Firmware version:`` line starts with the image the board is running,
 read from its firmware info block; a board running firmware from before the
-block shows the revision alone. The ``Firmware build:`` line is the build
-string the firmware reports, which both images spell ``ubertooth``.
+block shows the revision alone. The ``Firmware build:`` line is the date
+the image was built.
 
 A firmware built from a git checkout reports its git revision as above, with
 a trailing ``*`` if the working tree had uncommitted changes; a

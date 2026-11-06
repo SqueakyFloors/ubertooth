@@ -71,7 +71,7 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
     * Configure the host tools with ``-DUBERTOOTH_RELEASE=ON``. Without it the
       build works the build type out from the tree: an archive with no ``.git``
       is read as a release, which is what ``git archive`` gives, as is a
-      checkout of the tag itself -- but a clone with no tags fetched is read as
+      checkout of the release tag itself -- but a clone with no tags fetched is read as
       a development build, and only warns about firmware of another API
       version instead of refusing it. Worse, CMake
       decides this when it configures, so an existing build directory keeps
@@ -109,19 +109,43 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
       firmware``: it is the one image written in C++, so it needs the ARM C++
       runtime (``libstdc++-arm-none-eabi-newlib``) that nothing else here does.
 
-    * The firmware version string now comes from a generated ``version.h`` (the
-      old ``GIT_REVISION`` ``-D`` flag in ``firmware/common.mk`` was removed).
+    * The firmware version string comes from a generated ``version.h``.
       ``tools/ubertooth-release.sh`` writes a ``version.h`` carrying the release
       number into each firmware image directory of the archive, and the build
       uses that shipped header as-is when ``.git`` is not present. If you build
       a release by hand rather than via the script, drop an equivalent
-      ``version.h`` into ``firmware/bluetooth_rxtx``, ``firmware/btbr`` and
-      ``firmware/assembly_test`` before building -- the three images a release
-      ships; the bootloader includes no ``version.h`` at all. It has
+      ``version.h`` into ``firmware/bluetooth_rxtx``, ``firmware/btbr``,
+      ``firmware/bl_update``, ``firmware/assembly_test`` and
+      ``firmware/bootloader`` before building. It has
       to define ``GIT_REVISION`` (the release number), ``FW_IMAGE_NAME`` (the
       image directory's name, which ``firmware/common/fw_info.c`` asserts the
-      length of), ``COMPILE_BY``, ``COMPILE_HOST`` and ``TIMESTAMP``; a header
-      missing any of them fails to compile.
+      length of) and ``TIMESTAMP`` (the build date, which is the whole of what
+      ``Firmware build`` reports); a header missing any of them fails to
+      compile. No image records who built it or on what machine. The
+      bootloader uses only ``GIT_REVISION``, for the version block
+      ``ubertooth-util -B`` reads.
+
+    * A build from a git checkout needs none of that: it works the release out
+      from the tags. ``firmware/version.mk`` and
+      ``host/cmake/set_release.cmake`` both ask git for the nearest tag named
+      ``YYYY-MM-Rn`` (or ``-RCn`` or ``-DEVn``) and how many commits HEAD is
+      past it, so a build of the release tag reports the release and a build
+      after it reports, for example, ``2026-11-R1+22``, with ``*`` added when
+      the tree has uncommitted changes. A tag in any other form is ignored, so
+      a new tag has to be named that way to be reported.
+
+    * Those two files also each carry the release a checkout with no tag in
+      reach falls back to: ``LATEST_RELEASE`` in
+      ``host/cmake/set_release.cmake``, which the script below rewrites, and
+      ``UBERTOOTH_LATEST_RELEASE`` in ``firmware/version.mk``, which has to be
+      moved with it. The ``release-version`` test compares the two files'
+      answers, so leaving one behind fails there.
+
+    * Because the version names a release rather than a commit, two builds of
+      different commits between the same pair of tags can report the same
+      version. Anything that has to tell two images apart -- an A/B comparison
+      of two firmware builds, for instance -- compares the ``.dfu`` file's
+      SHA-256 checksum, not the version string.
 
     * ``make clean`` deletes that ``version.h``, so write the headers after the
       last clean as well. They ship in the archive for whoever builds the

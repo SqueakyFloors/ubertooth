@@ -51,7 +51,7 @@ static struct fake_recovery make_fake(void)
 	fake.initial_handle = (void *)(uintptr_t)0x1;
 	fake.reopened_handle = (void *)(uintptr_t)0x2;
 	fake.app_handle = (void *)(uintptr_t)0x3;
-	fake.app_revision = "git-expected";
+	fake.app_revision = "2026-11-DEV1+22";
 	fake.app_image = "bluetooth_rxtx";
 	return fake;
 }
@@ -265,7 +265,7 @@ MU_TEST(test_verify_waits_for_same_app_and_exact_revision)
 
 	mu_assert_int_eq(DFU_VERIFY_OK,
 	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
-	                                        &fake.identity, "git-expected",
+	                                        &fake.identity, "2026-11-DEV1+22",
 	                                        "bluetooth_rxtx",
 	                                        &config, &report));
 	mu_assert_int_eq(2, report.polls);
@@ -282,7 +282,7 @@ MU_TEST(test_verify_rejects_wrong_physical_path)
 
 	mu_assert_int_eq(DFU_VERIFY_IDENTITY_MISMATCH,
 	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
-	                                        &fake.identity, "git-expected",
+	                                        &fake.identity, "2026-11-DEV1+22",
 	                                        "bluetooth_rxtx",
 	                                        &config, &report));
 	mu_assert_int_eq(1, fake.app_close_calls);
@@ -293,14 +293,14 @@ MU_TEST(test_verify_rejects_wrong_revision)
 	struct fake_recovery fake = make_fake();
 	struct dfu_verify_config config = {1, 10};
 	struct dfu_verify_report report;
-	fake.app_revision = "git-old";
+	fake.app_revision = "2026-11-DEV1+21";
 
 	mu_assert_int_eq(DFU_VERIFY_REVISION_MISMATCH,
 	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
-	                                        &fake.identity, "git-expected",
+	                                        &fake.identity, "2026-11-DEV1+22",
 	                                        "bluetooth_rxtx",
 	                                        &config, &report));
-	mu_assert(strcmp(report.actual_revision, "git-old") == 0,
+	mu_assert(strcmp(report.actual_revision, "2026-11-DEV1+21") == 0,
 	          "actual revision not reported");
 	mu_assert_int_eq(1, fake.app_close_calls);
 }
@@ -317,12 +317,12 @@ MU_TEST(test_verify_rejects_the_other_image_of_the_same_revision)
 
 	mu_assert_int_eq(DFU_VERIFY_IMAGE_MISMATCH,
 	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
-	                                        &fake.identity, "git-expected",
+	                                        &fake.identity, "2026-11-DEV1+22",
 	                                        "bluetooth_rxtx",
 	                                        &config, &report));
 	mu_assert(strcmp(report.actual_image, "btbr") == 0,
 	          "actual image not reported");
-	mu_assert(strcmp(report.actual_revision, "git-expected") == 0,
+	mu_assert(strcmp(report.actual_revision, "2026-11-DEV1+22") == 0,
 	          "the matching revision was not reported as well");
 	mu_assert_int_eq(1, fake.app_close_calls);
 }
@@ -338,7 +338,7 @@ MU_TEST(test_verify_separates_an_unreadable_image_from_a_wrong_one)
 
 	mu_assert_int_eq(DFU_VERIFY_IMAGE_FAILED,
 	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
-	                                        &fake.identity, "git-expected",
+	                                        &fake.identity, "2026-11-DEV1+22",
 	                                        "bluetooth_rxtx",
 	                                        &config, &report));
 	mu_assert_int_eq(-9, report.operation_error);
@@ -353,12 +353,12 @@ MU_TEST(test_verify_does_not_ask_for_the_image_of_a_wrong_revision)
 	struct fake_recovery fake = make_fake();
 	struct dfu_verify_config config = {1, 10};
 	struct dfu_verify_report report;
-	fake.app_revision = "git-old";
+	fake.app_revision = "2026-11-DEV1+21";
 	fake.image_result = -9;
 
 	mu_assert_int_eq(DFU_VERIFY_REVISION_MISMATCH,
 	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
-	                                        &fake.identity, "git-expected",
+	                                        &fake.identity, "2026-11-DEV1+22",
 	                                        "bluetooth_rxtx",
 	                                        &config, &report));
 	mu_assert_int_eq(0, report.operation_error);
@@ -376,12 +376,12 @@ MU_TEST(test_verify_needs_an_expected_image_and_a_way_to_read_it)
 
 	mu_assert_int_eq(DFU_VERIFY_INVALID_ARGUMENT,
 	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
-	                                        &fake.identity, "git-expected",
+	                                        &fake.identity, "2026-11-DEV1+22",
 	                                        NULL, &config, &report));
 	without_image.get_image = NULL;
 	mu_assert_int_eq(DFU_VERIFY_INVALID_ARGUMENT,
 	                 dfu_verify_application(&without_image, &fake, "serial",
-	                                        &fake.identity, "git-expected",
+	                                        &fake.identity, "2026-11-DEV1+22",
 	                                        "bluetooth_rxtx",
 	                                        &config, &report));
 }
@@ -405,11 +405,11 @@ MU_TEST(test_a_board_that_never_came_back_is_told_apart_from_a_failed_write)
 
 	mu_assert_int_eq(DFU_VERIFY_APP_TIMEOUT,
 	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
-	                                        &fake.identity, "git-expected",
+	                                        &fake.identity, "2026-11-DEV1+22",
 	                                        "bluetooth_rxtx",
 	                                        &config, &report));
 	mu_assert_int_eq(0, report.operation_error);
-	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
+	dfu_verify_describe_failure(&report, "2026-11-DEV1+22", "bluetooth_rxtx",
 	                            message, sizeof(message));
 	mu_assert(strstr(message, "the firmware was written") != NULL,
 	          "the line does not say the image reached the board");
@@ -439,11 +439,11 @@ MU_TEST(test_a_board_that_will_not_open_is_not_a_board_that_stayed_away)
 
 	mu_assert_int_eq(DFU_VERIFY_APP_TIMEOUT,
 	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
-	                                        &fake.identity, "git-expected",
+	                                        &fake.identity, "2026-11-DEV1+22",
 	                                        "bluetooth_rxtx",
 	                                        &config, &report));
 	mu_assert_int_eq(-6, report.operation_error);
-	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
+	dfu_verify_describe_failure(&report, "2026-11-DEV1+22", "bluetooth_rxtx",
 	                            message, sizeof(message));
 	mu_assert(strstr(message, "the firmware was written") != NULL,
 	          "the line does not say the image reached the board");
@@ -479,12 +479,12 @@ MU_TEST(test_a_bus_that_could_not_be_read_is_not_a_board_that_would_not_open)
 
 	mu_assert_int_eq(DFU_VERIFY_APP_TIMEOUT,
 	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
-	                                        &fake.identity, "git-expected",
+	                                        &fake.identity, "2026-11-DEV1+22",
 	                                        "bluetooth_rxtx",
 	                                        &config, &report));
 	mu_assert_int_eq(1, report.bus_unreadable);
 	mu_assert_int_eq(0, report.operation_error);
-	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
+	dfu_verify_describe_failure(&report, "2026-11-DEV1+22", "bluetooth_rxtx",
 	                            message, sizeof(message));
 	/* The whole line, so a reworded one fails here and in the check that
 	 * the man page shows the same text (test_doc_example_lines.py). It says
@@ -510,7 +510,7 @@ MU_TEST(test_a_bus_that_could_be_read_on_the_next_poll_is_not_reported)
 
 	mu_assert_int_eq(DFU_VERIFY_OK,
 	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
-	                                        &fake.identity, "git-expected",
+	                                        &fake.identity, "2026-11-DEV1+22",
 	                                        "bluetooth_rxtx",
 	                                        &config, &report));
 	mu_assert_int_eq(0, report.bus_unreadable);
@@ -524,16 +524,16 @@ MU_TEST(test_a_board_running_another_revision_is_described_as_a_failed_write)
 	struct dfu_verify_config config = {1, 10};
 	struct dfu_verify_report report;
 	char message[256];
-	fake.app_revision = "git-old";
+	fake.app_revision = "2026-11-DEV1+21";
 
 	mu_assert_int_eq(DFU_VERIFY_REVISION_MISMATCH,
 	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
-	                                        &fake.identity, "git-expected",
+	                                        &fake.identity, "2026-11-DEV1+22",
 	                                        "bluetooth_rxtx",
 	                                        &config, &report));
-	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
+	dfu_verify_describe_failure(&report, "2026-11-DEV1+22", "bluetooth_rxtx",
 	                            message, sizeof(message));
-	mu_assert(strstr(message, "running git-old, not git-expected") != NULL,
+	mu_assert(strstr(message, "running 2026-11-DEV1+21, not 2026-11-DEV1+22") != NULL,
 	          "the line does not name both revisions");
 	mu_assert(strstr(message, "the firmware was not written") != NULL,
 	          "the line does not say the write did not take");
@@ -553,10 +553,10 @@ MU_TEST(test_a_board_that_will_not_report_its_revision_is_not_a_mismatch)
 
 	mu_assert_int_eq(DFU_VERIFY_REVISION_FAILED,
 	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
-	                                        &fake.identity, "git-expected",
+	                                        &fake.identity, "2026-11-DEV1+22",
 	                                        "bluetooth_rxtx",
 	                                        &config, &report));
-	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
+	dfu_verify_describe_failure(&report, "2026-11-DEV1+22", "bluetooth_rxtx",
 	                            message, sizeof(message));
 	mu_assert(strstr(message, "would not report its firmware revision")
 	          != NULL, "the line does not say what the board withheld");
@@ -579,10 +579,10 @@ MU_TEST(test_the_other_image_is_described_as_a_failed_write)
 
 	mu_assert_int_eq(DFU_VERIFY_IMAGE_MISMATCH,
 	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
-	                                        &fake.identity, "git-expected",
+	                                        &fake.identity, "2026-11-DEV1+22",
 	                                        "bluetooth_rxtx",
 	                                        &config, &report));
-	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
+	dfu_verify_describe_failure(&report, "2026-11-DEV1+22", "bluetooth_rxtx",
 	                            message, sizeof(message));
 	mu_assert(strstr(message, "running the btbr firmware, not the "
 	                 "bluetooth_rxtx image") != NULL,
@@ -606,12 +606,12 @@ MU_TEST(test_an_unreadable_image_is_described_as_unchecked)
 
 	mu_assert_int_eq(DFU_VERIFY_IMAGE_FAILED,
 	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
-	                                        &fake.identity, "git-expected",
+	                                        &fake.identity, "2026-11-DEV1+22",
 	                                        "bluetooth_rxtx",
 	                                        &config, &report));
-	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
+	dfu_verify_describe_failure(&report, "2026-11-DEV1+22", "bluetooth_rxtx",
 	                            message, sizeof(message));
-	mu_assert(strstr(message, "running git-expected, the revision that was "
+	mu_assert(strstr(message, "running 2026-11-DEV1+22, the revision that was "
 	                 "written") != NULL,
 	          "the line does not say the revision matched");
 	mu_assert(strstr(message, "would not say which firmware image it is")
@@ -642,10 +642,10 @@ MU_TEST(test_a_device_on_another_path_is_described_as_unchecked)
 
 	mu_assert_int_eq(DFU_VERIFY_IDENTITY_MISMATCH,
 	                 dfu_verify_application(&VERIFY_OPS, &fake, "serial",
-	                                        &fake.identity, "git-expected",
+	                                        &fake.identity, "2026-11-DEV1+22",
 	                                        "bluetooth_rxtx",
 	                                        &config, &report));
-	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
+	dfu_verify_describe_failure(&report, "2026-11-DEV1+22", "bluetooth_rxtx",
 	                            message, sizeof(message));
 	/* The whole line, for the same reason as above: it has to say which
 	 * device answered and that the flash is unverified, and the man page
@@ -665,32 +665,32 @@ MU_TEST(test_describing_a_verification_survives_what_a_caller_passes)
 
 	memset(&report, 0, sizeof(report));
 	snprintf(report.actual_revision, sizeof(report.actual_revision),
-	         "git-expected");
-	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
+	         "2026-11-DEV1+22");
+	dfu_verify_describe_failure(&report, "2026-11-DEV1+22", "bluetooth_rxtx",
 	                            message, sizeof(message));
-	mu_assert(strstr(message, "came back running git-expected") != NULL,
+	mu_assert(strstr(message, "came back running 2026-11-DEV1+22") != NULL,
 	          "a passed verification is not described");
 
 	report.result = DFU_VERIFY_REVISION_MISMATCH;
 	dfu_verify_describe_failure(&report, NULL, NULL, message,
 	                            sizeof(message));
-	mu_assert(strstr(message, "running git-expected, not ") != NULL,
+	mu_assert(strstr(message, "running 2026-11-DEV1+22, not ") != NULL,
 	          "a missing expected revision was not left blank");
 
 	report.result = DFU_VERIFY_IMAGE_MISMATCH;
-	dfu_verify_describe_failure(&report, "git-expected", NULL, message,
+	dfu_verify_describe_failure(&report, "2026-11-DEV1+22", NULL, message,
 	                            sizeof(message));
 	mu_assert(strstr(message, "not the  image that was written") != NULL,
 	          "a missing expected image name was not left blank");
 
 	report.result = DFU_VERIFY_INVALID_ARGUMENT;
-	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
+	dfu_verify_describe_failure(&report, "2026-11-DEV1+22", "bluetooth_rxtx",
 	                            message, sizeof(message));
 	mu_assert(strcmp(message,
 	                 "the flash could not be checked after the reset") == 0,
 	          "a verification that did not run is not described");
 
-	dfu_verify_describe_failure(NULL, "git-expected", "bluetooth_rxtx",
+	dfu_verify_describe_failure(NULL, "2026-11-DEV1+22", "bluetooth_rxtx",
 	                            message, sizeof(message));
 	mu_assert(strcmp(message,
 	                 "the flash could not be checked after the reset") == 0,
@@ -699,7 +699,7 @@ MU_TEST(test_describing_a_verification_survives_what_a_caller_passes)
 	/* A value that is not one of the enumerators still gets a line, and the
 	 * line names it. */
 	report.result = (enum dfu_verify_result)42;
-	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
+	dfu_verify_describe_failure(&report, "2026-11-DEV1+22", "bluetooth_rxtx",
 	                            message, sizeof(message));
 	mu_assert(strcmp(message, "the flash could not be checked after the "
 	                 "reset (result 42)") == 0,
@@ -709,10 +709,10 @@ MU_TEST(test_describing_a_verification_survives_what_a_caller_passes)
 	 * one is left alone. */
 	report.result = DFU_VERIFY_APP_TIMEOUT;
 	memset(small, 'x', sizeof(small));
-	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
+	dfu_verify_describe_failure(&report, "2026-11-DEV1+22", "bluetooth_rxtx",
 	                            small, sizeof(small));
 	mu_assert_int_eq((int)sizeof(small) - 1, (int)strlen(small));
-	dfu_verify_describe_failure(&report, "git-expected", "bluetooth_rxtx",
+	dfu_verify_describe_failure(&report, "2026-11-DEV1+22", "bluetooth_rxtx",
 	                            small, 0);
 	mu_assert_int_eq((int)sizeof(small) - 1, (int)strlen(small));
 }
@@ -1496,7 +1496,7 @@ static FILE *image_with_block(const char *image, const char *revision)
 MU_TEST(test_image_info_is_read_from_the_fixed_offset)
 {
 	struct ubertooth_fw_info info;
-	FILE *image = image_with_block("bluetooth_rxtx", "git-deadbee*");
+	FILE *image = image_with_block("bluetooth_rxtx", "2026-11-DEV1+22*");
 
 	mu_assert_fatal(image != NULL, "could not build the image");
 	/* The read starts somewhere else to show it seeks, and the position is
@@ -1506,7 +1506,7 @@ MU_TEST(test_image_info_is_read_from_the_fixed_offset)
 	                 dfu_read_image_info(image, &info));
 	mu_assert(strcmp(info.image, "bluetooth_rxtx") == 0,
 	          "wrong image name read from the block");
-	mu_assert(strcmp(info.revision, "git-deadbee*") == 0,
+	mu_assert(strcmp(info.revision, "2026-11-DEV1+22*") == 0,
 	          "wrong revision read from the block");
 	mu_assert_int_eq(UBERTOOTH_FW_INFO_FORMAT, info.format_version);
 	mu_assert_int_eq(0x0134, info.api_version);
@@ -1518,7 +1518,7 @@ MU_TEST(test_image_info_is_read_from_the_fixed_offset)
 MU_TEST(test_image_info_names_the_btbr_image)
 {
 	struct ubertooth_fw_info info;
-	FILE *image = image_with_block("btbr", "git-deadbee*");
+	FILE *image = image_with_block("btbr", "2026-11-DEV1+22*");
 
 	mu_assert_fatal(image != NULL, "could not build the image");
 	mu_assert_int_eq(UBERTOOTH_FW_INFO_OK,
@@ -1574,7 +1574,7 @@ MU_TEST(test_image_info_refuses_a_block_at_another_offset)
 	struct ubertooth_fw_info info;
 	FILE *image = file_with_block(0x80, UBERTOOTH_FW_INFO_MAGIC,
 	                              UBERTOOTH_FW_INFO_FORMAT, 0x0134,
-	                              "bluetooth_rxtx", "git-deadbee*");
+	                              "bluetooth_rxtx", "2026-11-DEV1+22*");
 
 	mu_assert_fatal(image != NULL, "could not build the image");
 	mu_assert_int_eq(UBERTOOTH_FW_INFO_NO_MAGIC,
@@ -1589,7 +1589,7 @@ MU_TEST(test_image_info_refuses_an_unknown_block_format)
 	struct ubertooth_fw_info info;
 	FILE *image = file_with_block(UBERTOOTH_FW_INFO_OFFSET,
 	                              UBERTOOTH_FW_INFO_MAGIC, 99, 0x0134,
-	                              "bluetooth_rxtx", "git-deadbee*");
+	                              "bluetooth_rxtx", "2026-11-DEV1+22*");
 
 	mu_assert_fatal(image != NULL, "could not build the image");
 	mu_assert_int_eq(UBERTOOTH_FW_INFO_FORMAT_UNKNOWN,
@@ -1607,7 +1607,7 @@ MU_TEST(test_image_info_refuses_unreadable_text)
 	struct ubertooth_fw_info info;
 	FILE *image;
 
-	image = image_with_block("", "git-deadbee*");
+	image = image_with_block("", "2026-11-DEV1+22*");
 	mu_assert_fatal(image != NULL, "could not build the image");
 	mu_assert_int_eq(UBERTOOTH_FW_INFO_BAD_TEXT,
 	                 dfu_read_image_info(image, &info));
@@ -1619,7 +1619,7 @@ MU_TEST(test_image_info_refuses_unreadable_text)
 	                 dfu_read_image_info(image, &info));
 	fclose(image);
 
-	image = image_with_block("rxtx\x01\x02", "git-deadbee*");
+	image = image_with_block("rxtx\x01\x02", "2026-11-DEV1+22*");
 	mu_assert_fatal(image != NULL, "could not build the image");
 	mu_assert_int_eq(UBERTOOTH_FW_INFO_BAD_TEXT,
 	                 dfu_read_image_info(image, &info));

@@ -78,14 +78,14 @@ FW_INFO_LENGTH = 64
 
 def _firmware():
     body = bytearray(b"\xff" * (FW_INFO_OFFSET + FW_INFO_LENGTH + 64))
-    marker = b"ubertooth git-testing (builder@host) 2026-01-01\x00"
+    marker = b"ubertooth 2026-11-DEV1ing (builder@host) 2026-01-01\x00"
     body[0:len(marker)] = marker
     block = bytearray(FW_INFO_LENGTH)
     block[0:8] = b"UBTFINFO"
     block[8:10] = (1).to_bytes(2, "little")
     block[10:12] = (0x0133).to_bytes(2, "little")
     block[16:30] = b"bluetooth_rxtx"
-    block[32:43] = b"git-testing"
+    block[32:43] = b"2026-11-DEV1ing"
     body[FW_INFO_OFFSET:FW_INFO_OFFSET + FW_INFO_LENGTH] = block
     return bytes(body)
 

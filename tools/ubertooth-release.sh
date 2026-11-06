@@ -36,22 +36,19 @@ fi
 # FIXME you'll need to update these:
 top="$(pwd)/../release"
 
-# A published image must not carry the name of the user or the machine that
-# built it. firmware/common.mk otherwise takes those from `whoami` and
-# `hostname -s`, so pin both to a neutral stamp. Variables given on the make
-# command line override the makefile's own values and reach every sub-make.
+# HAVE_GIT=false: the makefile asks git whether the archive is in a work tree,
+# and answers yes if ${top} happens to sit inside one, which would overwrite
+# the shipped version.h with that tree's version. Saying so on the make
+# command line, which overrides the makefile's own value and reaches every
+# sub-make, makes the shipped header govern whatever ${top} is. No image
+# carries the name of the user or the machine that built it, so there is
+# nothing else to pin.
 #
-# HAVE_GIT=false goes with them: the makefile asks git whether the archive is
-# in a work tree, and answers yes if ${top} happens to sit inside one, which
-# would overwrite the shipped version.h with that tree's revision. Saying so
-# on the command line makes the shipped header govern whatever ${top} is.
-version_by="ubertooth"
-version_host="release"
 # One UTC time for every image of a release, rather than the local time of
 # each build step: the images are stamped the same, and the stamp says nothing
 # about where the release was built.
 build_date="$(date -u)"
-stamp=(HAVE_GIT=false VERSION_BY="${version_by}" VERSION_HOST="${version_host}")
+stamp=(HAVE_GIT=false)
 
 case "${version}" in
 	*[!A-Za-z0-9._-]*|"")
@@ -73,7 +70,7 @@ git archive --format=tar  HEAD | (cd "${targetdir}" && tar xf -)
 #
 # `make clean` deletes version.h along with the rest of the build output, so
 # this runs after every clean below rather than once here. Without that the
-# images report "git-unknown" instead of the release.
+# images report "unknown" instead of the release.
 #
 # $1, when given, is the name the bluetooth_rxtx image calls itself in its
 # firmware info block. The receive-only image below is the same target built
@@ -82,9 +79,10 @@ git archive --format=tar  HEAD | (cd "${targetdir}" && tar xf -)
 write_version_headers() {
 	local rxtx_name d imgdir imgname
 	rxtx_name="${1:-bluetooth_rxtx}"
-	# Not the bootloader: it includes no version.h and carries no firmware
-	# info block.
-	for imgdir in bluetooth_rxtx btbr bl_update assembly_test; do
+	# The bootloader is here too. It carries no firmware info block, but it
+	# does carry a version block of its own, which `ubertooth-util -B`
+	# reads, and that takes its revision from a version.h the same way.
+	for imgdir in bluetooth_rxtx btbr bl_update assembly_test bootloader; do
 		d="${targetdir}/firmware/${imgdir}"
 		if ! test -d "${d}" ; then
 			echo "error: no ${d} to write version.h into" >&2
@@ -101,8 +99,6 @@ write_version_headers() {
 #define UBERTOOTH_VERSION_H
 #define GIT_REVISION "${version}"
 #define FW_IMAGE_NAME "${imgname}"
-#define COMPILE_BY "${version_by}"
-#define COMPILE_HOST "${version_host}"
 #define TIMESTAMP "${build_date}"
 #endif
 EOF
@@ -194,7 +190,7 @@ cp bluetooth_rxtx/bluetooth_rxtx.dfu "${targetdir}/ubertooth-one-firmware-bin/bl
 make clean
 # Once more after the last clean: these headers are not for a build here, they
 # are what ships in the archive, so someone who builds the firmware from the
-# release gets the release version rather than "git-unknown".
+# release gets the release version rather than "unknown".
 write_version_headers
 
 ############################

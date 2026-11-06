@@ -218,8 +218,8 @@ for the operation-by-operation comparison and the alternatives.
 ### Options every tool has
 
 `-h` prints a tool's usage text. `-V` prints the version, in the same words
-whichever tool you ask: the host tools' version and the libbtbb this run
-loaded, then the firmware version and build of the board `-U` names, or of
+whichever tool you ask: the release the host tools and libbtbb were built
+from, then the firmware version and build date of the board `-U` names, or of
 each attached board. Both are in every tool, including the three written in
 Python — `ubertooth-btbr`, `btle-extcap.py` and `ubertooth-specan-ui` — which
 answer `-V` by running `ubertooth-util -V` and passing its answer on, so they
@@ -227,13 +227,12 @@ need it on their `PATH`. `-v` is not in every tool: see below.
 
 ```sh
 $ ubertooth-util -V
-Host tools version: libubertooth <version> (git-26d4c11), libbtbb <version> (git-2fd0d39)
-libbtbb loaded from: /usr/local/lib/libbtbb.so.1
-Firmware version: bluetooth_rxtx git-26d4c11 (API:<version>)
-Firmware build: ubertooth git-26d4c11 (builder@buildhost) Mon Oct 27 11:22:33 2025
+Host tools version: 2026-11-DEV1+22 (libbtbb 2026-11-DEV1+22)
+Firmware version: bluetooth_rxtx 2026-11-DEV1+22 (API:<version>)
+Firmware build: Mon Oct 27 11:22:33 2025
 ```
 
-With no board attached it prints the host lines and `Firmware version: no
+With no board attached it prints the host line and `Firmware version: no
 Ubertooth attached`, and still exits 0, so it answers "which tools am I
 running?" on its own. Reading the version does not stop a mode the board is
 running, and works on whatever firmware the board is carrying.
@@ -268,14 +267,13 @@ as the revision, and answers whichever image is running:
 
 ```sh
 $ ubertooth-util -U <serial> -V
-Host tools version: libubertooth <version> (git-26d4c11), libbtbb <version> (git-2fd0d39)
-libbtbb loaded from: /usr/local/lib/libbtbb.so.1
-Firmware version: bluetooth_rxtx git-26d4c11 (API:<version>)
-Firmware build: ubertooth git-26d4c11 (builder@buildhost) Mon Oct 27 11:22:33 2025
+Host tools version: 2026-11-DEV1+22 (libbtbb 2026-11-DEV1+22)
+Firmware version: bluetooth_rxtx 2026-11-DEV1+22 (API:<version>)
+Firmware build: Mon Oct 27 11:22:33 2025
 ```
 
 `ubertooth-dfu` names what is in a firmware file before it writes anything
-(`Image: btbr git-26d4c11 (API:<version>)`), and refuses a file that is not an
+(`Image: btbr 2026-11-DEV1+22 (API:<version>)`), and refuses a file that is not an
 Ubertooth image, so the wrong file is caught before the board is touched.
 
 The API version moves with the firmware, so these samples write it as
