@@ -128,11 +128,18 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
     * A build from a git checkout needs none of that: it works the release out
       from the tags. ``firmware/version.mk`` and
       ``host/cmake/set_release.cmake`` both ask git for the nearest tag named
-      ``YYYY-MM-<release>`` and how many commits HEAD is past it, so a build
-      of the release tag reports the release and a build after it reports, for
-      example, ``2026-11-R1+22``, with ``*`` added when the tree has
-      uncommitted changes. Tags that do not follow that naming are ignored, so
+      ``YYYY-MM-Rn`` (or ``-RCn`` or ``-DEVn``) and how many commits HEAD is
+      past it, so a build of the release tag reports the release and a build
+      after it reports, for example, ``2026-11-R1+22``, with ``*`` added when
+      the tree has uncommitted changes. A tag in any other form is ignored, so
       a new tag has to be named that way to be reported.
+
+    * Those two files also each carry the release a checkout with no tag in
+      reach falls back to: ``LATEST_RELEASE`` in
+      ``host/cmake/set_release.cmake``, which the script below rewrites, and
+      ``UBERTOOTH_LATEST_RELEASE`` in ``firmware/version.mk``, which has to be
+      moved with it. The ``release-version`` test compares the two files'
+      answers, so leaving one behind fails there.
 
     * Because the version names a release rather than a commit, two builds of
       different commits between the same pair of tags can report the same

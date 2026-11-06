@@ -33,14 +33,17 @@ endif
 
 # Is this a real git checkout of THIS tree? A distribution archive (GitHub
 # "Download ZIP", a release tarball, git-archive output) has no .git, so there
-# is nothing to ask. One unpacked inside an unrelated repository has that
-# repository's .git above it, and its tags are not this project's releases, so
-# whether the checkout tracks anything here is asked as well. No file is named,
-# so moving these sources does not quietly turn the answer off.
+# is nothing to ask. These sources inside another repository -- unpacked
+# there, or committed there as a vendored copy -- have that repository's .git
+# above them, and its tags are not this project's releases. What tells the two
+# apart is where this makefile sits in the checkout git answered about: in a
+# checkout of this project it is in firmware/ and nowhere else.
 #
 # tools/ubertooth-release.sh also passes HAVE_GIT=false on the command line, to
 # build the shipped sources as the archive they are about to become.
-HAVE_GIT := $(shell git ls-files --error-unmatch . > /dev/null 2>&1 \
+VERSION_MK_DIR := $(patsubst %/,%,$(dir $(lastword $(MAKEFILE_LIST))))
+HAVE_GIT := $(shell cd $(VERSION_MK_DIR) 2>/dev/null \
+	&& test "`git rev-parse --show-prefix 2>/dev/null`" = firmware/ \
 	&& git rev-parse --is-inside-work-tree 2>/dev/null)
 
 ifeq ($(HAVE_GIT),true)

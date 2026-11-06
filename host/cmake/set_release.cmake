@@ -85,30 +85,28 @@ endforeach()
 # * is about this checkout rather than about whatever tree the caller's
 # working directory was in.
 #
-# git looks up the directory tree, so these sources unpacked inside an
-# unrelated repository would be given that repository's release. Whether the
-# checkout tracks anything in this directory is what tells the two apart; no
-# file is named, so moving this file does not quietly turn the answer off.
+# git looks up the directory tree, so these sources inside another repository
+# -- unpacked there, or committed there as a vendored copy -- would be given
+# that repository's release, and its tags are not this project's. What tells
+# the two apart is where this file sits in the checkout git answered about:
+# the question is asked from this directory, and in a checkout of this project
+# this directory is host/cmake and nothing else. Anywhere else, the answer is
+# some other repository's and is not used.
 #
 # Not asked at all when both settings are given on the command line: a tree
 # where git is blocked rather than absent would otherwise have to wait for it
 # to fail, for an answer nothing goes on to use.
 if(NOT DEFINED RELEASE_STRING OR NOT DEFINED UBERTOOTH_RELEASE)
 	execute_process(
-		COMMAND git ls-files --error-unmatch .
+		COMMAND git rev-parse --show-prefix
 		WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
 		RESULT_VARIABLE GIT_DIR_ERROR
-		OUTPUT_QUIET
+		OUTPUT_VARIABLE GIT_PREFIX
+		OUTPUT_STRIP_TRAILING_WHITESPACE
 		ERROR_QUIET
 	)
-	if(NOT GIT_DIR_ERROR)
-		execute_process(
-			COMMAND git rev-parse --git-dir
-			WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
-			RESULT_VARIABLE GIT_DIR_ERROR
-			OUTPUT_QUIET
-			ERROR_QUIET
-		)
+	if(NOT GIT_DIR_ERROR AND NOT "${GIT_PREFIX}" STREQUAL "host/cmake/")
+		set(GIT_DIR_ERROR 1)
 	endif()
 endif()
 
@@ -201,6 +199,7 @@ unset(RELEASE_TAG_FORM)
 unset(RELEASE_TAG)
 unset(RELEASE_AHEAD)
 unset(GIT_DIR_ERROR)
+unset(GIT_PREFIX)
 unset(GIT_DESCRIBE_ERROR)
 unset(GIT_COUNT_ERROR)
 unset(DIRTY)

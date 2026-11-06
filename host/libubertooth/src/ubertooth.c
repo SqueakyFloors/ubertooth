@@ -51,9 +51,6 @@
 #ifndef RELEASE
 #define RELEASE "unknown"
 #endif
-#ifndef VERSION
-#define VERSION "unknown"
-#endif
 
 uint32_t systime;
 FILE* infile = NULL;

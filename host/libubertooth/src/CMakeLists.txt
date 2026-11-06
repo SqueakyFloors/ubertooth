@@ -50,7 +50,10 @@ find_package(USB1 REQUIRED)
 # machine with a second libbtbb install shows up: the two decode packets
 # differently, and nothing else in a run would say so. An entry that is not an
 # absolute path is a bare link name the user set, and names no directory, so
-# nothing is recorded and nothing is compared.
+# nothing is recorded and nothing is compared. It is the directory as this
+# build sees it, so a build staged into a sysroot or a package root records
+# where libbtbb was then rather than where it will be; such a build should
+# give the directory it will run against, or an empty one to say nothing.
 list(GET LIBBTBB_LIBRARIES 0 _btbb_library)
 set(_btbb_libdir "")
 if(IS_ABSOLUTE "${_btbb_library}")

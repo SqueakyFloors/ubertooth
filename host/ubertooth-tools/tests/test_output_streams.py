@@ -217,8 +217,11 @@ result = run(["-V"])
 assert result.returncode == 0, result
 # Nothing on standard error, unless this machine loads a libbtbb from
 # somewhere other than the one these tools were built against, which is one
-# line and nothing else.
-for line in result.stderr.splitlines():
+# line and nothing else. One run loads one libbtbb, so there is never more
+# than one of them.
+stderr_lines = result.stderr.splitlines()
+assert len(stderr_lines) <= 1, result
+for line in stderr_lines:
     assert line.startswith(BTBB_ELSEWHERE), result
 lines = result.stdout.splitlines()
 # Two lines with no board attached: the versions, and what the firmware half

@@ -9,9 +9,10 @@ that is not that distance.
 
 Each case here is a checkout of its own that this test builds with git, with
 a copy of the module in it, so the answers are about a history written for
-the case rather than about whatever the source tree happens to be. The module
-asks git about its own directory, which is why the copy goes inside the
-checkout and is committed there.
+the case rather than about whatever the source tree happens to be. The module asks git about its own
+directory and only answers for a checkout that has it where this project does,
+so each scratch checkout is laid out the way this one is: the module in
+host/cmake, the makefile in firmware.
 
 firmware/version.mk works the same string out the same way for the firmware
 images, and the two are checked against each other at the end: a board and
@@ -74,17 +75,24 @@ def commit(directory, text):
     git(directory, "commit", "-q", "-m", text)
 
 
+def put_module(repo_root, tree):
+    """The module and a driver for it, where this project keeps the module."""
+    cmake_dir = os.path.join(tree, os.path.dirname(MODULE))
+    os.makedirs(cmake_dir, exist_ok=True)
+    shutil.copy(os.path.join(repo_root, MODULE),
+                os.path.join(cmake_dir, os.path.basename(MODULE)))
+    with open(os.path.join(cmake_dir, "driver.cmake"), "w") as handle:
+        handle.write(DRIVER)
+    return cmake_dir
+
+
 def new_tree(root, repo_root, name, commits=1):
     """A checkout with the module in it, committed, and <commits> commits."""
     tree = os.path.join(root, name)
-    cmake_dir = os.path.join(tree, "cmake")
-    os.makedirs(cmake_dir)
+    os.makedirs(tree)
     git(tree, "init", "-q")
-    shutil.copy(os.path.join(repo_root, MODULE),
-                os.path.join(cmake_dir, "set_release.cmake"))
-    with open(os.path.join(cmake_dir, "driver.cmake"), "w") as handle:
-        handle.write(DRIVER)
-    git(tree, "add", "cmake")
+    put_module(repo_root, tree)
+    git(tree, "add", os.path.dirname(MODULE))
     git(tree, "commit", "-q", "-m", "the module")
     for number in range(commits):
         commit(tree, "commit %d" % number)
@@ -109,8 +117,7 @@ def answers(cmake, cmake_dir, *arguments):
 
 
 def expect(cmake, tree, what, release, release_build, *arguments):
-    cmake_dir = tree if os.path.basename(tree) == "cmake" \
-        else os.path.join(tree, "cmake")
+    cmake_dir = os.path.join(tree, os.path.dirname(MODULE))
     got_release, got_build = answers(cmake, cmake_dir, *arguments)
     if got_release != release:
         fail("%s: version %r, expected %r" % (what, got_release, release))
@@ -122,12 +129,14 @@ def expect(cmake, tree, what, release, release_build, *arguments):
 def firmware_version(repo_root, directory):
     """What firmware/version.mk works out for the checkout in <directory>.
 
-    The makefile is read where it lies and asked about <directory>, which is
-    where make runs it from: the image directories it is included into are
-    inside the checkout it describes.
+    The makefile goes where this project keeps it, inside the checkout, and
+    is asked from there: that is where the image directories include it from,
+    and it only answers for a checkout that has it in firmware/.
     """
-    makefile = os.path.join(directory, "version.mk")
-    wrapper = os.path.join(directory, "ask-version.mk")
+    where = os.path.join(directory, os.path.dirname(FIRMWARE_MK))
+    os.makedirs(where, exist_ok=True)
+    makefile = os.path.join(where, "version.mk")
+    wrapper = os.path.join(where, "ask-version.mk")
     shutil.copy(os.path.join(repo_root, FIRMWARE_MK), makefile)
     # A wrapper rather than a target in version.mk itself: the makefiles that
     # include it must keep their own first target as the default goal.
@@ -137,7 +146,7 @@ def firmware_version(repo_root, directory):
                      "\t@printf '%s\\n' '$(VERSION_NOW)'\n")
     done = subprocess.run(
         ["make", "-s", "-f", "ask-version.mk", "print-version"],
-        cwd=directory, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        cwd=where, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, input="")
     os.remove(makefile)
     os.remove(wrapper)
@@ -221,26 +230,9 @@ def main():
         # No git history at all, which is what a source archive is: the
         # release the procedure wrote into the tree, and a release build, so
         # what shipped keeps the guard.
-        plain = os.path.join(work, "plain", "cmake")
-        os.makedirs(plain)
-        shutil.copy(os.path.join(repo_root, MODULE),
-                    os.path.join(plain, "set_release.cmake"))
-        with open(os.path.join(plain, "driver.cmake"), "w") as handle:
-            handle.write(DRIVER)
+        plain = os.path.join(work, "plain")
+        put_module(repo_root, plain)
         expect(cmake, plain, "no git history", latest, "ON")
-
-        # The same archive unpacked inside an unrelated repository, which is a
-        # vendored copy or just a tarball in a working directory. git looks up
-        # the directory tree, so that repository is the one it would answer
-        # about, and its tags are not this project's releases.
-        nested = os.path.join(tagged, "vendor", "ubertooth", "cmake")
-        os.makedirs(nested)
-        shutil.copy(os.path.join(repo_root, MODULE),
-                    os.path.join(nested, "set_release.cmake"))
-        with open(os.path.join(nested, "driver.cmake"), "w") as handle:
-            handle.write(DRIVER)
-        expect(cmake, nested, "an archive inside another repository",
-               latest, "ON")
 
         # Both settings given on the command line are what the build is told,
         # whatever git would have said: that is how the release procedure
@@ -258,6 +250,22 @@ def main():
         expect(cmake, tagged, "an empty release setting on the command line",
                "2026-11-RC1+2", "OFF", "-DUBERTOOTH_RELEASE=")
 
+        # The same archive unpacked inside an unrelated repository, which is a
+        # vendored copy or just a tarball in a working directory. git looks up
+        # the directory tree, so that repository is the one it would answer
+        # about, and its tags are not this project's releases.
+        nested = os.path.join(tagged, "vendor", "ubertooth")
+        put_module(repo_root, nested)
+        expect(cmake, nested, "an archive inside another repository",
+               latest, "ON")
+        # The same copy, committed to that repository, which is what a
+        # vendored copy is. Still not a checkout of this project: the tag it
+        # would otherwise be given is that repository's.
+        git(tagged, "add", "vendor")
+        git(tagged, "commit", "-q", "-m", "vendor a copy")
+        expect(cmake, nested, "a vendored copy another repository tracks",
+               latest, "ON")
+
         # The firmware works the string out the same way, so a board and the
         # tools report one version between them. Asked of the same checkouts,
         # through a target of its own that prints what it decided.
@@ -267,7 +275,8 @@ def main():
             for tree, what in ((tagged, "a checkout two commits past a tag"),
                                (untagged, "no release tag in reach"),
                                (shallow, "a shallow clone")):
-                host_release, _ = answers(cmake, os.path.join(tree, "cmake"))
+                host_release, _ = answers(
+                    cmake, os.path.join(tree, os.path.dirname(MODULE)))
                 firmware = firmware_version(repo_root, tree)
                 if firmware != host_release:
                     fail("%s: the firmware reports %r and the host tools %r; "

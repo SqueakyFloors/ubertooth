@@ -906,7 +906,7 @@ else
 		printf '%s\n' "$BTBB_IN_USE" >&2
 		case "$BTBB_IN_USE" in
 			*"libbtbb was loaded from "*)
-				warn "the tools load a libbtbb from outside $PREFIX; remove the other install if packets decode oddly" ;;
+				warn "the tools load a libbtbb other than the one they were built against, named in the line above; remove the other install if packets decode oddly" ;;
 		esac
 	fi
 fi

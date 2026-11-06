@@ -1484,19 +1484,39 @@ foreach(tool debug dump tx)
 	set_tests_properties(${tool}-main PROPERTIES TIMEOUT 10)
 endforeach()
 
+# The same warning end to end: the tool is run with another copy of libbtbb
+# on the loader's search path, and has to notice. This is what pins the wiring
+# between the decision and the two paths it is given; the test says so and
+# passes where the loader does not take the copy, because that is the
+# machine's answer rather than the tool's.
+add_test(
+	NAME libbtbb-elsewhere
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/test_libbtbb_elsewhere.py
+		$<TARGET_FILE:ubertooth-util>
+		"${LIBBTBB_LIBRARIES}")
+# One copy of a quarter-megabyte library and one run of -V.
+set_tests_properties(libbtbb-elsewhere PROPERTIES TIMEOUT 60)
+
 # -V warns when a run loads a libbtbb other than the one the build linked,
 # because the two decode packets differently and nothing else in a run says
 # which is in use. The decision is made on paths alone, so this gives it paths
 # of its own: a second install, two names for one directory, and the corners
 # where there is nothing to compare.
-add_executable(test-libbtbb-origin
-	test_libbtbb_origin.c
-	${libubertooth_SOURCE_DIR}/src/libbtbb_origin.c)
-target_include_directories(test-libbtbb-origin PRIVATE
-	${libubertooth_SOURCE_DIR}/src)
-add_test(NAME libbtbb-origin COMMAND test-libbtbb-origin)
-# String comparisons and one symbolic link in a temporary directory.
-set_tests_properties(libbtbb-origin PROPERTIES TIMEOUT 30)
+#
+# Only where the library's sources are here: a build of these tools alone,
+# against an installed libubertooth, has no source to compile, as the other
+# targets that reach into the library have.
+if(libubertooth_SOURCE_DIR)
+	add_executable(test-libbtbb-origin
+		test_libbtbb_origin.c
+		${libubertooth_SOURCE_DIR}/src/libbtbb_origin.c)
+	target_include_directories(test-libbtbb-origin PRIVATE
+		${libubertooth_SOURCE_DIR}/src)
+	add_test(NAME libbtbb-origin COMMAND test-libbtbb-origin)
+	# String comparisons and one symbolic link in a temporary directory.
+	set_tests_properties(libbtbb-origin PROPERTIES TIMEOUT 30)
+endif()
 
 # set_release.cmake must name the release a build came from, and must not
 # report a distance it cannot know. Each case is a checkout this test writes
