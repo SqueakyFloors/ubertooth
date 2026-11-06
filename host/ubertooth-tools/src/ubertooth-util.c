@@ -728,7 +728,7 @@ static void usage(FILE *output)
 	fprintf(output, "Common options:\n");
 	fprintf(output, "\t-h this help\n");
 	fprintf(output, "\t-V print version information: the host tools, and the\n");
-	fprintf(output, "\t   firmware version and build of each attached board\n");
+	fprintf(output, "\t   firmware version of each attached board\n");
 	fprintf(output, "\t-v get firmware image and revision (deprecated: use -V)\n");
 	fprintf(output, "\t-I identify ubertooth device by flashing the USR, RX, and TX LEDs on the board, until -S or any mode option\n");
 	fprintf(output, "\t-d [0-1] get/set all LEDs\n");

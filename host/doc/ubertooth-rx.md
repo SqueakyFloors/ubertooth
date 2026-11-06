@@ -148,7 +148,7 @@ an estimate of the background; see SIGNAL AND NOISE FIGURES.
 Miscellaneous:
 
  - `-V` :
-   print the version: the host tools, then the firmware version and build of
+   print the version: the host tools, then the firmware version of
    each attached board; see ubertooth(7), COMMON OPTIONS
 
  - `-U <index|serial>[,...]` :

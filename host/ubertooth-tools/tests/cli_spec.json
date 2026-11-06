@@ -166,7 +166,7 @@
       "stdout_on_failure": ["-q -", "-c -"],
       "options": {
         "-V": {"value": "none", "role": "report",
-               "doc": "the host tools' version, then each attached board's firmware version and build"},
+               "doc": "the host tools' version, then each attached board's firmware version"},
         "-h": {"value": "none", "role": "help"},
         "-f": {"value": "none", "role": "major_mode", "doc": "follow connections"},
         "-n": {"value": "none", "role": "major_mode", "doc": "advertisements only"},
@@ -320,7 +320,7 @@
       "nothing_to_do": "error: nothing to do: give -r to read registers, or -w to write them",
       "options": {
         "-V": {"value": "none", "role": "report",
-               "doc": "the host tools' version, then each attached board's firmware version and build"},
+               "doc": "the host tools' version, then each attached board's firmware version"},
         "-h": {"value": "none", "role": "help"},
         "-r": {"value": "required", "role": "work",
                "valid": ["0x02", "0x02,%main", "0x00-0x05", "%main"],
@@ -357,7 +357,7 @@
       "_progress_before_refusal_why": "the whole -d image is read before the tool knows whether it will take it, so the line that says so is printed first and a refusal follows it; both are on standard error, which is where cli-output.md puts progress and errors alike",
       "options": {
         "-V": {"value": "none", "role": "report",
-               "doc": "the host tools' version, then each attached board's firmware version and build"},
+               "doc": "the host tools' version, then each attached board's firmware version"},
         "-h": {"value": "none", "role": "help"},
         "-d": {"value": "required", "role": "work", "valid": ["IMAGE.dfu"],
                "doc": "write an image; the whole image is checked before a device is opened, so a file that is not a DFU image is refused there, as is a signed file with no firmware info block at the fixed offset"},
@@ -411,7 +411,7 @@
       "nothing_to_do": "error: nothing to do: give -q to quack, or -b to signal the bootloader",
       "options": {
         "-V": {"value": "none", "role": "report",
-               "doc": "the host tools' version, then each attached board's firmware version and build"},
+               "doc": "the host tools' version, then each attached board's firmware version"},
         "-h": {"value": "none", "role": "help"},
         "-q": {"value": "optional", "role": "work",
                "valid": ["fd123ff9-9e30-45b2-af0d-b85b7d2dc80c"],
@@ -433,7 +433,7 @@
       "optstring": ":bghVclU:d:",
       "options": {
         "-V": {"value": "none", "role": "report",
-               "doc": "the host tools' version, then each attached board's firmware version and build"},
+               "doc": "the host tools' version, then each attached board's firmware version"},
         "-h": {"value": "none", "role": "help"},
         "-b": {"value": "none", "role": "modifier", "doc": "bitstream only"},
         "-g": {"value": "none", "role": "generic",
@@ -471,7 +471,7 @@
       "nothing_to_do": "error: nothing to do: choose a major mode (-f, -r or -i)",
       "options": {
         "-V": {"value": "none", "role": "report",
-               "doc": "the host tools' version, then each attached board's firmware version and build"},
+               "doc": "the host tools' version, then each attached board's firmware version"},
         "-h": {"value": "none", "role": "help"},
         "-f": {"value": "none", "role": "major_mode", "doc": "follow connections"},
         "-r": {"value": "none", "role": "major_mode", "doc": "continuous receive on one channel"},
@@ -614,7 +614,7 @@
       "optstring": ":vhVgGd:l:u:U:",
       "options": {
         "-V": {"value": "none", "role": "report",
-               "doc": "the host tools' version, then each attached board's firmware version and build"},
+               "doc": "the host tools' version, then each attached board's firmware version"},
         "-h": {"value": "none", "role": "help"},
         "-v": {"value": "none", "role": "modifier", "doc": "verbose, on stderr"},
         "-g": {"value": "none", "role": "output_mode", "doc": "feedgnuplot text"},
@@ -732,7 +732,7 @@
         "-v": {"value": "none", "role": "query",
                "doc": "the firmware version line alone; the older spelling, deprecated in favour of -V"},
         "-V": {"value": "none", "role": "report",
-               "doc": "the host tools' version, then each attached board's firmware version and build"},
+               "doc": "the host tools' version, then each attached board's firmware version"},
         "-b": {"value": "none", "role": "query"},
         "-B": {"value": "none", "role": "query",
                "doc": "the bootloader this board has: its version and build if it reports them, and a CRC-32 of the whole bootloader either way"},
@@ -821,7 +821,7 @@
       "_accepted_markers_why": "ubertooth-follow opens the local Bluetooth adapter before it looks for an Ubertooth, so on a machine without one an accepted command line stops there instead of at device lookup",
       "options": {
         "-V": {"value": "none", "role": "report",
-               "doc": "the host tools' version, then each attached board's firmware version and build"},
+               "doc": "the host tools' version, then each attached board's firmware version"},
         "-h": {"value": "none", "role": "help"},
         "-t": {"value": "required", "role": "target", "valid": ["11:22:33:44:55:66", "AA:bb:CC:dd:EE:ff"],
                "invalid": [["11:22:33:44:55", "error: target address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)"],
@@ -917,7 +917,7 @@
       "_accepted_markers_why": "ubertooth-scan opens the local Bluetooth adapter before it looks for an Ubertooth, so on a machine without one an accepted command line stops there instead of at device lookup",
       "options": {
         "-V": {"value": "none", "role": "report",
-               "doc": "the host tools' version, then each attached board's firmware version and build"},
+               "doc": "the host tools' version, then each attached board's firmware version"},
         "-h": {"value": "none", "role": "help"},
         "-s": {"value": "none", "role": "modifier", "doc": "scan for names and services"},
         "-x": {"value": "none", "role": "modifier", "doc": "extended scan"},
@@ -956,7 +956,7 @@
       "options": {
         "-h": {"value": "none", "role": "help"},
         "-V": {"value": "none", "role": "report",
-               "doc": "the host tools' version, then each attached board's firmware version and build"},
+               "doc": "the host tools' version, then each attached board's firmware version"},
         "-U": {"value": "required", "role": "selector",
                "valid": ["0"]},
         "-f": {"value": "required", "role": "modifier",

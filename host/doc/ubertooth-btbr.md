@@ -72,7 +72,7 @@ one `btbr` was flashed onto.
    width of the field the radio keeps it in, two bits.
  - `-V` :
    print the version and end the command: the host tools, then the firmware
-   version and build of the board `-U` names, or of each attached board. The
+   version of the board `-U` names, or of each attached board. The
    same answer every other tool gives, including with no board attached; see
    ubertooth(7), COMMON OPTIONS. This tool answers it by running
    ubertooth-util(1) `-V`, so that tool has to be on the `PATH`, and is

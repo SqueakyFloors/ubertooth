@@ -12,7 +12,7 @@
 
 ubertooth-util(1) is a catch-all tool for doing generally useful things
 with, to, and about Ubertooth. To get the host tools' version and the
-firmware version and build of each attached board, run:
+firmware version of each attached board, run:
 
     ubertooth-util -V
 
@@ -143,7 +143,7 @@ Common options:
 
  - `-V` :
    print the version and end the command: the host tools, then the firmware
-   version and build of the board `-U` names, or of each attached board. The
+   version of the board `-U` names, or of each attached board. The
    same answer the other C tools give, including with no board attached; see
    ubertooth(7), COMMON OPTIONS
  - `-v` :

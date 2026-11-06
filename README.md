@@ -225,7 +225,7 @@ for the operation-by-operation comparison and the alternatives.
 
 `-h` prints a tool's usage text. `-V` prints the version, in the same words
 whichever tool you ask: the release the host tools and libbtbb were built
-from, then the firmware version and build date of the board `-U` names, or of
+from, then the firmware version of the board `-U` names, or of
 each attached board. Both are in every tool, including the three written in
 Python — `ubertooth-btbr`, `btle-extcap.py` and `ubertooth-specan-ui` — which
 answer `-V` by running `ubertooth-util -V` and passing its answer on, so they

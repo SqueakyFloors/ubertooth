@@ -53,7 +53,7 @@ the calling Wireshark's version, appended to the \fB\-\-extcap\-interfaces\fR ca
 a capture filter the user typed\. ubertooth\-btle(1) captures every advertising packet it sees and cannot apply one, so a non\-empty filter is reported invalid; see CAPTURE FILTERS
 .TP
 \fB\-V\fR
-print the version and end the call: the host tools, then the firmware version and build of each attached board\. The same answer every other tool gives, including with no board attached; see ubertooth(7), COMMON OPTIONS\. The script answers it by running ubertooth\-util(1) \fB\-V\fR, which it needs on the \fBPATH\fR as it does for the listing, and reports one that is not there as \fBerror: could not run ubertooth\-util: No such file or directory\fR\. The script has no \fB\-U\fR, so every attached board is reported, and the call ends before \fB\-\-extcap\-interface\fR is read\. Wireshark never makes this call
+print the version and end the call: the host tools, then the firmware version of each attached board\. The same answer every other tool gives, including with no board attached; see ubertooth(7), COMMON OPTIONS\. The script answers it by running ubertooth\-util(1) \fB\-V\fR, which it needs on the \fBPATH\fR as it does for the listing, and reports one that is not there as \fBerror: could not run ubertooth\-util: No such file or directory\fR\. The script has no \fB\-U\fR, so every attached board is reported, and the call ends before \fB\-\-extcap\-interface\fR is read\. Wireshark never makes this call
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 print the usage line on standard output and exit 0\. It takes effect once the whole command line has parsed, so a stray word or an unknown option is still reported

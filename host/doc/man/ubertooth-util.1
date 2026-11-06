@@ -12,7 +12,7 @@ ubertooth\-util [\-V] [\-v] [\-I] [\-d [0\-1]] [\-l [0\-1]]
 [\-w] [\-N] [\-x] [\-h]
 .fi
 .SH "DESCRIPTION"
-ubertooth\-util(1) is a catch\-all tool for doing generally useful things with, to, and about Ubertooth\. To get the host tools' version and the firmware version and build of each attached board, run:
+ubertooth\-util(1) is a catch\-all tool for doing generally useful things with, to, and about Ubertooth\. To get the host tools' version and the firmware version of each attached board, run:
 .IP "" 4
 .nf
 ubertooth\-util \-V
@@ -92,7 +92,7 @@ To put a board into the DFU bootloader and reflash it, use ubertooth\-dfu(1), wh
 Common options:
 .TP
 \fB\-V\fR
-print the version and end the command: the host tools, then the firmware version and build of the board \fB\-U\fR names, or of each attached board\. The same answer the other C tools give, including with no board attached; see ubertooth(7), COMMON OPTIONS
+print the version and end the command: the host tools, then the firmware version of the board \fB\-U\fR names, or of each attached board\. The same answer the other C tools give, including with no board attached; see ubertooth(7), COMMON OPTIONS
 .TP
 \fB\-v\fR
 get the image and revision the firmware was built from, as the \fBFirmware version:\fR line alone; exits non\-zero if the read fails\. \fBDeprecated\fR: use \fB\-V\fR, which prints that line among the others\. \fB\-v\fR keeps working, and prints no warning, so scripts that parse it are left alone

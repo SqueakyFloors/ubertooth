@@ -112,6 +112,9 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
       goes in it: no build date, no time, no user, no host, so the same source
       builds a byte-identical image. The bootloader uses only
       ``GIT_REVISION``, for the version block ``ubertooth-util -B`` reads.
+      Write the same release into ``RELEASE-VERSION`` as well, which is what
+      the host tools read and what a firmware image directory with no shipped
+      header falls back to, so every half of the archive names one release.
 
     * A build from a git checkout needs none of that: it works the release out
       from the tags. ``firmware/version.mk`` and
