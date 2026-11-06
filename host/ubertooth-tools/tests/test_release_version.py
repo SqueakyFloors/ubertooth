@@ -273,6 +273,14 @@ def main():
         git(untagged, "tag", "2026-11-R1-local")
         expect(cmake, untagged, "no release tag in reach", "unknown", "OFF")
 
+        # The same checkout with a filled-in version file beside it, which is
+        # what an archive unpacked and committed to a repository of its own
+        # has. git placed this tree in a checkout, so the file is not read:
+        # what it says was written for the archive, and this HEAD is not that.
+        put_version_file(untagged, "2015-09-R2\n")
+        expect(cmake, untagged, "a checkout with no release tag, beside a "
+               "filled-in version file", "unknown", "OFF")
+
         # A shallow clone, which is what a continuous integration checkout is
         # by default.
         shallow = os.path.join(work, "shallow")
@@ -378,7 +386,8 @@ def main():
             print("no make was found, so the firmware's answer goes unchecked")
         else:
             trees = [(tagged, "a checkout two commits past a tag"),
-                     (untagged, "no release tag in reach"),
+                     (untagged, "a checkout with no release tag, beside a "
+                                "filled-in version file"),
                      (shallow, "a shallow clone")]
             if archived is not None:
                 trees.append((archived, "a git archive of a release tag"))

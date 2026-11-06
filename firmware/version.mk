@@ -39,7 +39,7 @@ HAVE_GIT := $(shell cd $(VERSION_MK_DIR) 2>/dev/null \
 	&& test "`git rev-parse --show-prefix 2>/dev/null`" = firmware/ \
 	&& git rev-parse --is-inside-work-tree 2>/dev/null)
 
-# The release a source archive carries, for wherever git names none below.
+# The release a source archive carries, for the no-git branch below.
 # git archive fills it into RELEASE-VERSION at the top of the tree as the
 # archive is made; see that file. The first line of it that is neither blank
 # nor a comment is the answer git wrote: the nearest release tag, with
@@ -55,10 +55,10 @@ ARCHIVE_RELEASE := $(shell \
 	| sed -E -e 's/-([0-9]+)-g[0-9a-f]+$$/+\1/' \
 	| grep -E '^[0-9]{4}-[0-9]{2}-(R|RC|DEV)[0-9]+(\+[0-9]+)?$$')
 
-# What to report where git names no release: the archive's release, or that
-# the version is not known. No release this file could carry would be better
-# than that -- the distance from it would be unknown, and whoever edited it
-# last would have decided which release every archive claimed.
+# What to report with no git history at all: the archive's release, or that the
+# version is not known. No release this file could carry would be better than
+# that -- the distance from it would be unknown, and whoever edited it last
+# would have decided which release every archive claimed.
 ifeq ($(ARCHIVE_RELEASE),)
 VERSION_WITHOUT_GIT := unknown
 else
@@ -86,7 +86,13 @@ ifeq ($(RELEASE_TAG),)
 # start of history would not be the distance from one: a shallow clone would
 # answer that with its own depth, and a clone of one commit saying "+1" would
 # read exactly like a real build one commit past a release.
-VERSION_NOW := $(VERSION_WITHOUT_GIT)
+#
+# The archive's release is not read here either: git placed this tree in a
+# checkout of its own, and a RELEASE-VERSION beside it was written for some
+# other source -- an archive unpacked and committed to a repository of its own
+# carries the release the archive was made from, and this checkout's HEAD is
+# not that.
+VERSION_NOW := unknown
 
 else
 

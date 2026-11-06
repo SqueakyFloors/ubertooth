@@ -175,9 +175,19 @@ if(NOT DEFINED RELEASE_STRING)
 		else()
 			set(RELEASE_STRING "${RELEASE_TAG}+${RELEASE_AHEAD}${DIRTY_FLAG}")
 		endif()
+	elseif(NOT GIT_DIR_ERROR)
+		# git placed this tree in a checkout of its own, and its
+		# history names no release. RELEASE-VERSION is not read here:
+		# whatever it says was written for some other source -- an
+		# archive unpacked and committed to a repository of its own
+		# carries the release the archive was made from, and this
+		# checkout's HEAD is not that -- so there is no release to
+		# name.
+		set(RELEASE_STRING "unknown")
 	else()
-		# No release from git: the one a source archive carries, if
-		# these sources came out of one. Comments and blank lines are
+		# No git at all, so these sources came out of an archive if
+		# they came from anywhere: the release it carries. Comments and
+		# blank lines are
 		# skipped, so RELEASE-VERSION can explain itself; the first
 		# line that is neither is the answer, whatever it says, so a
 		# file that says nothing useful is not searched past.

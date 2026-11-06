@@ -130,8 +130,12 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
       writes the release it was asked for into the same file, which is the
       name to carry when a release is built from a commit the tag is not on
       yet. Filling it in needs git 2.32 or newer where the archive is made;
-      the git that unpacks or builds it does not matter. A build that can read
-      neither git nor that file reports ``unknown``. libbtbb carries the same
+      the git that unpacks or builds it does not matter. The file is read only
+      where git places the tree in no checkout of its own, because a
+      checkout's own history is the better answer and a version file beside
+      one was written for some other source. A build with no release to read
+      either way -- a checkout whose history reaches no release tag, a partial
+      copy of these sources -- reports ``unknown``. libbtbb carries the same
       file and reads it the same way.
 
     * Because the version names a release rather than a commit, two builds of

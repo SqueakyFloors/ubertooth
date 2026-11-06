@@ -263,8 +263,8 @@ byte-identical image. Two builds of the same commit therefore report the same
 string and produce the same bytes, and telling two images apart means
 comparing the `.dfu` file's checksum. A source archive with no `.git`
 (downloaded zip / release tarball) uses a shipped `version.h` as-is, or the
-release `git archive` wrote into `RELEASE-VERSION`, and falls back to
-`unknown`; `tools/ubertooth-release.sh` writes both into the archive it
+release `git archive` wrote into `RELEASE-VERSION`, and reports `unknown` where
+it has neither; `tools/ubertooth-release.sh` writes both into the archive it
 builds.
 
 ### Python 3 only
