@@ -298,7 +298,7 @@ fi
 # --no-sudo prints the privileged steps instead of running them, so both apply
 # to either job.
 if [ "$UNINSTALL" -eq 1 ]; then
-	[ "$WITH_FIRMWARE" -eq 0 ] || die "--uninstall cannot be combined with --with-firmware, --flash, --flash-device or --update-bootloader"
+	[ "$WITH_FIRMWARE" -eq 0 ] || die "--uninstall cannot be combined with --with-firmware, --flash, --flash-device, or --update-bootloader"
 	[ -z "$VENV" ] || die "--uninstall cannot be combined with --venv"
 	[ "$SKIP_DEPS" -eq 0 ] || die "--uninstall cannot be combined with --skip-deps"
 	[ "$LIBBTBB_DEFAULTS" -eq 1 ] || die "--uninstall cannot be combined with --libbtbb-url or --libbtbb-ref; it removes the libbtbb that was installed"
@@ -619,41 +619,54 @@ update_bootloader_on() { # <dfu> <util> <bl_update.dfu> <firmware.dfu> <serial>
 
 	info "Installing the bootloader on $serial"
 	info "  keep a serial programmer to hand: a write that is interrupted leaves the board needing one"
-	# Kept, because which of the two things happened is read out of it below,
-	# and shown as it arrives, because the write takes a while. tee rather
-	# than grep in the pipeline: nothing may close this tool's output early.
-	# The tool's own lines go to standard error with the rest of this
-	# script's output, as the ubertooth-util answer at the end of a run does.
-	if ! "$dfu" --update-bootloader -d "$blimg" -U "$serial" </dev/null | tee "$answer" >&2; then
+	# The answer is kept, because which of the two things happened is read out
+	# of it below, and shown in full straight after. Written to the file
+	# rather than piped through tee: the whole update takes a few seconds, so
+	# streaming it gains nothing, and a pipeline's status cannot tell a copy
+	# that could not be written from a bootloader write that failed. Nothing
+	# here closes this tool's output early.
+	if ! "$dfu" --update-bootloader -d "$blimg" -U "$serial" </dev/null > "$answer" 2>&1; then
+		cat "$answer" >&2
 		err "installing the bootloader on $serial failed"
 		die "the firmware was not put back on this board; see ubertooth-dfu(1), UPDATING THE BOOTLOADER for what an interrupted write leaves behind and how a serial programmer recovers it"
 	fi
+	cat "$answer" >&2
 	# The one line that says the board was left alone. Both outcomes exit 0,
-	# so this is what tells them apart.
+	# and neither is a distinct status, so this line is what tells them apart.
+	# The tool and this script are in one tree, and the tool's own tests pin
+	# that wording, so the two cannot drift apart unnoticed.
 	if grep -q 'already has this bootloader' "$answer"; then
 		outcome="already had this bootloader, nothing written"
 		info "  $serial still runs its firmware; flashing bluetooth_rxtx anyway, as a --flash run would"
-		"$dfu" -U "$serial" -d "$img" -r </dev/null ||
+		"$dfu" -U "$serial" -d "$img" -r </dev/null >&2 ||
 			die "the bootloader on $serial was left as it was, and flashing the firmware failed"
 	else
 		outcome="bootloader installed"
 		info "  $serial is in DFU with the updater in its application region; flashing bluetooth_rxtx back"
 		# A failure here leaves the board in DFU holding the updater, which
 		# the same command puts right once whatever stopped it is dealt with.
-		"$dfu" -d "$img" -r </dev/null ||
+		"$dfu" -d "$img" -r </dev/null >&2 ||
 			die "the bootloader is installed on $serial, but the firmware did not go back on: the board is in the DFU bootloader holding the updater, and 'ubertooth-dfu -d firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r' with no -U is what reaches it"
 	fi
+	# Ends the run rather than warning: a board that has not come back is one
+	# this script can no longer tell from a board left in DFU, and the next
+	# board's reflash takes whichever single board is waiting there. Two of
+	# them and ubertooth-dfu refuses to choose, which would cost that board
+	# its firmware as well.
 	wait_for_board "$util" "$serial" ||
-		warn "$serial has not answered since the flash; check it with ubertooth-util -U $serial -V"
-	# Read off the board, not assumed: -V says which firmware is running and
-	# -B which bootloader is installed. Their answers go to standard error
-	# with the rest of this script's output.
+		die "$serial has not answered since the flash, so no further board is touched; check it with ubertooth-util -U $serial -V, and if it is in the DFU bootloader, 'ubertooth-dfu -d firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r' with no -U reaches it"
+	# Read off the board, not assumed: -V reports the host tools and the
+	# firmware the board runs, -B which bootloader it has. Their answers go to
+	# standard error with the rest of this script's output.
 	"$util" -U "$serial" -V >&2 || warn "$serial did not answer ubertooth-util -V"
-	if bootloader="$("$util" -U "$serial" -B)"; then
-		info "$serial: $outcome. $bootloader"
-	else
-		warn "$serial: $outcome, but ubertooth-util -B would not read it back"
-	fi
+	# Taken from what it printed, not from its status: -B exits 1 when part of
+	# its answer is missing and still prints the hash, which is the line to
+	# show rather than throw away.
+	bootloader="$("$util" -U "$serial" -B || true)"
+	case "$bootloader" in
+		*Bootloader:*) info "$serial: $outcome. $bootloader" ;;
+		*) warn "$serial: $outcome, but ubertooth-util -B would not say which bootloader it has" ;;
+	esac
 }
 
 # Build the firmware and flash the selected device(s). Uses whichever
@@ -703,6 +716,7 @@ flash_firmware() {
 		info "Flashing all $n attached Ubertooths"
 		while read -r index serial; do
 			if [ "$UPDATE_BOOTLOADER" -eq 1 ]; then
+				info "  board $index of $n"
 				update_bootloader_on "$dfu" "$util" "$blimg" "$img" "$serial"
 			else
 				info "  flashing $index: $serial"
@@ -798,6 +812,16 @@ if [ "$WITH_FIRMWARE" -eq 1 ] && [ "$SKIP_DEPS" -eq 0 ]; then
 			command -v arm-none-eabi-gcc >/dev/null 2>&1 && \
 				die "arm-none-eabi-gcc cannot compile firmware (no C library?); install the gcc-arm-embedded cask instead"
 			brew install --cask gcc-arm-embedded
+		fi
+		# The cask carries the ARM C++ runtime, which only --update-bootloader
+		# needs, so a hand-installed toolchain that passed the check above can
+		# still be short of it. Said here rather than left to the bootloader's
+		# own build, which would fail several minutes later on a missing
+		# header.
+		if [ "$UPDATE_BOOTLOADER" -eq 1 ] && \
+				! printf '#include <cstring>\n' | \
+				arm-none-eabi-g++ -x c++ -c - -o /dev/null >/dev/null 2>&1; then
+			die "arm-none-eabi-g++ cannot compile the bootloader (no ARM C++ runtime?), which --update-bootloader builds; install the gcc-arm-embedded cask, which carries it"
 		fi
 	fi
 fi

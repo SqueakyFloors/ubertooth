@@ -119,7 +119,7 @@ tools, specan_ui Python deps, and (on Linux) udev rules:
 ./install.sh --uninstall                  # take it all back off again
 ```
 
-`--update-bootloader`, beside `--flash-device`, also installs the bootloader
+`--update-bootloader`, alongside `--flash-device`, also installs the bootloader
 this tree builds and puts the firmware back afterwards. A board that already
 has that bootloader is left alone, and boards are done one at a time. Keep a
 serial programmer to hand before you run it: an interrupted bootloader write

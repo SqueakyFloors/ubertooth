@@ -22,8 +22,10 @@ cannot succeed.
 The "==> ..." progress lines, which used to go to standard output, are on
 standard error now, so "./install.sh > log" no longer swallows them. The two
 that announce a slow step before it starts are checked against the faked runs;
-the rest are only reached by a run that installs something. Standard output
-must stay empty throughout.
+the rest are only reached by a run that installs something. Nothing of the
+script's own goes to standard output at any point: what appears there is what
+a tool it ran answered, and a --update-bootloader run keeps even that with the
+rest of its output.
 """
 
 import os
@@ -158,7 +160,7 @@ result = run(["--uninstall", "--update-bootloader"])
 assert result.returncode == 1, result
 assert result.stdout == "", result
 assert result.stderr == ("error: --uninstall cannot be combined with "
-                         "--with-firmware, --flash, --flash-device or "
+                         "--with-firmware, --flash, --flash-device, or "
                          "--update-bootloader\n"), result
 
 # A lone "--" ends the options and leaves nothing behind it, so the run goes
@@ -202,9 +204,13 @@ FAKES = {
     # --update-bootloader reads one back; and a selection that matches nothing
     # carries the note naming a board in DFU when FAKE_DFU_WAITING is set,
     # which is how the script finds such a board.
+    # FAKE_LISTING and FAKE_COUNT are what -s and -N answer, in the tool's own
+    # wording: a run over several boards needs a listing, and by default none
+    # is attached.
     "ubertooth-util": 'echo "ran: ubertooth-util $*" >> "$FAKE_LOG";'
                       ' case "$*" in'
-                      ' -N) echo 0 ;;'
+                      ' -s) printf \'%s\' "$FAKE_LISTING" ;;'
+                      ' -N) echo "${FAKE_COUNT:-0}" ;;'
                       ' *-B*) echo "Bootloader: 2.00 git-faceb00c,'
                       ' CRC32:0x9d2fe1b4" ;;'
                       ' *-U\\ zz*) [ -n "$FAKE_DFU_WAITING" ] && echo "note:'
@@ -214,12 +220,22 @@ FAKES = {
     # Reached only by a --flash run, which needs both of these on PATH.
     # FAKE_BL_CURRENT makes the bootloader update answer as it does for a board
     # that already has the bootloader the image carries, which is the one line
-    # that tells that outcome from a board that was written.
+    # that tells that outcome from a board that was written; FAKE_BL_FAILS
+    # makes it fail as a write that did not finish does.
+    #
+    # A plain -d answers on standard output, as the real tool does, so a run
+    # that lets that through can be told from one that keeps it with the rest
+    # of its own output.
     "ubertooth-dfu": 'echo "ran: ubertooth-dfu $*" >> "$FAKE_LOG";'
                      ' case " $* " in *" --update-bootloader "*)'
+                     ' if [ -n "$FAKE_BL_FAILS" ]; then echo "error: the'
+                     ' bootloader region did not change" >&2; exit 1; fi;'
                      ' [ -n "$FAKE_BL_CURRENT" ] && echo "The board already'
                      ' has this bootloader: ubertooth-util -B reports'
-                     ' CRC32:0x9d2fe1b4." ;; esac; exit 0',
+                     ' CRC32:0x9d2fe1b4." ;;'
+                     ' *" -d "*) echo "Verified firmware revision:'
+                     ' git-faceb00c" ;;'
+                     ' esac; exit 0',
     "make": 'exit 0',
     "git": 'exit 1',
 }
@@ -253,6 +269,9 @@ def run_with_fakes(arguments, extra_environment=None):
         environment["FAKE_LOG"] = log
         environment["FAKE_DFU_WAITING"] = ""
         environment["FAKE_BL_CURRENT"] = ""
+        environment["FAKE_BL_FAILS"] = ""
+        environment["FAKE_LISTING"] = ""
+        environment["FAKE_COUNT"] = "0"
         environment.update(extra_environment or {})
         # Append mode, so the script's writes and the fakes' both land at the
         # end of the file: a plain write handle keeps its own offset and would
@@ -318,11 +337,16 @@ in_order(lines, ["==> Checking which Ubertooth to flash",
 # A named device skips the pre-flight check but still reads the device list.
 # The name has letters in it, so the script takes it as a serial rather than
 # as an index.
+#
+# Standard output carries what ubertooth-dfu answered and nothing of the
+# script's own: a plain --flash run hands the board over to that tool, and its
+# result is the tool's to report. (A --update-bootloader run keeps even that
+# with the rest of its output; see the cases at the end of this file.)
 serial = "ab" * 16
 status, lines, stdout = run_with_fakes(
     ["--flash-device", serial, "--skip-deps"])
 assert status != 0, lines
-assert stdout == "", stdout
+assert stdout == "Verified firmware revision: git-faceb00c\n", stdout
 in_order(lines, ["==> Looking for the Ubertooth to flash",
                  "ran: ubertooth-util -s",
                  "==> Flashing bluetooth_rxtx to Ubertooth serial " + serial,
@@ -340,6 +364,11 @@ print("install.sh: --help on stdout, refusals and progress on stderr, "
 # so each is run here, and the fake ubertooth-dfu answers as the tool does.
 # Nothing is built or written: the images come from a fake make and the boards
 # from a fake ubertooth-dfu.
+#
+# Standard output stays empty throughout, unlike the plain --flash run above:
+# this option drives a procedure of several commands and reports one line per
+# board itself, so every tool's answer is kept beside that report rather than
+# leaving a board's result split across the two streams.
 
 # A board that was written is left in DFU, where it has no serial for -U to
 # name, so the firmware goes back on with no selector at all. The bootloader
@@ -395,6 +424,43 @@ assert any("a board is waiting in the DFU bootloader" in line
            for line in lines), lines
 assert not any("ubertooth-dfu --update-bootloader" in line
                for line in lines), lines
+
+
+# A bootloader update that fails stops the run, says the firmware was not put
+# back on that board, and sends the reader to where the recovery is written
+# down. Nothing else is flashed.
+status, lines, stdout = run_with_fakes(
+    ["--update-bootloader", "--flash-device", serial, "--skip-deps"],
+    {"FAKE_BL_FAILS": "1"})
+assert status == 1, lines
+assert stdout == "", stdout
+assert any("error: installing the bootloader on %s failed" % serial in line
+           for line in lines), lines
+assert any("UPDATING THE BOOTLOADER" in line for line in lines), lines
+assert not any(line.startswith("ran: ubertooth-dfu -d ") for line in lines), \
+    lines
+
+# --flash-device all does the boards one at a time: each one's bootloader, its
+# firmware and its read-back come before the next board is touched at all.
+# Two boards are attached here, and the first is the one that gets written.
+two = {"FAKE_COUNT": "2",
+       "FAKE_LISTING": "Serial No (0): %s\nSerial No (1): %s\n"
+                       % (serial, "cd" * 16)}
+status, lines, stdout = run_with_fakes(
+    ["--update-bootloader", "--flash-device", "all", "--skip-deps"], two)
+assert status != 0, lines
+assert stdout == "", stdout
+in_order(lines, ["==> Flashing all 2 attached Ubertooths",
+                 "==>   board 0 of 2",
+                 "==> Installing the bootloader on " + serial,
+                 "ran: ubertooth-dfu --update-bootloader -d ",
+                 "ran: ubertooth-dfu -d ",
+                 "ran: ubertooth-util -U %s -B" % serial,
+                 "==>   board 1 of 2",
+                 "==> Installing the bootloader on " + "cd" * 16,
+                 "ran: ubertooth-dfu --update-bootloader -d ",
+                 "ran: ubertooth-dfu -d ",
+                 "ran: ubertooth-util -U %s -B" % ("cd" * 16)])
 
 print("install.sh: --update-bootloader writes one board at a time, never "
       "with --force, puts the firmware back and reads the bootloader off the "

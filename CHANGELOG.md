@@ -2371,9 +2371,9 @@ Behavior the tools share.
   boards and refuses to skip one it cannot read.
   [#23](https://github.com/SqueakyFloors/ubertooth/issues/23)
   [#25](https://github.com/SqueakyFloors/ubertooth/issues/25)
-- `install.sh --update-bootloader`, beside `--flash-device`, installs the
+- `install.sh --update-bootloader`, alongside `--flash-device`, installs the
   bootloader this tree builds on the board named and puts `bluetooth_rxtx` back
-  afterwards, which used to be three commands run by hand. A board that already
+  afterwards, which used to be four steps by hand. A board that already
   has that bootloader is left alone, boards are done one at a time, and the
   result is read off each board. Keep a serial programmer to hand: an
   interrupted bootloader write leaves a board needing one.
