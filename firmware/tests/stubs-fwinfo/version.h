@@ -6,9 +6,7 @@
  */
 #ifndef UBERTOOTH_VERSION_H
 #define UBERTOOTH_VERSION_H
-#define GIT_REVISION "git-deadbee*"
+#define GIT_REVISION "2026-11-DEV1+22*"
 #define FW_IMAGE_NAME "test_image"
-#define COMPILE_BY "builder"
-#define COMPILE_HOST "buildhost"
 #define TIMESTAMP "Mon Oct 27 11:22:33 2025"
 #endif

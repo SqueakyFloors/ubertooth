@@ -242,8 +242,9 @@ Behavior the tools share.
 
 #### Output streams, messages, and exit status
 
-- **Script-visible change.** Diagnostics, version output, and exit status now read the same across every tool: standard output carries only results and capture data, errors, warnings, and progress go to standard error, `-h` exits 0, and a command line with nothing to do is refused. `-V` is labeled and consistent everywhere, including the three Python tools, and names the host version, each attached board's firmware, and which libbtbb was loaded. A request a board's firmware lacks, or any refused control command, is reported in one wording that names the request rather than a raw libusb code, and the Python tools no longer end in a traceback when a standard stream has gone away.
-  ([#21](https://github.com/SqueakyFloors/ubertooth/issues/21), [#275](https://github.com/SqueakyFloors/ubertooth/issues/275), [#323](https://github.com/SqueakyFloors/ubertooth/issues/323), [#337](https://github.com/SqueakyFloors/ubertooth/issues/337), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#542](https://github.com/SqueakyFloors/ubertooth/issues/542), [#610](https://github.com/SqueakyFloors/ubertooth/issues/610), [#636](https://github.com/SqueakyFloors/ubertooth/issues/636), [#745](https://github.com/SqueakyFloors/ubertooth/issues/745), [#812](https://github.com/SqueakyFloors/ubertooth/issues/812), [#911](https://github.com/SqueakyFloors/ubertooth/issues/911), [#920](https://github.com/SqueakyFloors/ubertooth/issues/920), [#930](https://github.com/SqueakyFloors/ubertooth/issues/930))
+- **Script-visible change.** Diagnostics, version output, and exit status now read the same across every tool: standard output carries only results and capture data, errors, warnings, and progress go to standard error, `-h` exits 0, and a command line with nothing to do is refused. `-V` is labeled and consistent everywhere, including the three Python tools, and names the host version and each attached board's firmware. A request a board's firmware lacks, or any refused control command, is reported in one wording that names the request rather than a raw libusb code, and the Python tools no longer end in a traceback when a standard stream has gone away.
+- **Script-visible change.** Every version line names the release a build came from rather than a commit: the release tag it was built at, or the nearest release and how many commits are past it, as in `2026-11-R1+22`, keeping the `*` for a modified tree. That is the host tools' line, libbtbb's beside it, each board's firmware, and the bootloader's. The host line drops the library ABI numbers and the `libbtbb loaded from:` line; a run that loads a libbtbb other than the one the tools were built against now says so in one warning. `Firmware build:` is the date the image was built, and no image records who built it or on what machine.
+  ([#21](https://github.com/SqueakyFloors/ubertooth/issues/21), [#275](https://github.com/SqueakyFloors/ubertooth/issues/275), [#323](https://github.com/SqueakyFloors/ubertooth/issues/323), [#337](https://github.com/SqueakyFloors/ubertooth/issues/337), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#542](https://github.com/SqueakyFloors/ubertooth/issues/542), [#610](https://github.com/SqueakyFloors/ubertooth/issues/610), [#636](https://github.com/SqueakyFloors/ubertooth/issues/636), [#745](https://github.com/SqueakyFloors/ubertooth/issues/745), [#812](https://github.com/SqueakyFloors/ubertooth/issues/812), [#911](https://github.com/SqueakyFloors/ubertooth/issues/911), [#920](https://github.com/SqueakyFloors/ubertooth/issues/920), [#930](https://github.com/SqueakyFloors/ubertooth/issues/930), [#1230](https://github.com/SqueakyFloors/ubertooth/issues/1230))
 
 #### Choosing a board, and what it is running
 
@@ -2342,7 +2343,13 @@ Behavior the tools share.
   is still refused at configure time, by name. `install.sh` and the build
   guides check out the new commit.
   [#736](https://github.com/SqueakyFloors/ubertooth/issues/736)
-- The pin moves on once more, to libbtbb
+- The pin moves on again, to libbtbb
+  ([`c70de76`](https://github.com/SqueakyFloors/libbtbb/commit/c70de76afbe13f3740bcd906952a36c849383810)),
+  where libbtbb reports its release the way these tools report theirs: the
+  release it was built from, or the nearest release and how many commits are
+  past it. It records the commit separately, which is what the configure step
+  reads to say which libbtbb a build found.
+- The pin moved on once more before that, to libbtbb
   ([`7e1cdf0`](https://github.com/SqueakyFloors/libbtbb/commit/7e1cdf0336857a714da1af8c7496fe32453ac6d0)),
   which finishes the clock search off. Fixed: a capture given only a LAP
   worked the address part out for itself and then kept searching for it, so
@@ -2440,9 +2447,8 @@ Behavior the tools share.
   [#905](https://github.com/SqueakyFloors/ubertooth/issues/905)
 - A release now carries the btbr image (`btbr.dfu`, `.bin` and `.hex`)
   alongside bluetooth_rxtx, so `ubertooth-btbr` has firmware to flash without
-  building it. Published images report `ubertooth@release`
-  instead of the name of whoever built them, and the release version rather
-  than `git-unknown`.
+  building it. Published images report the release version rather than
+  `unknown`, and no image records the name of whoever built it.
 - `cmake -S host/ubertooth-tools -B build` configures: the tools can be built
   on their own against an installed libubertooth, which is what
   `FindUBERTOOTH.cmake` is for. CMake 4 refused the directory outright,

@@ -83,12 +83,11 @@ firmware info block described below, so they name the image the board is
 running:
 
     $ ubertooth-util -V
-    Host tools version: libubertooth <version> (git-ed30131d*), libbtbb <version> (git-2fd0d39)
-    libbtbb loaded from: /usr/local/lib/libbtbb.so.1
-    Firmware version: bluetooth_rxtx git-ed30131d* (API:<version>)
-    Firmware build: ubertooth git-ed30131d* (builder@buildhost) Mon Oct 27 11:22:33 2025
+    Host tools version: 2026-11-DEV1+22* (libbtbb 2026-11-DEV1+22*)
+    Firmware version: bluetooth_rxtx 2026-11-DEV1+22* (API:<version>)
+    Firmware build: Mon Oct 27 11:22:33 2025
     $ ubertooth-util -v
-    Firmware version: bluetooth_rxtx git-ed30131d* (API:<version>)
+    Firmware version: bluetooth_rxtx 2026-11-DEV1+22* (API:<version>)
 
 Every image built from this tree carries that block at a fixed offset, which
 is also where ubertooth-dfu(1) reads it out of a firmware file, so a board and
@@ -465,7 +464,7 @@ about 71 minutes first.
 `-B` says which bootloader the board has:
 
     $ ubertooth-util -B
-    Bootloader: 2.00 git-1a2b3c4, CRC32:0x9d2fe1b4
+    Bootloader: 2.00 2026-11-DEV1+22, CRC32:0x9d2fe1b4
 
 The bootloader is the first 16 KiB of the board's flash. It is what
 ubertooth-dfu(1) talks to, so it cannot replace itself: it refuses writes to
@@ -608,8 +607,8 @@ board it came from:
     Serial No (0): aa1100112233445566778899aabbccdd
     Serial No (1): 19bb00112233445566778899aabbccdd
     $ ubertooth-util -v
-    Firmware version (0): bluetooth_rxtx git-747484c (API:<version>)
-    Firmware version (1): bluetooth_rxtx git-747484c (API:<version>)
+    Firmware version (0): bluetooth_rxtx 2026-11-DEV1+22 (API:<version>)
+    Firmware version (1): bluetooth_rxtx 2026-11-DEV1+22 (API:<version>)
 
 Several queries together (for example `-vspb`) print the same lines, grouped
 by device. `-V` is not one of them: it is the version command, and reports

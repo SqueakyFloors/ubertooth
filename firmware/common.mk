@@ -63,15 +63,11 @@ endif
 # UBERTOOTH_FW_INFO_IMAGE_LEN (16) bytes, which fw_info.c asserts.
 IMAGE_NAME ?= $(TARGET)
 
-DIRTY = $(shell git status -s --untracked-files=no)
-ifneq ($(DIRTY), )
-	DIRTY_FLAG = *
-endif
-
-# The firmware version and compile info (GIT_REVISION, COMPILE_BY/HOST,
-# TIMESTAMP) are provided by a generated version.h, not -D flags -- see the
-# "Version identity tracking" section below. DIRTY_FLAG (set above) feeds the
-# revision string generated there.
+# The firmware version and build date (GIT_REVISION, TIMESTAMP) are provided
+# by a generated version.h, not -D flags -- see the
+# "Version identity tracking" section below. VERSION_NOW and HAVE_GIT, set by
+# the include below, are what that section writes into the header.
+include ../version.mk
 
 # CPU architecture
 CPU = cortex-m3
@@ -209,7 +205,7 @@ CFLAGS += -mfix-cortex-m3-ldrd
 CFLAGS += -Wa,-alhms=$(call per_image,$(<:%.c=%.lst))
 CFLAGS += $(patsubst %,-I%,$(EXTRAINCDIRS))
 CFLAGS += $(CSTANDARD)
-# GIT_REVISION/COMPILE_*/TIMESTAMP now come from the generated version.h, not
+# GIT_REVISION and TIMESTAMP now come from the generated version.h, not
 # -D flags -- see "Version identity tracking" below.
 
 #---------------- Compiler Options C++ ----------------
@@ -443,29 +439,25 @@ DEPFILES = $(call per_image,$(SRC:%.c=%.d) $(CPPSRC:%.cpp=%.d)) \
 # (that needs make >= 4.0).
 VERSION_HEADER := $(OBJDIR)/version.h
 VERSION_IDFILE := $(OBJDIR)/version.id
-# Is this a real git checkout? A distribution archive (GitHub "Download ZIP",
-# a release tarball, git-archive output) has no .git, so `git log` returns
-# nothing. In that case we must NOT regenerate version.h -- we rely on the one
-# shipped in the archive (see the `dist` target) -- and if none exists we fall
-# back to a clearly-marked "unknown" rather than blanking the version.
-HAVE_GIT := $(shell git rev-parse --is-inside-work-tree 2>/dev/null)
-ifeq ($(HAVE_GIT),true)
-VERSION_NOW := git-$(shell git log --pretty=format:'%h' -n 1 2>/dev/null)$(DIRTY_FLAG)
-else
-VERSION_NOW := git-unknown
-endif
-VERSION_BY := $(shell whoami)
-VERSION_HOST := $(shell hostname -s)
-# The build identity: revision (incl. the "*" dirty flag) + who/where built it.
-# The header is only regenerated -- and the TIMESTAMP refreshed -- when THIS
-# string changes, so the recorded timestamp reflects the actual build of the
-# flashed firmware. Preserving the timestamp otherwise matters for A->B->A
+# VERSION_NOW is the release this build reports and HAVE_GIT says whether
+# there was any git history to work it out from; both come from version.mk,
+# included above. Without git we must NOT regenerate version.h -- we rely on
+# the one shipped in the archive (see the `dist` target) -- and if none exists
+# we fall back to a clearly-marked "unknown" rather than blanking the version.
+# The build identity: the version (incl. the "*" dirty flag) and the image
+# name. The header is only regenerated -- and the TIMESTAMP refreshed -- when
+# THIS string changes, so the recorded timestamp reflects the actual build of
+# the flashed firmware. Preserving the timestamp otherwise matters for A->B->A
 # switches: returning to A must keep A's original build time, not re-stamp it.
 # The identity is stored verbatim in a sidecar file (version.id) and compared
 # exactly, rather than parsed back out of the header. The image name is part of
 # it because the header carries that too, and the firmware info block is built
 # from it.
-VERSION_ID := $(VERSION_NOW)|$(VERSION_BY)|$(VERSION_HOST)|$(IMAGE_NAME)
+#
+# Who built an image and on what machine are not recorded: an image is handed
+# around, and a builder's user and host names are theirs rather than something
+# a reader of the version needs.
+VERSION_ID := $(VERSION_NOW)|$(IMAGE_NAME)
 
 .PHONY: force-version-check
 $(VERSION_HEADER): force-version-check
@@ -475,7 +467,7 @@ $(VERSION_HEADER): force-version-check
 	@# dependent objects are not recompiled.
 	@# Without git (distribution archive): keep an existing shipped version.h as
 	@# the authoritative source and never overwrite it; only synthesize a
-	@# git-unknown header if none was shipped.
+	@# "unknown" header if none was shipped.
 	@if [ "$(HAVE_GIT)" = "true" ]; then \
 		if [ "`cat $(VERSION_IDFILE) 2>/dev/null`" != "$(VERSION_ID)" ] || [ ! -f $(VERSION_HEADER) ]; then \
 			printf '%s' "$(VERSION_ID)" > $(VERSION_IDFILE); \
@@ -484,27 +476,23 @@ $(VERSION_HEADER): force-version-check
 				echo '#ifndef UBERTOOTH_VERSION_H'; \
 				echo '#define UBERTOOTH_VERSION_H'; \
 				echo '#define GIT_REVISION "$(VERSION_NOW)"'; \
-				echo '#define COMPILE_BY "$(VERSION_BY)"'; \
-				echo '#define COMPILE_HOST "$(VERSION_HOST)"'; \
 				echo '#define FW_IMAGE_NAME "$(IMAGE_NAME)"'; \
 				echo '#define TIMESTAMP "'"`date`"'"'; \
 				echo '#endif'; \
 			} > $(VERSION_HEADER); \
-			echo "  version.h -> $(VERSION_NOW) (built by $(VERSION_BY)@$(VERSION_HOST))"; \
+			echo "  version.h -> $(VERSION_NOW)"; \
 		fi; \
 	elif [ ! -f $(VERSION_HEADER) ]; then \
 		{ \
 			echo '/* Generated by common.mk (no git, no shipped version.h). */'; \
 			echo '#ifndef UBERTOOTH_VERSION_H'; \
 			echo '#define UBERTOOTH_VERSION_H'; \
-			echo '#define GIT_REVISION "git-unknown"'; \
-			echo '#define COMPILE_BY "$(VERSION_BY)"'; \
-			echo '#define COMPILE_HOST "$(VERSION_HOST)"'; \
+			echo '#define GIT_REVISION "unknown"'; \
 			echo '#define FW_IMAGE_NAME "$(IMAGE_NAME)"'; \
 			echo '#define TIMESTAMP "'"`date`"'"'; \
 			echo '#endif'; \
 		} > $(VERSION_HEADER); \
-		echo "  version.h -> git-unknown (no git, no shipped header)"; \
+		echo "  version.h -> unknown (no git, no shipped header)"; \
 	else \
 		echo "  version.h: using shipped header (no git)"; \
 	fi

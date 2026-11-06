@@ -104,13 +104,25 @@ pthread_t poll_thread;
 unsigned int packet_counter_max;
 
 /*
- * The file this run reads libbtbb from, or NULL if the loader cannot say.
+ * The file a symbol was loaded from, or NULL if the loader cannot say.
  *
  * Asked of the loader rather than recorded when the tools were built, because
  * the question a machine with two libbtbb installs asks is which one is being
- * used now: a build directory configured against one, and a run that finds
- * another first, are the same program with different packet decoding.
- *
+ * used now: a build configured against one, and a run that finds another
+ * first, are the same program with different packet decoding.
+ */
+static const char* file_of_symbol(const void* address)
+{
+	Dl_info info;
+
+	if (dladdr(address, &info) == 0)
+		return NULL;
+	if (info.dli_fname == NULL || info.dli_fname[0] == '\0')
+		return NULL;
+	return info.dli_fname;
+}
+
+/*
  * Two builds answer with the program instead of a library, and both answers
  * are honest. One linked libbtbb into the program. The other was built
  * without position-independent code, where the program's own entry for the
@@ -127,32 +139,95 @@ static const char* loaded_libbtbb_path(void)
 		const char* (*function)(void);
 		const void* address;
 	} probe;
-	Dl_info info;
 
 	probe.function = btbb_get_version;
-	if (dladdr(probe.address, &info) == 0)
-		return NULL;
-	if (info.dli_fname == NULL || info.dli_fname[0] == '\0')
-		return NULL;
-	return info.dli_fname;
+	return file_of_symbol(probe.address);
+}
+
+/* The same question about this library, which is what tells a libbtbb linked
+ * into the program apart from one somewhere else on the machine. */
+static const char* loaded_libubertooth_path(void)
+{
+	union {
+		void (*function)(FILE*);
+		const void* address;
+	} probe;
+
+	probe.function = ubertooth_print_host_version;
+	return file_of_symbol(probe.address);
+}
+
+/* The directory part of a path, or 0 when it has none or will not fit. */
+static int directory_of(const char* path, char* out, size_t size)
+{
+	const char* slash = strrchr(path, '/');
+	size_t length;
+
+	if (slash == NULL)
+		return 0;
+	/* The root directory is one slash, not none. */
+	length = (size_t)(slash == path ? 1 : slash - path);
+	if (length >= size)
+		return 0;
+	memcpy(out, path, length);
+	out[length] = '\0';
+	return 1;
+}
+
+/*
+ * The directory of the libbtbb this build was configured against, which the
+ * build records; empty where it could not say, and then there is nothing to
+ * compare against.
+ */
+#ifndef BTBB_BUILD_LIBDIR
+#define BTBB_BUILD_LIBDIR ""
+#endif
+
+/*
+ * A line about the libbtbb in use, but only when it is not the one these
+ * tools were built against: a second install decodes packets differently, and
+ * nothing else in a run would say so. The directories are compared rather
+ * than the whole paths, because a build records the library it linked
+ * (libbtbb.so) and the loader reports the file it opened (libbtbb.so.1).
+ *
+ * Silent where the two are the same, where either is unknown, and where
+ * libbtbb is inside this very binary -- a static link, or a build without
+ * position-independent code -- which is not a second install at all.
+ *
+ * On standard error, with the other warnings: -V's answer on standard output
+ * is the versions the user asked for.
+ */
+static void warn_about_another_libbtbb(void)
+{
+	const char* loaded = loaded_libbtbb_path();
+	const char* self = loaded_libubertooth_path();
+	char loaded_dir[1024];
+
+	if (BTBB_BUILD_LIBDIR[0] == '\0' || loaded == NULL)
+		return;
+	if (self != NULL && strcmp(loaded, self) == 0)
+		return;
+	if (!directory_of(loaded, loaded_dir, sizeof(loaded_dir)))
+		return;
+	if (strcmp(loaded_dir, BTBB_BUILD_LIBDIR) == 0)
+		return;
+	fprintf(stderr, "warning: libbtbb was loaded from %s, not the %s these "
+	        "tools were built against; packets may decode differently\n",
+	        loaded_dir, BTBB_BUILD_LIBDIR);
 }
 
 /* Labelled like every other version line a tool prints, so the host tools'
- * version cannot be mistaken for a board's firmware revision, and one line
- * per thing asked about so each can be grepped for on its own. The stream is
- * the caller's: the tools pass their standard output, where the user asked
- * for it. */
+ * version cannot be mistaken for a board's firmware revision. One release
+ * name for the tools, with libbtbb's beside it, because the two are released
+ * together and a user reporting a problem reads both off this line. The
+ * library's own interface version and soname are not here: they move with the
+ * interface rather than with a release, so they answer a packager's question
+ * and not a user's. The stream is the caller's: the tools pass their standard
+ * output, where the user asked for it. */
 void ubertooth_print_host_version(FILE* out) {
-	const char* btbb_path = loaded_libbtbb_path();
-
-	fprintf(out, UBERTOOTH_VERSION_LABEL_HOST ": libubertooth %s (%s), "
-	        "libbtbb %s (%s)\n",
-	        VERSION, RELEASE, btbb_get_version(), btbb_get_release());
-	/* Which libbtbb, not just which version of it: a distribution or
-	 * Homebrew package beside this fork's build reports a version too, and
-	 * the path is the only thing that tells the two apart. */
-	fprintf(out, "libbtbb loaded from: %s\n",
-	        btbb_path != NULL ? btbb_path : "unknown");
+	fprintf(out, UBERTOOTH_VERSION_LABEL_HOST ": %s (libbtbb %s)\n",
+	        RELEASE, btbb_get_release());
+	warn_about_another_libbtbb();
 }
 
 void print_version(void) {

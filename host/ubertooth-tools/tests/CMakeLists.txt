@@ -1477,6 +1477,25 @@ foreach(tool debug dump tx)
 	set_tests_properties(${tool}-main PROPERTIES TIMEOUT 10)
 endforeach()
 
+# set_release.cmake must name the release a build came from, and must not
+# report a distance it cannot know. Each case is a checkout this test writes
+# with git, with a copy of the module in it, so the answers are about a
+# history written for the case. It also compares the firmware's answer
+# (firmware/version.mk) with the host's: a board and the tools that talk to it
+# have to report one version between them.
+#
+# Given no project of its own: the module is run with `cmake -P`, so nothing
+# is configured and nothing is compiled.
+add_test(
+	NAME release-version
+	COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/test_release_version.py
+		${CMAKE_COMMAND}
+		${CMAKE_CURRENT_SOURCE_DIR}/../../..)
+# A dozen scratch checkouts and a `cmake -P` each, which is a fraction of a
+# second apiece: 3 s here, with room for a cold CI runner.
+set_tests_properties(release-version PROPERTIES TIMEOUT 60)
+
 # FindBTBB.cmake must refuse a libbtbb that does not have the functions these
 # tools call, naming them and the pinned commit, instead of letting the build
 # reach the compiler and fail there. Runs the real module from a one-line

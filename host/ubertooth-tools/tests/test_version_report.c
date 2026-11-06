@@ -54,7 +54,7 @@ static void make_fake(int boards)
 	fake.open_reason = "in use by another program";
 	for (i = 0; i < MAX_BOARDS; i++) {
 		fake.board[i].image = "bluetooth_rxtx";
-		fake.board[i].revision = "git-test";
+		fake.board[i].revision = "2026-11-DEV1";
 		fake.board[i].compile_info = "compile-test";
 		fake.board[i].api = 0x0107;
 	}
@@ -257,7 +257,7 @@ MU_TEST(one_board_prints_the_three_lines)
 	r = RUN_PLAIN();
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out, HOST_LINE
-	                 "Firmware version: bluetooth_rxtx git-test (API:1.07)\n"
+	                 "Firmware version: bluetooth_rxtx 2026-11-DEV1 (API:1.07)\n"
 	                 "Firmware build: compile-test\n") == 0,
 	          "the single-board answer changed");
 	mu_assert_int_eq(1, fake.opens);
@@ -276,7 +276,7 @@ MU_TEST(firmware_without_an_info_block_is_still_reported)
 	r = RUN_PLAIN();
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out, HOST_LINE
-	                 "Firmware version: git-test (API:1.07)\n"
+	                 "Firmware version: 2026-11-DEV1 (API:1.07)\n"
 	                 "Firmware build: compile-test\n") == 0,
 	          "a board with no info block was not reported from what it answers");
 }
@@ -317,7 +317,7 @@ MU_TEST(a_partial_answer_prints_what_it_read_and_fails)
 	r = RUN_PLAIN();
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out, HOST_LINE
-	                 "Firmware version: bluetooth_rxtx git-test\n"
+	                 "Firmware version: bluetooth_rxtx 2026-11-DEV1\n"
 	                 "Firmware build: compile-test\n") == 0,
 	          "the answer without an API version changed");
 
@@ -326,7 +326,7 @@ MU_TEST(a_partial_answer_prints_what_it_read_and_fails)
 	r = RUN_PLAIN();
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out, HOST_LINE
-	                 "Firmware version: bluetooth_rxtx git-test (API:1.07)\n"
+	                 "Firmware version: bluetooth_rxtx 2026-11-DEV1 (API:1.07)\n"
 	                 "Firmware build: read failed\n") == 0,
 	          "the answer without a build string changed");
 }
@@ -336,13 +336,13 @@ MU_TEST(several_boards_are_indexed)
 	struct run_result r;
 
 	make_fake(2);
-	fake.board[1].revision = "git-other";
+	fake.board[1].revision = "2026-11-DEV2";
 	r = RUN_PLAIN();
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out, HOST_LINE
-	                 "Firmware version (0): bluetooth_rxtx git-test (API:1.07)\n"
+	                 "Firmware version (0): bluetooth_rxtx 2026-11-DEV1 (API:1.07)\n"
 	                 "Firmware build (0): compile-test\n"
-	                 "Firmware version (1): bluetooth_rxtx git-other (API:1.07)\n"
+	                 "Firmware version (1): bluetooth_rxtx 2026-11-DEV2 (API:1.07)\n"
 	                 "Firmware build (1): compile-test\n") == 0,
 	          "the several-boards answer changed");
 	mu_assert_int_eq(2, fake.opens);
@@ -361,7 +361,7 @@ MU_TEST(a_board_that_will_not_open_is_named_and_the_rest_reported)
 	mu_assert(strcmp(r.out, HOST_LINE
 	                 "Firmware version (0): unavailable, in use by another "
 	                 "program\n"
-	                 "Firmware version (1): bluetooth_rxtx git-test (API:1.07)\n"
+	                 "Firmware version (1): bluetooth_rxtx 2026-11-DEV1 (API:1.07)\n"
 	                 "Firmware build (1): compile-test\n") == 0,
 	          "a board in use was not reported beside the others");
 }
@@ -373,11 +373,11 @@ MU_TEST(a_selected_board_is_reported_without_an_index)
 	struct run_result r;
 
 	make_fake(2);
-	fake.board[1].revision = "git-other";
+	fake.board[1].revision = "2026-11-DEV2";
 	r = RUN("1");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out, HOST_LINE
-	                 "Firmware version: bluetooth_rxtx git-other (API:1.07)\n"
+	                 "Firmware version: bluetooth_rxtx 2026-11-DEV2 (API:1.07)\n"
 	                 "Firmware build: compile-test\n") == 0,
 	          "the selected-board answer changed");
 	mu_assert_int_eq(1, fake.opens);
@@ -399,13 +399,13 @@ MU_TEST(an_empty_selector_reports_every_board)
 	struct run_result r;
 
 	make_fake(2);
-	fake.board[1].revision = "git-other";
+	fake.board[1].revision = "2026-11-DEV2";
 	r = RUN("");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out, HOST_LINE
-	                 "Firmware version (0): bluetooth_rxtx git-test (API:1.07)\n"
+	                 "Firmware version (0): bluetooth_rxtx 2026-11-DEV1 (API:1.07)\n"
 	                 "Firmware build (0): compile-test\n"
-	                 "Firmware version (1): bluetooth_rxtx git-other (API:1.07)\n"
+	                 "Firmware version (1): bluetooth_rxtx 2026-11-DEV2 (API:1.07)\n"
 	                 "Firmware build (1): compile-test\n") == 0,
 	          "an empty -U did not report every board");
 	mu_assert_int_eq(2, fake.opens);
@@ -415,7 +415,7 @@ MU_TEST(an_empty_selector_reports_every_board)
 	r = RUN("");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out, HOST_LINE
-	                 "Firmware version: bluetooth_rxtx git-test (API:1.07)\n"
+	                 "Firmware version: bluetooth_rxtx 2026-11-DEV1 (API:1.07)\n"
 	                 "Firmware build: compile-test\n") == 0, r.out);
 }
 
@@ -431,7 +431,7 @@ MU_TEST(an_empty_build_string_is_not_reported)
 	r = RUN_PLAIN();
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out, HOST_LINE
-	                 "Firmware version: bluetooth_rxtx git-test (API:1.07)\n"
+	                 "Firmware version: bluetooth_rxtx 2026-11-DEV1 (API:1.07)\n"
 	                 "Firmware build: not reported\n") == 0, r.out);
 
 	/* And the two reads are judged separately: an API version that could not
@@ -442,7 +442,7 @@ MU_TEST(an_empty_build_string_is_not_reported)
 	r = RUN_PLAIN();
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strcmp(r.out, HOST_LINE
-	                 "Firmware version: bluetooth_rxtx git-test\n"
+	                 "Firmware version: bluetooth_rxtx 2026-11-DEV1\n"
 	                 "Firmware build: not reported\n") == 0, r.out);
 }
 

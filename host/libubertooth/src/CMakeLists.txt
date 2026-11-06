@@ -44,6 +44,21 @@ set(c_headers ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth.h
 find_package(BTBB REQUIRED)
 find_package(USB1 REQUIRED)
 
+# The directory the libbtbb this build links lives in. -V compares it with the
+# one the loader actually opened and warns when they differ, which is how a
+# machine with a second libbtbb install shows up: the two decode packets
+# differently, and nothing else in a run would say so. An entry that is not an
+# absolute path is a bare link name the user set, and names no directory, so
+# nothing is recorded and nothing is compared.
+list(GET LIBBTBB_LIBRARIES 0 _btbb_library)
+set(_btbb_libdir "")
+if(IS_ABSOLUTE "${_btbb_library}")
+	get_filename_component(_btbb_libdir "${_btbb_library}" DIRECTORY)
+endif()
+add_definitions( -DBTBB_BUILD_LIBDIR="${_btbb_libdir}" )
+unset(_btbb_library)
+unset(_btbb_libdir)
+
 # ubertooth.c runs the capture ring buffer on its own thread. glibc 2.34 and
 # later fold the pthread calls into libc, so a missing -lpthread goes unnoticed
 # there; on this fork's declared minimum (Ubuntu 20.04, glibc 2.31) the link

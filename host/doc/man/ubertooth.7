@@ -61,14 +61,13 @@ btle\-extcap\.py(1) : Wireshark's own capture interface, which puts an Ubertooth
 \fB\-V\fR prints the version on standard output, and is the way to ask what is installed and what a board is running\. It exits 0, except for the two failures below: a board that is attached and cannot be read, and a USB bus that cannot be listed at all\. Every tool answers it in the same words, one labelled line each, so a script can take the line it wants whichever tool it ran:
 .IP "" 4
 .nf
-Host tools version: libubertooth <version> (<revision>), libbtbb <version> (<revision>)
-libbtbb loaded from: <path>
-Firmware version: <image> <revision> (API:<version>)
-Firmware build: <build string the board reports>
+Host tools version: <release> (libbtbb <release>)
+Firmware version: <image> <release> (API:<version>)
+Firmware build: <the date the image was built>
 .fi
 .IP "" 0
 .P
-The first two lines are the host's and need no board: the versions these tools were built from, and which libbtbb this run loaded, which is what tells a distribution or Homebrew build apart from this fork's\.
+The first line is the host's and needs no board: the release these tools were built from, with libbtbb's beside it\. A release name, not a commit, so it is the line to quote when reporting a problem; a build after a release carries how many commits it is past that release, as in \fB2026\-11\-R1+22\fR, and a \fB*\fR where the tree it was built from had uncommitted changes\. Where this run loaded a libbtbb from somewhere other than the one these tools were built against \-\- a distribution or Homebrew build beside this fork's, which decodes packets its own way \-\- a \fBwarning:\fR line on standard error says so\.
 .P
 The two firmware lines describe the board \fB\-U\fR names, or the only board attached\. With several boards attached and no \fB\-U\fR, both lines are printed for each of them with its index in the label, as the identity queries of ubertooth\-util(1) are: \fBFirmware version (0): \|\.\|\.\|\.\fR, \fBFirmware build (0): \|\.\|\.\|\.\fR\.
 .P

@@ -163,11 +163,11 @@ want_stdout_only() {
 # -------------------------------------------------------------------------
 
 image="$work/bluetooth_rxtx.bin"
-write_image "$image" bluetooth_rxtx git-deadbeef
+write_image "$image" bluetooth_rxtx 2026-11-DEV1+22
 run "an image carrying a readable info block" "$image"
 want_status 0
 want_empty_stderr
-want_stdout "git-deadbeef"
+want_stdout "2026-11-DEV1+22"
 
 # A .dfu is the .bin plus a 16-byte suffix, so the same payload has to pass
 # with one appended: that is what makes checking the .bin enough. The bytes
@@ -180,9 +180,10 @@ printf '\001\002\003\004\005\006\007\010\011\012\013\014\015\016\017\020' \
 run "the same payload as a .dfu" "$work/bluetooth_rxtx.dfu"
 want_status 0
 want_empty_stderr
-want_stdout "git-deadbeef"
+want_stdout "2026-11-DEV1+22"
 
-# The revision a release build carries is not a git hash.
+# A build of a release tag carries the release name with nothing after it,
+# where a build after one carries the distance as well, as above.
 write_image "$image" bluetooth_rxtx 2026-02-R1
 run "a release revision" "$image"
 want_status 0
@@ -190,7 +191,7 @@ want_stdout "2026-02-R1"
 
 # A revision filling the field with no room for a terminator: the host reads
 # it as a string of exactly that length, so it is good.
-full_revision=git-0123456789abcdef0123456789ab   # 32 bytes, the whole field
+full_revision=2026-11-DEV1+1234567890123456789   # 32 bytes, the whole field
 write_image "$image" bluetooth_rxtx "$full_revision"
 run "a revision filling the field" "$image"
 want_status 0
@@ -202,7 +203,7 @@ want_stdout "$full_revision"
 
 # No block at all, which is what a build that stopped linking fw_info.c
 # produces, and what the btbr image shipped with.
-write_image "$image" bluetooth_rxtx git-deadbeef 1 "........"
+write_image "$image" bluetooth_rxtx 2026-11-DEV1+22 1 "........"
 run "an image with no info block" "$image"
 want_status 1
 want_empty_stdout
@@ -211,7 +212,7 @@ want_stderr "no firmware info block"
 
 # A block from a newer format than this host knows: the tool refuses rather
 # than reading fields it cannot place.
-write_image "$image" bluetooth_rxtx git-deadbeef 2
+write_image "$image" bluetooth_rxtx 2026-11-DEV1+22 2
 run "a block in a format the host does not know" "$image"
 want_status 1
 want_empty_stdout
@@ -226,7 +227,7 @@ want_empty_stdout
 want_stderr "could not read the firmware info block"
 
 # An unprintable byte in the revision, likewise.
-write_image "$image" bluetooth_rxtx "git-dead"
+write_image "$image" bluetooth_rxtx "2026-11-R1"
 printf '\132' | dd of="$image" bs=1 seek=$((INFO_OFFSET + 32)) conv=notrunc \
     2> /dev/null
 printf '\001' | dd of="$image" bs=1 seek=$((INFO_OFFSET + 33)) conv=notrunc \
@@ -237,7 +238,7 @@ want_empty_stdout
 want_stderr "could not read the firmware info block"
 
 # An empty image name: the block has to say which image it belongs to.
-write_image "$image" "" git-deadbeef
+write_image "$image" "" 2026-11-DEV1+22
 run "an empty image name" "$image"
 want_status 1
 want_empty_stdout
@@ -253,7 +254,7 @@ want_stderr "could not read the firmware info block"
 # A readable block that names another image. The name is baked in per image,
 # so this is what a build sharing one object between images would produce,
 # and it would flash and verify against the wrong build without complaint.
-write_image "$work/btbr.bin" bluetooth_rxtx git-deadbeef
+write_image "$work/btbr.bin" bluetooth_rxtx 2026-11-DEV1+22
 run "a block naming another image" "$work/btbr.bin"
 want_status 1
 want_empty_stdout
@@ -266,22 +267,22 @@ want_stderr '"bluetooth_rxtx", not "btbr"'
 # from one running the full image. The file it builds keeps the target's name,
 # and the release ships that file as bluetooth_rx_only.*, so the name is
 # accepted under both stems and under no other.
-write_image "$work/bluetooth_rxtx.bin" bluetooth_rx git-deadbeef
+write_image "$work/bluetooth_rxtx.bin" bluetooth_rx 2026-11-DEV1+22
 run "a receive-only build under its target's name" "$work/bluetooth_rxtx.bin"
 want_status 0
 want_empty_stderr
-want_stdout "git-deadbeef"
+want_stdout "2026-11-DEV1+22"
 
 cp "$work/bluetooth_rxtx.bin" "$work/bluetooth_rx_only.bin"
 run "a receive-only build under the name the release ships" \
     "$work/bluetooth_rx_only.bin"
 want_status 0
 want_empty_stderr
-want_stdout "git-deadbeef"
+want_stdout "2026-11-DEV1+22"
 
 # And the full image is still refused under that name, so the rename above
 # cannot be used to pass an image off as the receive-only one.
-write_image "$work/bluetooth_rx_only.bin" bluetooth_rxtx git-deadbeef
+write_image "$work/bluetooth_rx_only.bin" bluetooth_rxtx 2026-11-DEV1+22
 run "the full image under the receive-only name" "$work/bluetooth_rx_only.bin"
 want_status 1
 want_empty_stdout
@@ -294,7 +295,7 @@ cp "$work/btbr.bin" "$work/ubertooth-one-bin-firmware.dfu"
 run "a renamed image" "$work/ubertooth-one-bin-firmware.dfu"
 want_status 0
 want_empty_stderr
-want_stdout "git-deadbeef"
+want_stdout "2026-11-DEV1+22"
 
 # -------------------------------------------------------------------------
 # Images that are not there, and the command line
@@ -334,20 +335,20 @@ want_stderr "unknown option"
 
 built="$work/built"
 write_image "$built/firmware-linux/bluetooth_rxtx/bluetooth_rxtx.bin" \
-    bluetooth_rxtx git-cafe1234
-write_image "$built/firmware-linux/btbr/btbr.bin" btbr git-cafe1234
+    bluetooth_rxtx 2026-11-DEV2+7
+write_image "$built/firmware-linux/btbr/btbr.bin" btbr 2026-11-DEV2+7
 write_image "$built/firmware-linux/bl_update/bl_update.bin" \
-    bl_update git-cafe1234
+    bl_update 2026-11-DEV2+7
 
 # Standard output here carries nothing but `path: revision api` lines, so a
 # caller can read it without filtering; which images were looked for is
 # status, and goes to standard error.
 run "a directory of good images" --from "$built"
 want_status 0
-want_stdout "bluetooth_rxtx.bin: git-cafe1234"
-want_stdout "btbr.bin: git-cafe1234"
+want_stdout "bluetooth_rxtx.bin: 2026-11-DEV2+7"
+want_stdout "btbr.bin: 2026-11-DEV2+7"
 want_stderr "shipped images: bluetooth_rxtx btbr bl_update"
-want_stdout_only ': git-cafe1234 1\.33$'
+want_stdout_only ': 2026-11-DEV2\+7 1\.33$'
 
 # One shipped image missing is a failure, not a pass over the rest: an image
 # that stopped being built is exactly what nobody would notice.
@@ -355,26 +356,26 @@ mv "$built/firmware-linux/btbr/btbr.bin" "$work/kept-btbr.bin"
 run "a shipped image that was not built" --from "$built"
 want_status 1
 want_stderr "no btbr image was built under"
-want_stdout_only ': git-cafe1234 1\.33$'  # the one good image, nothing else
+want_stdout_only ': 2026-11-DEV2\+7 1\.33$'  # the one good image, nothing else
 
 # One bad image among good ones.
 write_image "$built/firmware-linux/btbr/btbr.bin" btbr ""
 run "one bad image among good ones" --from "$built"
 want_status 1
-want_stdout "bluetooth_rxtx.bin: git-cafe1234"
+want_stdout "bluetooth_rxtx.bin: 2026-11-DEV2+7"
 want_stderr "could not read the firmware info block"
 
 # Every runner's artifact is checked, not just the first: a toolchain that
 # dropped the block on one platform only has to be caught.
 cp "$work/kept-btbr.bin" "$built/firmware-linux/btbr/btbr.bin"
 write_image "$built/firmware-mac/bluetooth_rxtx/bluetooth_rxtx.bin" \
-    bluetooth_rxtx git-cafe1234
+    bluetooth_rxtx 2026-11-DEV2+7
 write_image "$built/firmware-mac/bl_update/bl_update.bin" \
-    bl_update git-cafe1234
-write_image "$built/firmware-mac/btbr/btbr.bin" btbr git-cafe1234 1 "........"
+    bl_update 2026-11-DEV2+7
+write_image "$built/firmware-mac/btbr/btbr.bin" btbr 2026-11-DEV2+7 1 "........"
 run "a second runner's image is bad" --from "$built"
 want_status 1
-want_stdout "firmware-linux/btbr/btbr.bin: git-cafe1234"
+want_stdout "firmware-linux/btbr/btbr.bin: 2026-11-DEV2+7"
 want_stderr "firmware-mac/btbr/btbr.bin"
 
 run "--from with no directory" --from
@@ -403,10 +404,10 @@ for directory in bluetooth_rxtx btbr bl_update assembly_test blinky cc2400_test 
     mkdir -p "$scratch/firmware/$directory"
 done
 write_image "$scratch/art/firmware-linux/bluetooth_rxtx/bluetooth_rxtx.bin" \
-    bluetooth_rxtx git-cafe1234
-write_image "$scratch/art/firmware-linux/btbr/btbr.bin" btbr git-cafe1234
+    bluetooth_rxtx 2026-11-DEV2+7
+write_image "$scratch/art/firmware-linux/btbr/btbr.bin" btbr 2026-11-DEV2+7
 write_image "$scratch/art/firmware-linux/bl_update/bl_update.bin" \
-    bl_update git-cafe1234
+    bl_update 2026-11-DEV2+7
 
 case_name="--from over a tree whose list is wrong"
 printf '\n%s\n' "case: $case_name"
@@ -421,7 +422,7 @@ want_status 1
 want_stderr "firmware/newimage is not in any of the lists"
 # The images themselves are fine, so this is the one case where the only
 # reason to fail comes from the list check.
-want_stdout "bluetooth_rxtx.bin: git-cafe1234"
+want_stdout "bluetooth_rxtx.bin: 2026-11-DEV2+7"
 
 # --list-shipped from the same tree hands out no list at all: a caller acting
 # on one would be checking a set of images nobody has decided about.

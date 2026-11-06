@@ -43,7 +43,7 @@ FW_INFO_MAGIC = b"UBTFINFO"
 FW_INFO_FORMAT = 1
 FW_INFO_API = 0x0133
 FW_IMAGE_NAME = b"bluetooth_rxtx"
-FW_REVISION = b"git-testing"
+FW_REVISION = b"2026-11-DEV1+22"
 
 
 def info_block(magic=FW_INFO_MAGIC, fmt=FW_INFO_FORMAT,
@@ -60,7 +60,7 @@ def info_block(magic=FW_INFO_MAGIC, fmt=FW_INFO_FORMAT,
 def firmware(block=None):
     """A firmware payload: the build string, then the block where it lives."""
     body = bytearray(b"\xff" * (FW_INFO_OFFSET + FW_INFO_LENGTH + 64))
-    marker = b"ubertooth git-testing (builder@host) 2026-01-01\x00"
+    marker = b"Thu Jan  1 00:00:00 2026\x00"
     body[0:len(marker)] = marker
     if block is not None:
         body[FW_INFO_OFFSET:FW_INFO_OFFSET + FW_INFO_LENGTH] = block

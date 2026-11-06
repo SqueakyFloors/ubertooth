@@ -124,7 +124,7 @@
     "ubertooth-afh": {
       "man": "ubertooth-afh.md",
       "optstring": ":rhVl:u:U:e:t:m:",
-      "report_marker": "libubertooth",
+      "report_marker": "Host tools version",
       "requires_all": ["-l", "-u"],
       "requires_all_error": "error: -l <LAP> and -u <UAP> are both required: the map is detected for one piconet",
       "other_exit_codes": {"2": "the -t detection phase received no packet from the piconet"},
@@ -159,7 +159,7 @@
 
     "ubertooth-btle": {
       "man": "ubertooth-btle.md",
-      "report_marker": "libubertooth",
+      "report_marker": "Host tools version",
       "optstring": ":a::r:hVfnpU:k::vA:s:t:x:c:q:jJiId:R:",
       "work_options": ["-f", "-n", "-p", "-a", "-k", "-s", "-t"],
       "nothing_to_do": "error: nothing to do: choose a major mode (-f, -n or -p), or -a, -k, -s or -t",
@@ -314,7 +314,7 @@
 
     "ubertooth-debug": {
       "man": "ubertooth-debug.md",
-      "report_marker": "libubertooth",
+      "report_marker": "Host tools version",
       "optstring": ":hVU:r:w:v:",
       "work_options": ["-r", "-w"],
       "nothing_to_do": "error: nothing to do: give -r to read registers, or -w to write them",
@@ -349,7 +349,7 @@
 
     "ubertooth-dfu": {
       "man": "ubertooth-dfu.md",
-      "report_marker": "libubertooth",
+      "report_marker": "Host tools version",
       "optstring": ":hVd:u:s:rU:",
       "work_options": ["-d", "-u", "-s", "-r"],
       "nothing_to_do": "error: nothing to do: give -d to write an image, -u to read one back, -s to sign one, or -r to reset",
@@ -405,7 +405,7 @@
 
     "ubertooth-ducky": {
       "man": "ubertooth-ducky.md",
-      "report_marker": "libubertooth",
+      "report_marker": "Host tools version",
       "optstring": ":q::bA:a:hVsU:",
       "work_options": ["-q", "-b"],
       "nothing_to_do": "error: nothing to do: give -q to quack, or -b to signal the bootloader",
@@ -429,7 +429,7 @@
 
     "ubertooth-dump": {
       "man": "ubertooth-dump.md",
-      "report_marker": "libubertooth",
+      "report_marker": "Host tools version",
       "optstring": ":bghVclU:d:",
       "options": {
         "-V": {"value": "none", "role": "report",
@@ -465,7 +465,7 @@
 
     "ubertooth-ego": {
       "man": "ubertooth-ego.md",
-      "report_marker": "libubertooth",
+      "report_marker": "Host tools version",
       "optstring": ":frijc:U:a:l:hV",
       "work_options": ["-f", "-r", "-i", "-j"],
       "nothing_to_do": "error: nothing to do: choose a major mode (-f, -r or -i)",
@@ -515,7 +515,7 @@
     "ubertooth-rx": {
       "man": "ubertooth-rx.md",
       "optstring": ":hVi:l:u:U:d:e:r:sq:t:zc:",
-      "report_marker": "libubertooth",
+      "report_marker": "Host tools version",
       "stdout_on_failure": ["-q -", "-q-"],
       "_stdout_on_failure_why": "the capture itself is on standard output, and the PCAP writer puts its file header there as soon as it opens, before the device is looked for",
       "options": {
@@ -606,7 +606,7 @@
 
     "ubertooth-specan": {
       "man": "ubertooth-specan.md",
-      "report_marker": "libubertooth",
+      "report_marker": "Host tools version",
       "man_must_not_say": [
         ["with the usage text after the `error: ` line on standard\nerror",
          "a described error prints no usage text, and this tool does not print one"]
@@ -656,7 +656,7 @@
     "ubertooth-tx": {
       "man": "ubertooth-tx.md",
       "optstring": ":hVa:c:g:l:n:u:U:t:",
-      "report_marker": "libubertooth",
+      "report_marker": "Host tools version",
       "work_options": ["-g", "-l", "-u"],
       "nothing_to_do": "error: nothing to do: give -g to transmit a generic packet, or -l and -u to retransmit to a piconet",
       "man_must_say": ["1 to {define:GENERIC_TX_FRAMED_PAYLOAD} bytes"],
@@ -712,7 +712,7 @@
     "ubertooth-util": {
       "man": "ubertooth-util.md",
       "optstring": ":U:hn::meiIprsStvbBwl::a::C::c::d::q::z::VNx",
-      "report_marker": "libubertooth",
+      "report_marker": "Host tools version",
       "work_options": ["-n", "-m", "-e", "-i", "-I", "-p", "-r", "-s", "-S", "-t",
                        "-v", "-b", "-B", "-w", "-l", "-a", "-C", "-c", "-d", "-q", "-z",
                        "-N", "-x"],
@@ -812,7 +812,7 @@
 
     "ubertooth-follow": {
       "man": "ubertooth-follow.md",
-      "report_marker": "libubertooth",
+      "report_marker": "Host tools version",
       "optstring": ":hVl:u:U:e:d:ab:w:r:q:t:",
       "_built_when": "libbluetooth is installed (Linux)",
       "stdout_on_failure": ["-q -", "-q-"],
@@ -910,7 +910,7 @@
 
     "ubertooth-scan": {
       "man": "ubertooth-scan.md",
-      "report_marker": "libubertooth",
+      "report_marker": "Host tools version",
       "optstring": ":hVU:t:e:xsb:",
       "_built_when": "libbluetooth is installed (Linux)",
       "accepted_markers": ["error: Bluetooth device hci0 not found"],
@@ -938,7 +938,7 @@
       "module_dir": "../../python/ubtbr",
       "optstring": "f:b:U:hV",
       "usage_marker": "Usage: ubertooth-btbr",
-      "report_marker": "libubertooth",
+      "report_marker": "Host tools version",
       "_shape": [
         "The installed wrapper host/python/ubtbr/ubertooth-btbr.in, built by",
         "CMake. It finds its board through the Python usb1 module rather than",
@@ -978,7 +978,7 @@
       "man": "btle-extcap.md",
       "kind": "python",
       "usage_marker": "--extcap-interfaces",
-      "report_marker": "libubertooth",
+      "report_marker": "Host tools version",
       "_shape": [
         "All long options, defined by the extcap protocol Wireshark calls the",
         "script with, plus -h and -V, so its man page has no short-option",

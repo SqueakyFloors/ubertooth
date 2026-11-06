@@ -80,7 +80,7 @@ VENV=""
 # .github/workflows/build.yml, which checks that this copy agrees with it.
 # --libbtbb-url / --libbtbb-ref override these for one run.
 LIBBTBB_URL="https://github.com/SqueakyFloors/libbtbb.git"
-LIBBTBB_REF="7e1cdf0336857a714da1af8c7496fe32453ac6d0"
+LIBBTBB_REF="c70de76afbe13f3740bcd906952a36c849383810"
 NO_SUDO=0
 PREFIX=""
 SKIP_DEPS=0
@@ -860,8 +860,9 @@ fi
 # A machine can have a distribution or Homebrew libbtbb beside this one, and
 # which one a tool loads is decided by its link path, not by what was built
 # last. So the tools just installed are asked, rather than this script
-# repeating what it built: an answer naming a libbtbb outside $PREFIX is the
-# one thing the user has to see here.
+# repeating what it built: a warning from them that they loaded a libbtbb
+# other than the one they were built against is the one thing the user has to
+# see here.
 #
 # Reported, not enforced: the install has already succeeded at this point, and
 # a mixed machine is something to tell the user about rather than a reason to
@@ -874,41 +875,38 @@ if [ ! -x "$PREFIX/bin/ubertooth-util" ]; then
 else
 	# -V answers the host part from the tool itself, so no Ubertooth need be
 	# attached. It exits 1 when a board is attached and cannot be read, and
-	# prints the host lines all the same, so what it printed is what decides
-	# here and its exit status is not looked at. Its standard error is left
-	# alone rather than discarded: a tool that will not run has said why
-	# there, and that is the thing to show.
+	# prints the host line all the same, so what it printed is what decides
+	# here and its exit status is not looked at.
 	#
-	# Only the host lines are kept. The rest of the answer describes the
-	# boards attached, which this section is not about, and a board the
+	# Both streams are read: the version is on standard output, and the one
+	# line that matters here -- the tools loaded a libbtbb other than the one
+	# they were built against -- is a warning, so it is on standard error
+	# with every other warning. The tool says which directory each is in.
+	#
+	# Then only those two lines are kept. The rest of the answer describes
+	# the boards attached, which this section is not about, and a board the
 	# freshly installed udev rule does not cover yet would report a denial
 	# here that reads like a failed install.
-	BTBB_IN_USE="$("$PREFIX/bin/ubertooth-util" -V || true)"
-	BTBB_IN_USE="$(printf '%s\n' "$BTBB_IN_USE" | sed -n '/^Firmware /q;p')"
+	BTBB_ANSWER="$("$PREFIX/bin/ubertooth-util" -V 2>&1 || true)"
+	BTBB_IN_USE="$(printf '%s\n' "$BTBB_ANSWER" \
+		| grep -e '^Host tools version: ' -e 'libbtbb was loaded from ' \
+		|| true)"
 	case "$BTBB_IN_USE" in
-		*"libbtbb loaded from: "*) UTIL_ANSWERED=1 ;;
+		*"Host tools version: "*) UTIL_ANSWERED=1 ;;
 		*) UTIL_ANSWERED=0 ;;
 	esac
 	if [ "$UTIL_ANSWERED" -eq 0 ]; then
 		warn "the installed ubertooth-util would not run, so which libbtbb it uses is unknown"
+		# Why it would not run, which the tool has already said.
+		printf '%s\n' "$BTBB_ANSWER" >&2
 	else
 		# The lines below are the tool's own, quoted as it printed
 		# them rather than given the script's "==> " prefix.
 		info "What the installed tools report:"
 		printf '%s\n' "$BTBB_IN_USE" >&2
 		case "$BTBB_IN_USE" in
-			*"libbtbb loaded from: $PREFIX/"*) ;;
-			# The loader would not say, so there is nothing to
-			# compare: say that rather than report a libbtbb
-			# somewhere else.
-			*"libbtbb loaded from: unknown"*)
-				info "The tools cannot say which libbtbb they loaded, so another install would not be noticed here" ;;
-			# The tool names itself, which a libbtbb linked into it
-			# and a build without position-independent code both
-			# do. Also not an answer about a second install.
-			*"libbtbb loaded from: $PREFIX/bin/"*)
-				info "The tools report themselves as the libbtbb in use, so another install would not be noticed here" ;;
-			*) warn "the tools load a libbtbb from outside $PREFIX; remove the other install if packets decode oddly" ;;
+			*"libbtbb was loaded from "*)
+				warn "the tools load a libbtbb from outside $PREFIX; remove the other install if packets decode oddly" ;;
 		esac
 	fi
 fi

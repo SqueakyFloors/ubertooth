@@ -32,13 +32,12 @@
 #include "ubertooth_interface.h"
 
 /*
- * The definition both images must carry, spaces collapsed. The literal pieces
- * matter to the host in this order: "ubertooth ", then the revision, then
- * " (" to end it.
+ * The definition both images must carry, spaces collapsed. It is the build
+ * date alone: the version is on the firmware info block's own line, and who
+ * built the image is in no image at all.
  */
 #define COMPILE_INFO_DEFINITION \
-	"const char compile_info[] = \"ubertooth \" GIT_REVISION " \
-	"\" (\" COMPILE_BY \"@\" COMPILE_HOST \") \" TIMESTAMP;"
+	"const char compile_info[] = TIMESTAMP;"
 
 /* The two sources that define it, and what to call them in a message. */
 static const char *const source_paths[] = {
@@ -250,9 +249,9 @@ MU_TEST(a_normal_revision_goes_out_whole)
 {
 	uint8_t reply[VENDOR_REQ_BUF];
 
-	mu_assert_int_eq(15, revision_reply("git-deadbeef", reply));
-	mu_assert_int_eq(12, reply[2]);
-	mu_assert(memcmp(&reply[3], "git-deadbeef", 12) == 0,
+	mu_assert_int_eq(19, revision_reply("2026-11-DEV1+22*", reply));
+	mu_assert_int_eq(16, reply[2]);
+	mu_assert(memcmp(&reply[3], "2026-11-DEV1+22*", 16) == 0,
 	          "the reply does not carry the revision");
 }
 

@@ -20,8 +20,8 @@ How a line is matched. Neither side holds a whole line of real output, so both
 are read as patterns:
 
   * what varies from run to run becomes a wildcard on both sides: a
-    placeholder (`<serial>`, `<version>`), a board serial, a `git-` revision,
-    an address, a number;
+    placeholder (`<serial>`, `<version>`), a board serial, a version, an
+    address, a number;
   * a test's literal also has a wildcard wherever it leaves a field open -- a
     macro parameter, a printf conversion, an adjacent literal it is joined to.
 
@@ -101,11 +101,15 @@ PY_PROSE = re.compile(r'"""(?:.|\n)*?"""|\'\'\'(?:.|\n)*?\'\'\''
 # issue number to tools/check-issue-references.sh.
 CONVERSION = re.compile(r'%[-+ 0-9#.*lhzjt]*[diouxXeEfgGaAcrspn%]')
 
-# What a line does not promise: a placeholder, a board serial, a firmware
-# revision, an address, a number.
+# What a line does not promise: a placeholder, a board serial, a version (a
+# release name, how far past a release it is, and the "*" of a modified tree;
+# or the older `git-` revision), an address, a number. The release name comes
+# before the plain-number rule, so the whole of it is one wildcard rather than
+# its year, month and numbers separately.
 VOLATILE = re.compile(
     r'<[^<>]*>'
     r'|[0-9a-f]{32}'
+    r'|\b[0-9]{4}-[0-9]{2}-[A-Za-z]+[0-9]+(?:\+[0-9]+)?\*?'
     r'|git-[0-9A-Za-z_.*-]+'
     r'|\b[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){4,5}\b'
     r"|'[0-9a-f]{2,32}'"          # a serial, or the start of one, in quotes
@@ -179,11 +183,11 @@ NOT_PINNED = [
     # The signature report's own lines. The tests read the values rather than
     # the lines the tool prints around them.
     ("ubertooth-dfu.md",
-     "Image: bluetooth_rxtx git-ed30131d* (API:<version>)"),
+     "Image: bluetooth_rxtx 2026-11-DEV1+22* (API:<version>)"),
     ("ubertooth-dfu.md",
-     "Image: bluetooth_rxtx git-ed30131d (API:<version>)"),
+     "Image: bluetooth_rxtx 2026-11-DEV1+22 (API:<version>)"),
     ("ubertooth-dfu.md",
-     "DFU expected revision: git-ed30131d"),
+     "DFU expected revision: 2026-11-DEV1+22"),
     # A board that came back running another image. The test leaves the
     # image's name open, and the page spells it out twice.
     ("ubertooth-dfu.md",
@@ -211,15 +215,11 @@ NOT_PINNED = [
     ("ubertooth-rx.md",
      "error: could not set the channel: the board did not answer in time "
      "(libusb -7)"),
-    # The shape of the firmware version line, written with a placeholder for
-    # the image and another for the revision. One field of the pinned line
-    # covers both, so the space between them is not checked.
+    # The firmware version line, written with a placeholder for the image and
+    # another for the release. One field of the pinned line covers both, so
+    # the space between them is not checked.
     ("ubertooth.md",
-     "Firmware version: <image> <revision> (API:<version>)"),
-    # The version an old release reports, which has no image name in it. The
-    # tests report a version the way the firmware in this tree does.
-    ("ubertooth-util.md",
-     "Firmware version: 2020-12-R1 (API:1.07)"),
+     "Firmware version: <image> <release> (API:<version>)"),
     # The reason libusb gave for a board that could not be opened. The only
     # test that pins this text pins it as an error line of another tool, and
     # which of the three levels a line is said with is part of what a page
@@ -234,21 +234,18 @@ NOT_PINNED = [
      "error: writing samples failed: could not write the sample (<reason>)"),
     ("ubertooth-specan.md",
      "error: writing samples failed: could not flush the samples (<reason>)"),
-    # The version report, whose libubertooth and libbtbb halves the tests
-    # replace with a fake of their own, so no test prints this shape.
+    # The version report, which the tests replace with a fake of their own,
+    # so no test prints this line.
     ("ubertooth-util.md",
-     "Host tools version: libubertooth <version> (git-ed30131d*), libbtbb "
-     "<version> (git-2fd0d39)"),
+     "Host tools version: 2026-11-DEV1+22* (libbtbb 2026-11-DEV1+22*)"),
     ("ubertooth.md",
-     "Host tools version: libubertooth <version> (<revision>), libbtbb "
-     "<version> (<revision>)"),
+     "Host tools version: <release> (libbtbb <release>)"),
     # The build string is whatever the board reports; the faked board reports
     # a short one of its own.
     ("ubertooth-util.md",
-     "Firmware build: ubertooth git-ed30131d* (builder@buildhost) Mon Oct 27 "
-     "11:22:33 2025"),
+     "Firmware build: Mon Oct 27 11:22:33 2025"),
     ("ubertooth.md",
-     "Firmware build: <build string the board reports>"),
+     "Firmware build: <the date the image was built>"),
 ]
 
 

@@ -63,7 +63,7 @@ carries, at a fixed offset just past the vector table, which says which image
 the file holds and which revision it was built from:
 
     Checking firmware signature
-    Image: bluetooth_rxtx git-ed30131d* (API:<version>)
+    Image: bluetooth_rxtx 2026-11-DEV1+22* (API:<version>)
 
 The API version on that line comes from the block, and the USB `bcdDevice`
 `ubertooth-util -V` reads off a running board carries the same value, for either
@@ -618,7 +618,7 @@ COMMON OPTIONS.
 Standard output carries the usage text for `-h`, and otherwise what the
 command read back off the board. From `-d <image> -r` that is one line:
 
-    Verified firmware revision: git-ed30131d
+    Verified firmware revision: 2026-11-DEV1+22
 
 That is the revision the board reported once it was running the new firmware,
 so a script can read it on its own; the image name the verification also reads
@@ -653,8 +653,8 @@ Everything else is on standard error, so a script reading that one line is not
 fed the progress of a flash that takes a few seconds:
 
     Checking firmware signature
-    Image: bluetooth_rxtx git-ed30131d (API:<version>)
-    DFU expected revision: git-ed30131d
+    Image: bluetooth_rxtx 2026-11-DEV1+22 (API:<version>)
+    DFU expected revision: 2026-11-DEV1+22
     The image needs 31488 bytes, 0x4000-0xbaff: part 0x25011722 (LPC1754) has 128 KiB of flash
     Switching selected device to DFU mode...
     ........................................
@@ -706,10 +706,10 @@ mean the same thing, so each has its own line:
     error: the firmware was written, but the board did not come back on USB: power-cycle it and read its revision with ubertooth-util -V before flashing it again
     error: the firmware was written, but the board came back and would not open, so the flash was not checked: read its revision with ubertooth-util -V once nothing else is using it
     error: the firmware was written, but the host's USB bus could not be read, so the flash was not checked: read the board's revision with ubertooth-util -V
-    error: the board came back running git-0000000, not git-ed30131d: the firmware was not written, so flash it again
+    error: the board came back running 2026-11-DEV1+21, not 2026-11-DEV1+22: the firmware was not written, so flash it again
     error: the board came back running the btbr firmware, not the bluetooth_rxtx image that was written: the firmware was not written, so flash it again
     error: the board came back but would not report its firmware revision, so the flash was not checked: read it with ubertooth-util -V
-    error: the board came back running git-ed30131d, the revision that was written, but would not say which firmware image it is, so which of this tree's images it runs is unchecked
+    error: the board came back running 2026-11-DEV1+22, the revision that was written, but would not say which firmware image it is, so which of this tree's images it runs is unchecked
     error: the device that came back is not on the flashed board's USB path, so the flash was not checked: read the board's revision with ubertooth-util -V
 
 Two of those say the write did not take and ask for another flash: the one
