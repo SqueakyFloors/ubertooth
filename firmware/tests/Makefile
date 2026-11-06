@@ -868,7 +868,7 @@ $(BINDIR)/test_btbr_usb_send: test_btbr_usb_send.c minunit.h \
 $(BINDIR)/test_compile_info: test_compile_info.c minunit.h source_scan.h \
 		$(FW_RXTX)/bluetooth_rxtx.c \
 		$(FW_BTBR)/src/btctl/vendor_request_handler.c \
-		$(FW_DIR)/common.mk $(FW_BOOT)/Makefile | $(BINDIR)
+		$(FW_DIR)/common.mk $(FW_BOOT)/Makefile $(FW_DIR)/version.mk | $(BINDIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -DFW_RXTX_DIR='"$(FW_RXTX)"' \
 		-DFW_BTBR_DIR='"$(FW_BTBR)"' -DFW_DIR='"$(FW_DIR)"' \
 		-DFW_BOOTLOADER_DIR='"$(FW_BOOT)"' -o $@ test_compile_info.c

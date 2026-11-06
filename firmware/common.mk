@@ -435,9 +435,9 @@ DEPFILES = $(call per_image,$(SRC:%.c=%.d) $(CPPSRC:%.cpp=%.d)) \
 # Nothing in it depends on when, where or by whom the build ran: no date, no
 # time, no user, no host. An image is handed around, so none of that tells a
 # reader of the version anything they need, and leaving it out means the same
-# source builds a byte-identical image. That is what tells two images apart
-# when their version strings are the same -- the .dfu file's checksum, which a
-# build date would make differ for images that are otherwise identical.
+# source always builds the same bytes -- which is what makes the .dfu file's
+# checksum worth comparing when two builds report the same release, as two
+# commits between one pair of releases do.
 #
 # version.h is generated (listed in .gitignore), not committed; a source
 # distribution that ships it keeps the version available without a .git dir.

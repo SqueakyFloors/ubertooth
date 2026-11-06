@@ -112,10 +112,12 @@ board whose API version could not be read prints the version with no
 ` (API:...)` after it. So a script that cares about the whole answer should
 test the status, not only look for a reason in place of a version.
 
-Nothing in the answer says when, where or by whom anything was built. An
-image records the version it was built from and nothing else, so the same
-source builds a byte-identical image; two images that report the same version
-are told apart by the checksum of the `.dfu` file they came from.
+Nothing in the answer says when, where or by whom anything was built. An image
+records the version it was built from and nothing else, so the same source
+always builds the same bytes. Because the version names a release rather than
+a commit, two builds from different commits between the same pair of releases
+report the same version; what tells those apart is the checksum of the `.dfu`
+file each came from.
 
 Asking for the version does not disturb a board: it is not told to stop, so a
 mode running on it keeps running, and any firmware is read whatever API

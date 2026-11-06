@@ -45,12 +45,25 @@ top="$(pwd)/../release"
 # no user, no host -- so there is nothing else to pin.
 stamp=(HAVE_GIT=false)
 
-case "${version}" in
-	*[!A-Za-z0-9._-]*|"")
-		echo "error: release version '${version}' has characters outside A-Za-z0-9._-" >&2
-		exit 1
-		;;
-esac
+# The release has to be one of the names a build reports: YYYY-MM-Rn, with
+# YYYY-MM-RCn and YYYY-MM-DEVn for the candidate and development tags that come
+# before one. host/cmake/set_release.cmake and firmware/version.mk both turn
+# down anything else, so an archive named anything else would report that name
+# from its images and "unknown" from its host tools -- the board and the tools
+# that talk to it disagreeing about which release they are. Refusing it here is
+# the only place that can say why.
+#
+# With no argument the version is the branch name, which is how this reads as a
+# refusal of `tools/ubertooth-release.sh` run on `main` by mistake.
+# The same expression both readers use, so what passes here is what they
+# accept; a shell glob cannot say "one or more digits".
+if ! printf '%s\n' "${version}" \
+	| grep -qE '^[0-9]{4}-[0-9]{2}-(R|RC|DEV)[0-9]+$' ; then
+	echo "error: release version '${version}' is not a release name" \
+	     "(YYYY-MM-Rn, YYYY-MM-RCn or YYYY-MM-DEVn), which is what a build" \
+	     "reports" >&2
+	exit 1
+fi
 
 releasename="ubertooth-${version}"
 targetdir="${top}/${releasename}"

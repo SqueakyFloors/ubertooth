@@ -194,9 +194,11 @@ the nearest release and how many commits are past it, with a trailing ``*`` if
 the working tree had uncommitted changes. The version is generated into a
 ``version.h`` at build time and tracks the source it was built from, so ``-V``
 always reflects the firmware actually running. Nothing else about the build is
-recorded -- no date, no time, no user, no host -- so the same source builds a
-byte-identical image, and two images reporting the same version are told apart
-by the checksum of the ``.dfu`` file they came from.
+recorded -- no date, no time, no user, no host -- so the same source always
+builds the same bytes. Because the version names a release rather than a
+commit, two builds from different commits between the same pair of releases
+report the same version; what tells those apart is the checksum of the ``.dfu``
+file each came from.
 
 
 

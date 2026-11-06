@@ -132,7 +132,9 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
       nothing has to be edited before a tag. ``tools/ubertooth-release.sh``
       writes the release it was asked for into the same file, which is the
       name to carry when a release is built from a commit the tag is not on
-      yet. Filling it in needs git 2.32 or newer where the archive is made;
+      yet. Filling it in needs git 2.35 or newer where the archive is made --
+      that is the version whose ``git archive`` understands every option in
+      the placeholder --
       the git that unpacks or builds it does not matter. The file is read only
       where git places the tree in no checkout of its own, because a
       checkout's own history is the better answer and a version file beside

@@ -304,6 +304,20 @@ def main():
         expect(cmake, plain, "an archive made 22 commits past a release",
                "2026-11-R2+22", "ON")
 
+        # A line with blanks around it, or carried through a download that
+        # rewrote its line endings. Both readers have to make the same of it,
+        # or a board and the tools that talk to it would name different
+        # releases, so each of these is checked against the firmware's answer
+        # as well, below.
+        odd_lines = [("    2026-11-R2", "blanks before the release"),
+                     ("2026-11-R2    ", "blanks after the release"),
+                     ("\t2026-11-R2\t", "tabs around the release"),
+                     ("2026-11-R2\r", "a carriage return after the release")]
+        for line, what in odd_lines:
+            put_version_file(plain, "# a comment\n%s\n" % line)
+            expect(cmake, plain, "an archive with %s" % what,
+                   "2026-11-R2", "ON")
+
         # The file as a git checkout has it, with nothing filled in, and the
         # cases that name no release: a history with no release tag leaves the
         # line empty, and a tag the globs let through is not a release.
@@ -322,8 +336,11 @@ def main():
         # download is. git fills the release in as it makes the archive, so
         # this is the whole path end to end rather than a file written here.
         archived = None
-        if git_version() < (2, 32):
-            print("git is older than 2.32, so the archive it makes goes "
+        # 2.35 is where git archive understands every option in the
+        # placeholder: %(describe) arrived in 2.32 and its "tags" option in
+        # 2.35.
+        if git_version() < (2, 35):
+            print("git is older than 2.35, so the archive it makes goes "
                   "unchecked")
         else:
             source = new_tree(work, repo_root, "to-archive")
@@ -391,7 +408,21 @@ def main():
                      (shallow, "a shallow clone")]
             if archived is not None:
                 trees.append((archived, "a git archive of a release tag"))
+            for line, what in odd_lines:
+                put_version_file(plain, "# a comment\n%s\n" % line)
+                trees.append((plain, "an archive with %s" % what))
+                host_release, _ = answers(
+                    cmake, os.path.join(plain, os.path.dirname(MODULE)))
+                firmware = firmware_version(repo_root, plain)
+                if firmware != host_release:
+                    fail("an archive with %s: the firmware reports %r and the "
+                         "host tools %r; a board and the tools that talk to it "
+                         "have to report one version"
+                         % (what, firmware, host_release))
+            os.remove(os.path.join(plain, VERSION_FILE))
             for tree, what in trees:
+                if tree == plain:
+                    continue
                 host_release, _ = answers(
                     cmake, os.path.join(tree, os.path.dirname(MODULE)))
                 firmware = firmware_version(repo_root, tree)

@@ -35,35 +35,9 @@ endif
 # tools/ubertooth-release.sh also passes HAVE_GIT=false on the command line, to
 # build the shipped sources as the archive they are about to become.
 VERSION_MK_DIR := $(patsubst %/,%,$(dir $(lastword $(MAKEFILE_LIST))))
-HAVE_GIT := $(shell cd $(VERSION_MK_DIR) 2>/dev/null \
+HAVE_GIT := $(shell cd '$(VERSION_MK_DIR)' 2>/dev/null \
 	&& test "`git rev-parse --show-prefix 2>/dev/null`" = firmware/ \
 	&& git rev-parse --is-inside-work-tree 2>/dev/null)
-
-# The release a source archive carries, for the no-git branch below.
-# git archive fills it into RELEASE-VERSION at the top of the tree as the
-# archive is made; see that file. The first line of it that is neither blank
-# nor a comment is the answer git wrote: the nearest release tag, with
-# "-<commits>-g<commit>" after it where the commit archived is past the tag.
-# A release name has dashes of its own, so the count is taken off the end
-# rather than the name read out of the front, and what is left has to be a
-# release name. An untouched placeholder, which is what a git checkout has,
-# is not one and leaves this empty.
-ARCHIVE_VERSION_FILE := $(VERSION_MK_DIR)/../RELEASE-VERSION
-ARCHIVE_RELEASE := $(shell \
-	sed -e '/^[[:space:]]*\#/d' -e '/^[[:space:]]*$$/d' -e q \
-		$(ARCHIVE_VERSION_FILE) 2>/dev/null \
-	| sed -E -e 's/-([0-9]+)-g[0-9a-f]+$$/+\1/' \
-	| grep -E '^[0-9]{4}-[0-9]{2}-(R|RC|DEV)[0-9]+(\+[0-9]+)?$$')
-
-# What to report with no git history at all: the archive's release, or that the
-# version is not known. No release this file could carry would be better than
-# that -- the distance from it would be unknown, and whoever edited it last
-# would have decided which release every archive claimed.
-ifeq ($(ARCHIVE_RELEASE),)
-VERSION_WITHOUT_GIT := unknown
-else
-VERSION_WITHOUT_GIT := $(ARCHIVE_RELEASE)
-endif
 
 ifeq ($(HAVE_GIT),true)
 
@@ -113,9 +87,42 @@ endif
 
 else
 
-# No git history to read. The including makefile uses a version.h shipped
-# beside these sources where there is one, which is what a release archive
-# carries; this is what it reports when there is not.
-VERSION_NOW := $(VERSION_WITHOUT_GIT)
+# No git history to read, so these sources came out of an archive if they came
+# from anywhere, and the release it carries is in RELEASE-VERSION at the top of
+# the tree; git archive fills it in as the archive is made, and see that file.
+# The including makefile uses a version.h shipped beside these sources where
+# there is one, which is what a release archive carries; this is what it
+# reports when there is not.
+#
+# The first line of the file that is neither blank nor a comment is the answer
+# git wrote: the nearest release tag, with "-<commits>-g<commit>" after it
+# where the commit archived is past the tag. A release name has dashes of its
+# own, so the count is taken off the end rather than the name read out of the
+# front, and what is left has to be a release name. An untouched placeholder,
+# which is what a git checkout has, is not one.
+#
+# Surrounding blanks and a carriage return are taken off the line first, so
+# that a file edited by hand, or carried through a download that rewrote its
+# line endings, reads the same here as in host/cmake/set_release.cmake, which
+# strips the line as CMake's file(STRINGS) gives it. The two have to agree, or
+# a board and the tools that talk to it would name different releases.
+#
+# No release this file could carry instead would be better than "unknown": the
+# distance from it would not be known, and whoever edited it last would have
+# decided what every archive claimed.
+ARCHIVE_VERSION_FILE := $(VERSION_MK_DIR)/../RELEASE-VERSION
+ARCHIVE_RELEASE := $(shell \
+	sed -e '/^[[:space:]]*\#/d' -e '/^[[:space:]]*$$/d' -e q \
+		'$(ARCHIVE_VERSION_FILE)' 2>/dev/null \
+	| tr -d '\r' \
+	| sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$$//' \
+	| sed -E -e 's/-([0-9]+)-g[0-9a-f]+$$/+\1/' \
+	| grep -E '^[0-9]{4}-[0-9]{2}-(R|RC|DEV)[0-9]+(\+[0-9]+)?$$')
+
+ifeq ($(ARCHIVE_RELEASE),)
+VERSION_NOW := unknown
+else
+VERSION_NOW := $(ARCHIVE_RELEASE)
+endif
 
 endif

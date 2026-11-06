@@ -301,38 +301,109 @@ MU_TEST(the_generated_version_header_says_nothing_else_about_the_build)
 /*
  * The compiler's own build stamps. Nothing in the firmware uses them, and
  * nothing may: they would put the build date into an image without any
- * makefile saying so.
+ * makefile saying so, from any source an image links rather than only from
+ * the two that carry the version replies.
+ *
+ * Every source under firmware/ is read, because that is the set an image can
+ * link from. The tests themselves are left out: they run on the host and go
+ * into no image.
  */
-MU_TEST(no_firmware_source_uses_the_compilers_build_stamps)
+static int source_uses_a_build_stamp(const char *path, char *name,
+                                     size_t name_size)
 {
 	static const char *const stamps[] = { "__DATE__", "__TIME__",
 	                                      "__TIMESTAMP__" };
-	char line[1024], message[2048];
-	int i;
+	char line[1024];
+	FILE *file = fopen(path, "r");
+	int in_block = 0;
 	size_t s;
 
-	for (i = 0; i < SOURCE_COUNT; i++) {
-		FILE *file = fopen(source_paths[i], "r");
-		int in_block = 0;
-
-		snprintf(message, sizeof(message), "%s would not open",
-		         source_paths[i]);
-		mu_assert_fatal(file != NULL, message);
-		while (fgets(line, sizeof(line), file) != NULL) {
-			strip_comments(line, &in_block);
-			for (s = 0; s < sizeof(stamps) / sizeof(stamps[0]);
-			     s++) {
-				snprintf(message, sizeof(message),
-				         "%s uses %s, so the image would carry "
-				         "the date it was built and two builds "
-				         "of the same source would differ",
-				         source_paths[i], stamps[s]);
-				mu_assert(!contains_identifier(line, stamps[s]),
-				          message);
+	if (file == NULL)
+		return 0;
+	while (fgets(line, sizeof(line), file) != NULL) {
+		strip_comments(line, &in_block);
+		for (s = 0; s < sizeof(stamps) / sizeof(stamps[0]); s++) {
+			if (contains_identifier(line, stamps[s])) {
+				snprintf(name, name_size, "%s", stamps[s]);
+				fclose(file);
+				return 1;
 			}
 		}
-		fclose(file);
 	}
+	fclose(file);
+	return 0;
+}
+
+MU_TEST(no_firmware_source_uses_the_compilers_build_stamps)
+{
+	char command[1024], path[1024], stamp[64], message[2048];
+	FILE *listing;
+	int scanned = 0;
+
+	/* find rather than a list of directories, so a source added anywhere
+	 * under firmware/ is covered without this test being told about it. */
+	snprintf(command, sizeof(command),
+	         "find %s -name tests -prune -o \\( -name '*.c' -o -name '*.h' "
+	         "-o -name '*.cpp' \\) -print", FW_DIR);
+	listing = popen(command, "r");
+	mu_assert_fatal(listing != NULL, "the firmware sources could not be listed");
+	while (fgets(path, sizeof(path), listing) != NULL) {
+		size_t length = strlen(path);
+
+		if (length > 0 && path[length - 1] == '\n')
+			path[length - 1] = '\0';
+		if (path[0] == '\0')
+			continue;
+		scanned++;
+		if (source_uses_a_build_stamp(path, stamp, sizeof(stamp))) {
+			snprintf(message, sizeof(message),
+			         "%s uses %s, so an image linking it would "
+			         "carry the date it was built and two builds "
+			         "of the same source would differ", path,
+			         stamp);
+			mu_assert(0, message);
+		}
+	}
+	pclose(listing);
+	snprintf(message, sizeof(message),
+	         "only %d firmware sources were scanned, so the listing did not "
+	         "work and this test checked almost nothing", scanned);
+	mu_assert(scanned > 50, message);
+}
+
+/*
+ * The version string itself. version.mk works it out, and what it runs is
+ * what could put a build date, a user or a host name into it -- the version
+ * reaches every image through the generated header, so a stamp added there
+ * needs no other change. git, sed and grep are what it may run.
+ */
+MU_TEST(the_version_string_is_worked_out_from_git_and_nothing_else)
+{
+	static const char *const forbidden[] = { "date", "whoami", "hostname",
+	                                         "uname", "id", "logname" };
+	char line[1024], message[2048];
+	FILE *file = fopen(FW_DIR "/version.mk", "r");
+	size_t f;
+
+	mu_assert_fatal(file != NULL, FW_DIR "/version.mk would not open");
+	while (fgets(line, sizeof(line), file) != NULL) {
+		char *at = strstr(line, "$(shell");
+
+		/* Only what it runs, not what it says in a comment: this file
+		 * explains itself at length and says "up to date" in doing so. */
+		if (at == NULL)
+			continue;
+		for (f = 0; f < sizeof(forbidden) / sizeof(forbidden[0]); f++) {
+			snprintf(message, sizeof(message),
+			         "%s/version.mk runs %s, which would put when, "
+			         "where or by whom the build ran into the "
+			         "version every image carries: %s", FW_DIR,
+			         forbidden[f], line);
+			mu_assert(!contains_identifier(at, forbidden[f]),
+			          message);
+		}
+	}
+	fclose(file);
 }
 
 /* -------------------------------------------------------------------------
@@ -573,6 +644,7 @@ int main(void)
 	MU_RUN(both_images_define_the_build_string_the_same_way);
 	MU_RUN(the_generated_version_header_says_nothing_else_about_the_build);
 	MU_RUN(no_firmware_source_uses_the_compilers_build_stamps);
+	MU_RUN(the_version_string_is_worked_out_from_git_and_nothing_else);
 	MU_RUN(a_normal_revision_goes_out_whole);
 	MU_RUN(a_long_revision_is_cut_to_the_cap);
 	MU_RUN(the_old_cast_wrapped_a_long_revision);
