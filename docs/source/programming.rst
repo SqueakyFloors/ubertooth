@@ -8,12 +8,14 @@ There are three ways to program an Ubertooth board: the USB bootloader, the ISP 
 
 A bootloader cannot replace itself over USB, because it accepts writes only from address 0x4000, where the application region starts. It will read its own region back, which is how a bootloader update is checked. ``ubertooth-dfu --update-bootloader`` installs one from the ``bl_update`` image instead, which carries the bootloader as an ordinary application and programs the region once the board runs it. See ubertooth-dfu(1), UPDATING THE BOOTLOADER; keep a serial adapter to hand, because that is what recovers a board from an interrupted write.
 
+``install.sh --update-bootloader --flash-device <index|serial|all>`` runs that whole procedure from a checkout: it builds ``bl_update``, installs the bootloader on the board named, puts ``bluetooth_rxtx`` back, and reads the result off the board. A board that already has that bootloader is left alone, and with ``all`` the boards are done one at a time.
+
 
 
 USB bootloader
 ~~~~~~~~~~~~~~
 
-This is the recommended method of loading code onto an Ubertooth Zero or Ubertooth One provided that the USB bootloader is already installed (at the time of manufacture, for example). To install the bootloader itself, ``ubertooth-dfu --update-bootloader`` writes one from the ``bl_update`` image over USB; ISP and JTAG remain the route for a board whose bootloader is missing or half written.
+This is the recommended method of loading code onto an Ubertooth Zero or Ubertooth One provided that the USB bootloader is already installed (at the time of manufacture, for example). To install the bootloader itself, ``ubertooth-dfu --update-bootloader`` writes one from the ``bl_update`` image over USB, or ``install.sh --update-bootloader`` does the same from a checkout; ISP and JTAG remain the route for a board whose bootloader is missing or half written.
 
 The bootloader executes every time the device starts up from reset or power cycle. Normally it just gets out of the way and passes control to the application firmware very quickly. Alternatively it can enter DFU mode which permits firmware upload and download over USB. There are two ways to tell the bootloader that you want it to enter DFU mode:
 

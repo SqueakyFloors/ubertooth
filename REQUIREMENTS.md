@@ -40,7 +40,7 @@ See [COMPATIBILITY.md](COMPATIBILITY.md) for supported OS / toolchain / Python *
 |---|---|---|---|---|
 | GNU make | firmware build | `build-essential` | `make` | Xcode CLT (stock `make` 3.81 is fine) |
 | arm-none-eabi-gcc + its C library | cross-compile firmware | `gcc-arm-none-eabi libnewlib-arm-none-eabi` | `arm-none-eabi-gcc-cs arm-none-eabi-newlib` | `brew install --cask gcc-arm-embedded` |
-| ARM C++ runtime | only `firmware/bootloader`, the one image written in C++ | `libstdc++-arm-none-eabi-newlib` | `arm-none-eabi-gcc-cs-c++` | carried by the cask above |
+| ARM C++ runtime | only `firmware/bootloader`, the one image written in C++, and `firmware/bl_update`, which carries it | `libstdc++-arm-none-eabi-newlib` | `arm-none-eabi-gcc-cs-c++` | carried by the cask above |
 | perl | only `make -C firmware test`, to generate the ToorCon badge's register header | pre-installed | pre-installed | pre-installed |
 | ubertooth-dfu (host tool) | the `.dfu` packaging step, and flashing a board | built with the host tools | same | same |
 
@@ -57,9 +57,11 @@ needs them.
 ## Quick install (Debian/Ubuntu, Fedora, and macOS with Homebrew)
 
 The easiest path is the bootstrap script, which installs all of the below and
-builds and installs libbtbb and the host tools for you. The one exception is
-the ARM C++ runtime: nothing the script builds needs it, so install it by hand
-if you are going to build the bootloader (`make -C firmware bootloader`).
+builds and installs libbtbb and the host tools for you. The ARM C++ runtime is
+the one package it asks for only when it is needed: a plain run and
+`--with-firmware` build nothing that uses it, and `--update-bootloader` does,
+so that option installs it. Install it by hand if you are going to build the
+bootloader on its own (`make -C firmware bootloader`).
 
 ```sh
 ./install.sh            # see ./install.sh --help for options (venv, flash, ...)

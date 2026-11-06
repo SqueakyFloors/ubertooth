@@ -30,9 +30,10 @@ toolchain.
 There is a third image, ``bl_update``, which a board does not run for long: it
 installs a bootloader and resets into DFU, so that a bootloader can be
 replaced over USB rather than over the serial programming interface. It is
-built with ``make -C firmware bl_update`` and installed with
+built with ``make -C firmware/bl_update`` and installed with
 ``ubertooth-dfu --update-bootloader``; see ubertooth-dfu(1), UPDATING THE
-BOOTLOADER for the procedure. Flashing it leaves the application region
+BOOTLOADER for the procedure, and ``install.sh --update-bootloader`` for a
+command that does the whole of it. Flashing it leaves the application region
 holding it, so one of the two images above has to be written again afterwards.
 Writing it at all programs the bootloader region, so a release archive keeps it
 in ``ubertooth-one-firmware-bin/bootloader-update/`` rather than beside the two

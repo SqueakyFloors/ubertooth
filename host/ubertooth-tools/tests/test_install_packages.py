@@ -53,6 +53,11 @@ DNF_DEPENDENCIES = (
     " bluez-libs-devel fftw-devel python3 python3-pip python3-libusb1 git")
 DNF_FIRMWARE = ("dnf install -y arm-none-eabi-gcc-cs arm-none-eabi-newlib"
                 " dfu-util make")
+# --update-bootloader adds the ARM C++ runtime, and nothing else does: it
+# builds bl_update, which carries the bootloader's binary, and the bootloader
+# is the one image written in C++.
+APT_BOOTLOADER = APT_FIRMWARE + " libstdc++-arm-none-eabi-newlib"
+DNF_BOOTLOADER = DNF_FIRMWARE + " arm-none-eabi-gcc-cs-c++"
 
 # Faking the platform, the interpreter and git puts a Linux run of the script
 # in reach on any machine and ends it before anything is built: the clone
@@ -218,6 +223,23 @@ for manager, firmware, dependencies in (
     assert printed.index(firmware) < printed.index(dependencies), \
         (manager, printed)
 
+# --update-bootloader asks for one package more, the ARM C++ runtime, because
+# the bootloader bl_update carries is the one image written in C++. The run
+# above must not have asked for it: a firmware build that does not touch the
+# bootloader has no use for it, and it is a large package.
+for manager, firmware, bootloader in (("dnf", DNF_FIRMWARE, DNF_BOOTLOADER),
+                                      ("apt-get", APT_FIRMWARE,
+                                       APT_BOOTLOADER)):
+    status, stderr, stdout = run_with_fakes(["--with-firmware"], [manager])
+    assert firmware in would_run(stderr), (manager, stderr)
+    assert bootloader not in would_run(stderr), (manager, stderr)
+    status, stderr, stdout = run_with_fakes(
+        ["--update-bootloader", "--flash-device", "ab" * 16], [manager])
+    assert status != 0, stderr
+    assert "==> Building firmware" not in stderr, (manager, stderr)
+    assert stdout == "", stdout
+    assert bootloader in would_run(stderr), (manager, bootloader, stderr)
+
 # Every package the script asks for is named in the table a user installing by
 # hand reads, so a dependency added here has to be added there too. A name
 # left in the table after the script stopped asking for it is not caught: the
@@ -225,8 +247,8 @@ for manager, firmware, dependencies in (
 if REQUIREMENTS:
     with open(REQUIREMENTS) as table:
         listed = table.read()
-    for command in (APT_DEPENDENCIES, APT_FIRMWARE,
-                    DNF_DEPENDENCIES, DNF_FIRMWARE):
+    for command in (APT_DEPENDENCIES, APT_FIRMWARE, APT_BOOTLOADER,
+                    DNF_DEPENDENCIES, DNF_FIRMWARE, DNF_BOOTLOADER):
         # Everything the command installs is what follows its -y.
         for package in command.split(" -y ", 1)[1].split():
             # As a whole name, not as a substring: "make" is inside "cmake"

@@ -170,7 +170,9 @@ ubertooth\-util \-B
 .fi
 .IP "" 0
 .P
-\fBbl_update\.dfu\fR is an ordinary firmware image, built by \fBmake \-C firmware bl_update\fR, that carries the 16 KiB of bootloader region to install\. This command writes it like any image and resets the board; the image programs the region through the part's own In\-Application Programming commands, reads it back, and resets into DFU, where this command waits for it\. That leaves the application region holding the updater, which is why the second line above is part of the procedure\. Before anything is written, this command prints the CRC32 the installed bootloader will report, and reads the bootloader region back as it stands; \fBubertooth\-util \-B\fR on the third line prints what the board actually has, so the two can be compared\.
+From a checkout of this project, \fBinstall\.sh \-\-update\-bootloader \-\-flash\-device <index|serial|all>\fR runs all three lines for the board it names, one board at a time, and builds the images first\.
+.P
+\fBbl_update\.dfu\fR is an ordinary firmware image, built by \fBmake \-C firmware/bl_update\fR, that carries the 16 KiB of bootloader region to install\. This command writes it like any image and resets the board; the image programs the region through the part's own In\-Application Programming commands, reads it back, and resets into DFU, where this command waits for it\. That leaves the application region holding the updater, which is why the second line above is part of the procedure\. Before anything is written, this command prints the CRC32 the installed bootloader will report, and reads the bootloader region back as it stands; \fBubertooth\-util \-B\fR on the third line prints what the board actually has, so the two can be compared\.
 .P
 A board that already has the bootloader the image carries is left alone\. The running application is asked which bootloader it has, through the same request \fBubertooth\-util \-B\fR answers, before the board is asked for DFU:
 .IP "" 4
