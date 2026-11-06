@@ -119,6 +119,12 @@ tools, specan_ui Python deps, and (on Linux) udev rules:
 ./install.sh --uninstall                  # take it all back off again
 ```
 
+`--update-bootloader`, beside `--flash-device`, also installs the bootloader
+this tree builds and puts the firmware back afterwards. A board that already
+has that bootloader is left alone, and boards are done one at a time. Keep a
+serial programmer to hand before you run it: an interrupted bootloader write
+leaves a board needing one. See `ubertooth-dfu(1)`, UPDATING THE BOOTLOADER.
+
 `--uninstall` removes the files an earlier run recorded — the tools, the
 libraries, the man pages, the udev rule — and nothing else: the distribution
 or Homebrew packages, the Python packages, and a `--venv` directory all stay.

@@ -41,6 +41,16 @@
 #                     flash a specific Ubertooth (implies --flash); use "all"
 #                     to flash every attached device. Recommended when more
 #                     than one device is attached.
+#   --update-bootloader
+#                     also install the bootloader this tree builds, on the
+#                     board --flash-device names, which this option requires
+#                     (implies --flash and --with-firmware; STATE-CHANGING).
+#                     A board that already has that bootloader is left alone.
+#                     Boards are done one at a time, each finished and read
+#                     back before the next, and bluetooth_rxtx goes back on
+#                     after each. Keep a serial programmer to hand: an
+#                     interrupted write leaves a board needing one. See
+#                     ubertooth-dfu(1), UPDATING THE BOOTLOADER.
 #   --venv <path>     create/use a Python venv at <path> for the Python tools
 #                     and point the build at its interpreter
 #   --libbtbb-url <u> git URL to clone libbtbb from
@@ -69,6 +79,7 @@ set -euo pipefail
 WITH_FIRMWARE=0
 FLASH=0
 FLASH_DEVICE=""
+UPDATE_BOOTLOADER=0
 UNINSTALL=0
 # "keep", "remove", or empty for "ask a terminal, keep otherwise".
 LIBBTBB_ACTION=""
@@ -225,6 +236,7 @@ while [ $# -gt 0 ]; do
 		--with-firmware) WITH_FIRMWARE=1 ;;
 		--flash) FLASH=1; WITH_FIRMWARE=1 ;;
 		--flash-device) shift; FLASH_DEVICE="${1:-}"; FLASH=1; WITH_FIRMWARE=1; [ -n "$FLASH_DEVICE" ] || die "option '--flash-device' requires a value" ;;
+		--update-bootloader) UPDATE_BOOTLOADER=1; FLASH=1; WITH_FIRMWARE=1 ;;
 		--uninstall) UNINSTALL=1 ;;
 		--keep-libbtbb)
 			[ "$LIBBTBB_ACTION" != remove ] || die "--keep-libbtbb cannot be combined with --remove-libbtbb"
@@ -286,12 +298,20 @@ fi
 # --no-sudo prints the privileged steps instead of running them, so both apply
 # to either job.
 if [ "$UNINSTALL" -eq 1 ]; then
-	[ "$WITH_FIRMWARE" -eq 0 ] || die "--uninstall cannot be combined with --with-firmware, --flash or --flash-device"
+	[ "$WITH_FIRMWARE" -eq 0 ] || die "--uninstall cannot be combined with --with-firmware, --flash, --flash-device or --update-bootloader"
 	[ -z "$VENV" ] || die "--uninstall cannot be combined with --venv"
 	[ "$SKIP_DEPS" -eq 0 ] || die "--uninstall cannot be combined with --skip-deps"
 	[ "$LIBBTBB_DEFAULTS" -eq 1 ] || die "--uninstall cannot be combined with --libbtbb-url or --libbtbb-ref; it removes the libbtbb that was installed"
 elif [ -n "$LIBBTBB_ACTION" ]; then
 	die "--keep-libbtbb and --remove-libbtbb only apply to --uninstall"
+fi
+
+# Installing a bootloader costs the board its application region and leaves it
+# in DFU, so the board it happens to has to be named rather than found: a run
+# with one board attached today and two tomorrow would otherwise write a
+# different board each time.
+if [ "$UPDATE_BOOTLOADER" -eq 1 ] && [ -z "$FLASH_DEVICE" ]; then
+	die "--update-bootloader needs --flash-device <index|serial|all> to say which board to install the bootloader on"
 fi
 
 # --- platform check -------------------------------------------------------
@@ -548,19 +568,116 @@ mkdir -p "$WORK"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
 
+# Wait for a board to answer again after a reset. ubertooth-dfu -r has already
+# seen the board come back and read the image's own revision off it, so this is
+# the shorter wait for the read that follows: a board that has just
+# re-enumerated can take a moment to be reachable by serial.
+wait_for_board() { # <ubertooth-util> <serial>
+	local waited=0
+	while [ "$waited" -lt 15 ]; do
+		"$1" -U "$2" -v >/dev/null 2>&1 && return 0
+		sleep 1
+		waited=$((waited+1))
+	done
+	return 1
+}
+
+# True when some board is waiting in the DFU bootloader.
+#
+# Such a board is not in list_devices' listing: it reports no serial number and
+# no index counts it. ubertooth-util names it in a note when a selection
+# matches nothing, which is what this asks for -- "zz" is not hex, so no
+# serial can start with it. The refusal that comes with the note is expected
+# and is not shown.
+dfu_board_waiting() { # <ubertooth-util>
+	local answer
+	answer="$("$1" -U zz -s 2>&1 || true)"
+	case "$answer" in
+		*"in the DFU bootloader"*) return 0 ;;
+	esac
+	return 1
+}
+
+# Install the bootloader on one board, put bluetooth_rxtx back, and read off
+# the board what it ended up with. One board start to finish, so a run over
+# several boards finishes each before it touches the next.
+#
+# ubertooth-dfu decides whether to write: a board that already has this
+# bootloader is left alone, still running its firmware, and one that is written
+# is left in DFU with the updater in its application region. So the firmware
+# goes back on either way. A written board is reached with no -U, because the
+# bootloader reports no serial for -U to name, and ubertooth-dfu with no
+# selector takes the one board waiting there -- which is why a board already in
+# DFU stops the run before any of this (see dfu_board_waiting above).
+#
+# --force is never passed, and this script does not offer it: it writes without
+# asking the board which bootloader it has, which costs the application region
+# for a bootloader that may already be there.
+update_bootloader_on() { # <dfu> <util> <bl_update.dfu> <firmware.dfu> <serial>
+	local dfu="$1" util="$2" blimg="$3" img="$4" serial="$5"
+	local answer="$WORK/bl-update.out" outcome bootloader
+
+	info "Installing the bootloader on $serial"
+	info "  keep a serial programmer to hand: a write that is interrupted leaves the board needing one"
+	# Kept, because which of the two things happened is read out of it below,
+	# and shown as it arrives, because the write takes a while. tee rather
+	# than grep in the pipeline: nothing may close this tool's output early.
+	# The tool's own lines go to standard error with the rest of this
+	# script's output, as the ubertooth-util answer at the end of a run does.
+	if ! "$dfu" --update-bootloader -d "$blimg" -U "$serial" </dev/null | tee "$answer" >&2; then
+		err "installing the bootloader on $serial failed"
+		die "the firmware was not put back on this board; see ubertooth-dfu(1), UPDATING THE BOOTLOADER for what an interrupted write leaves behind and how a serial programmer recovers it"
+	fi
+	# The one line that says the board was left alone. Both outcomes exit 0,
+	# so this is what tells them apart.
+	if grep -q 'already has this bootloader' "$answer"; then
+		outcome="already had this bootloader, nothing written"
+		info "  $serial still runs its firmware; flashing bluetooth_rxtx anyway, as a --flash run would"
+		"$dfu" -U "$serial" -d "$img" -r </dev/null ||
+			die "the bootloader on $serial was left as it was, and flashing the firmware failed"
+	else
+		outcome="bootloader installed"
+		info "  $serial is in DFU with the updater in its application region; flashing bluetooth_rxtx back"
+		# A failure here leaves the board in DFU holding the updater, which
+		# the same command puts right once whatever stopped it is dealt with.
+		"$dfu" -d "$img" -r </dev/null ||
+			die "the bootloader is installed on $serial, but the firmware did not go back on: the board is in the DFU bootloader holding the updater, and 'ubertooth-dfu -d firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r' with no -U is what reaches it"
+	fi
+	wait_for_board "$util" "$serial" ||
+		warn "$serial has not answered since the flash; check it with ubertooth-util -U $serial -V"
+	# Read off the board, not assumed: -V says which firmware is running and
+	# -B which bootloader is installed. Their answers go to standard error
+	# with the rest of this script's output.
+	"$util" -U "$serial" -V >&2 || warn "$serial did not answer ubertooth-util -V"
+	if bootloader="$("$util" -U "$serial" -B)"; then
+		info "$serial: $outcome. $bootloader"
+	else
+		warn "$serial: $outcome, but ubertooth-util -B would not read it back"
+	fi
+}
+
 # Build the firmware and flash the selected device(s). Uses whichever
 # ubertooth-dfu / ubertooth-util is on PATH (an existing install).
 flash_firmware() {
-	local dfu util img devices n sel_serial index serial
+	local dfu util img blimg devices n sel_serial index serial
 	dfu="$(command -v ubertooth-dfu || true)"
 	util="$(command -v ubertooth-util || true)"
 	img="$REPO_ROOT/firmware/bluetooth_rxtx/bluetooth_rxtx.dfu"
+	blimg="$REPO_ROOT/firmware/bl_update/bl_update.dfu"
 	if [ -z "$dfu" ] || [ -z "$util" ]; then
 		die "ubertooth-dfu/ubertooth-util not found on PATH; build the host tools first"
 	fi
 
 	info "Building firmware (bluetooth_rxtx)"
 	PATH="$(dirname "$dfu"):$PATH" make -C "$REPO_ROOT/firmware/bluetooth_rxtx"
+	if [ "$UPDATE_BOOTLOADER" -eq 1 ]; then
+		# bl_update carries the 16 KiB of bootloader region to install, so
+		# building it builds the bootloader beside it. Its own directory
+		# rather than firmware/'s bl_update target, because that target stops
+		# at the .bin and the signed .dfu is what ubertooth-dfu writes.
+		info "Building firmware (bl_update, the bootloader updater)"
+		PATH="$(dirname "$dfu"):$PATH" make -C "$REPO_ROOT/firmware/bl_update"
+	fi
 
 	if [ "$FLASH" -ne 1 ]; then
 		return 0
@@ -571,6 +688,12 @@ flash_firmware() {
 	info "Looking for the Ubertooth to flash"
 	devices="$(list_devices "$util")"
 	n="$(printf '%s\n' "$devices" | grep -c . || true)"
+	# Checked before the first write rather than when the flash with no -U
+	# finds two boards in DFU, which would be after this run had already cost
+	# a board its application region.
+	if [ "$UPDATE_BOOTLOADER" -eq 1 ] && dfu_board_waiting "$util"; then
+		die "a board is waiting in the DFU bootloader; finish or recover that flash first, because installing a bootloader leaves a board there too and ubertooth-dfu will not choose between two"
+	fi
 	if [ "$FLASH_DEVICE" = "all" ]; then
 		[ "$n" -gt 0 ] || die "no Ubertooth found to flash"
 		# Never skip a board silently: refuse if any device cannot be read.
@@ -579,22 +702,38 @@ flash_firmware() {
 		fi
 		info "Flashing all $n attached Ubertooths"
 		while read -r index serial; do
-			info "  flashing $index: $serial"
-			"$dfu" -U "$serial" -d "$img" -r </dev/null
+			if [ "$UPDATE_BOOTLOADER" -eq 1 ]; then
+				update_bootloader_on "$dfu" "$util" "$blimg" "$img" "$serial"
+			else
+				info "  flashing $index: $serial"
+				"$dfu" -U "$serial" -d "$img" -r </dev/null
+			fi
 		done <<< "$devices"
 	elif [ -n "$FLASH_DEVICE" ]; then
-		# Show the serial even when the user selected by index.
+		# The serial, even when the user selected by index: an index is a
+		# position in the list of boards running their firmware, and a
+		# bootloader install takes a board out of that list and brings it
+		# back, so --update-bootloader needs the serial rather than the
+		# position. It is what the messages name either way.
+		sel_serial="$FLASH_DEVICE"
 		if printf '%s' "$FLASH_DEVICE" | grep -qE '^[0-9]+$'; then
 			sel_serial="$(printf '%s\n' "$devices" | awk -v i="$FLASH_DEVICE" '$1 == i { print $2 }')"
-			if [ -n "$sel_serial" ] && [ "$sel_serial" != "?" ]; then
-				info "Flashing bluetooth_rxtx to Ubertooth index $FLASH_DEVICE (serial $sel_serial)"
-			else
-				info "Flashing bluetooth_rxtx to Ubertooth index $FLASH_DEVICE"
-			fi
-		else
-			info "Flashing bluetooth_rxtx to Ubertooth serial $FLASH_DEVICE"
+			[ -n "$sel_serial" ] || sel_serial="?"
 		fi
-		"$dfu" -U "$FLASH_DEVICE" -d "$img" -r
+		if [ "$UPDATE_BOOTLOADER" -eq 1 ]; then
+			[ "$sel_serial" != "?" ] ||
+				die "the serial of Ubertooth index $FLASH_DEVICE could not be read, and --update-bootloader needs it: name the board by serial instead"
+			update_bootloader_on "$dfu" "$util" "$blimg" "$img" "$sel_serial"
+		else
+			if [ "$sel_serial" != "$FLASH_DEVICE" ] && [ "$sel_serial" != "?" ]; then
+				info "Flashing bluetooth_rxtx to Ubertooth index $FLASH_DEVICE (serial $sel_serial)"
+			elif [ "$sel_serial" = "?" ]; then
+				info "Flashing bluetooth_rxtx to Ubertooth index $FLASH_DEVICE"
+			else
+				info "Flashing bluetooth_rxtx to Ubertooth serial $FLASH_DEVICE"
+			fi
+			"$dfu" -U "$FLASH_DEVICE" -d "$img" -r
+		fi
 	else
 		if [ "$n" -eq 0 ]; then
 			die "no Ubertooth found to flash"

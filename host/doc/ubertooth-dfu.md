@@ -365,8 +365,12 @@ one command:
     ubertooth-dfu -d bluetooth_rxtx.dfu -r
     ubertooth-util -B
 
-`bl_update.dfu` is an ordinary firmware image, built by `make -C firmware
-bl_update`, that carries the 16 KiB of bootloader region to install. This
+From a checkout of this project, `install.sh --update-bootloader --flash-device
+<index|serial|all>` runs all three lines for the board it names, one board at a
+time, and builds the images first.
+
+`bl_update.dfu` is an ordinary firmware image, built by `make -C
+firmware/bl_update`, that carries the 16 KiB of bootloader region to install. This
 command writes it like any image and resets the board; the image programs the
 region through the part's own In-Application Programming commands, reads it
 back, and resets into DFU, where this command waits for it. That leaves the
