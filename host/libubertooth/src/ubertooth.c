@@ -123,6 +123,9 @@ static const char* file_of_symbol(const void* address)
 }
 
 /*
+ * Asked of btbb_get_release(), which is one of the functions the version line
+ * below calls, so the file found is the file this run decodes packets with.
+ *
  * Two builds answer with the program instead of a library, and both answers
  * are honest. One linked libbtbb into the program. The other was built
  * without position-independent code, where the program's own entry for the
@@ -140,7 +143,7 @@ static const char* loaded_libbtbb_path(void)
 		const void* address;
 	} probe;
 
-	probe.function = btbb_get_version;
+	probe.function = btbb_get_release;
 	return file_of_symbol(probe.address);
 }
 

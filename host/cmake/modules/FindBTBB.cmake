@@ -38,7 +38,6 @@ set(LIBBTBB_REQUIRED_FUNCTIONS
   btbb_find_ac_n
   btbb_gen_syncword
   btbb_get_release
-  btbb_get_version
   btbb_init
   btbb_init_piconet
   btbb_init_survey
