@@ -122,7 +122,7 @@ Next the Bluetooth baseband library (libbtbb) needs to be built for the Ubertoot
 
 		git clone https://github.com/SqueakyFloors/libbtbb.git
 		cd libbtbb
-		git checkout c70de76afbe13f3740bcd906952a36c849383810
+		git checkout d356e9da7fb03969371aa14d603a8aad2f0ef198
 		mkdir build
 		cd build
 		cmake -DENABLE_PYTHON=OFF ..
@@ -140,7 +140,7 @@ It also prints one line saying which libbtbb it found, the commit that library w
 
 	.. code-block:: text
 
-		-- libbtbb: /usr/local/lib/libbtbb.so, built from commit c70de76afbe13f3740bcd906952a36c849383810, which is the commit this tree is built against (c70de76afbe13f3740bcd906952a36c849383810)
+		-- libbtbb: /usr/local/lib/libbtbb.so, built from commit d356e9da7fb03969371aa14d603a8aad2f0ef198, which is the commit this tree is built against (d356e9da7fb03969371aa14d603a8aad2f0ef198)
 
 A libbtbb built from a git clone records the commit it came from, and the configure step reads that back out of the library. Where the two commits differ the line says both and a warning follows it, because the tools behave the way the libbtbb they link behaves: a capture or a clock measured against them is then a result for that libbtbb rather than for the pinned one. The build is not stopped on that account. A libbtbb installed from a distribution package, or built from a source archive rather than a clone, records no commit; the line says so and names the pin.
 

@@ -2344,6 +2344,12 @@ Behavior the tools share.
   guides check out the new commit.
   [#736](https://github.com/SqueakyFloors/ubertooth/issues/736)
 - The pin moves on again, to libbtbb
+  ([`d356e9d`](https://github.com/SqueakyFloors/libbtbb/commit/d356e9da7fb03969371aa14d603a8aad2f0ef198)),
+  where the release a build from a source archive reports comes from git
+  rather than a version kept by hand, as it now does here. A build with no
+  release to read reports `unknown`; the commit libbtbb records beside it is
+  what identifies such a build.
+- The pin moved on before that, to libbtbb
   ([`c70de76`](https://github.com/SqueakyFloors/libbtbb/commit/c70de76afbe13f3740bcd906952a36c849383810)),
   where libbtbb reports its release the way these tools report theirs: the
   release it was built from, or the nearest release and how many commits are
