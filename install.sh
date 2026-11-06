@@ -763,17 +763,31 @@ if [ "$FLASH" -eq 1 ] && command -v ubertooth-util >/dev/null 2>&1; then
 fi
 
 # --- 1. firmware toolchain deps (only what flashing needs, installed early) -
+#
+# --update-bootloader needs one package more than the rest: bl_update carries
+# the bootloader's binary, so building it builds the bootloader, and that is
+# the one image written in C++. It is asked for only for that option, so an
+# ordinary firmware build still installs no ARM C++ runtime. Both names are in
+# REQUIREMENTS.md; the macOS cask carries its own.
+BL_PACKAGES_DEBIAN=""
+BL_PACKAGES_FEDORA=""
+if [ "$UPDATE_BOOTLOADER" -eq 1 ]; then
+	BL_PACKAGES_DEBIAN="libstdc++-arm-none-eabi-newlib"
+	BL_PACKAGES_FEDORA="arm-none-eabi-gcc-cs-c++"
+fi
 if [ "$WITH_FIRMWARE" -eq 1 ] && [ "$SKIP_DEPS" -eq 0 ]; then
 	if [ "$PLATFORM" = debian ]; then
 		info "Installing firmware toolchain (apt)"
 		as_root apt-get update -qq
-		as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi dfu-util make
+		# shellcheck disable=SC2086  # unquoted on purpose: empty means no extra package
+		as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi dfu-util make $BL_PACKAGES_DEBIAN
 	elif [ "$PLATFORM" = fedora ]; then
 		# Fedora's ARM cross-compiler keeps the "-cs" of the CodeSourcery
 		# release it started from; arm-none-eabi-newlib is the C library the
 		# firmware links. REQUIREMENTS.md lists both.
 		info "Installing firmware toolchain (dnf)"
-		as_root dnf install -y arm-none-eabi-gcc-cs arm-none-eabi-newlib dfu-util make
+		# shellcheck disable=SC2086  # unquoted on purpose: empty means no extra package
+		as_root dnf install -y arm-none-eabi-gcc-cs arm-none-eabi-newlib dfu-util make $BL_PACKAGES_FEDORA
 	else
 		info "Installing firmware toolchain (Homebrew)"
 		brew_install dfu-util
