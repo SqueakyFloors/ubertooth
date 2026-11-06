@@ -23,9 +23,7 @@
 # Both rest on the same question -- is this a git checkout, and which release
 # is it -- so they are worked out here, together, from one look at git. They
 # used to be worked out in two places, which could come to disagree about
-# that. One corner is still odd, and was before: a checkout with no commit in
-# it has no history to describe, so it reports the release version string
-# while counting as a development build.
+# that.
 #
 # A build counts as a development build only where that can be established: a
 # git checkout whose HEAD is not a release tag. Everything else -- a release
@@ -62,14 +60,24 @@ set(RELEASE_TAG_MATCH
 	--match "[0-9][0-9][0-9][0-9]-[0-9][0-9]-RC[0-9]*"
 	--match "[0-9][0-9][0-9][0-9]-[0-9][0-9]-DEV[0-9]*")
 
+# A glob cannot say "digits and then nothing", so the name git found is
+# checked here as well: "2026-11-R1-local" matches the first glob above and is
+# not a release.
+set(RELEASE_TAG_FORM "^[0-9][0-9][0-9][0-9]-[0-9][0-9]-(R|RC|DEV)[0-9]+$")
+
 # A setting given as an empty value says nothing, so it is read as not given
-# rather than reported as the version.
-if(DEFINED RELEASE_STRING AND "${RELEASE_STRING}" STREQUAL "")
-	unset(RELEASE_STRING)
-	# A -D on the command line is a cache entry, which the line above does
-	# not reach.
-	unset(RELEASE_STRING CACHE)
-endif()
+# rather than taken as the answer. An empty UBERTOOTH_RELEASE would otherwise
+# leave a build that asked for a release build reading as a development one,
+# which is the direction that matters: it warns about firmware of another API
+# version where it should refuse it.
+foreach(setting RELEASE_STRING UBERTOOTH_RELEASE)
+	if(DEFINED ${setting} AND "${${setting}}" STREQUAL "")
+		unset(${setting})
+		# A -D on the command line is a cache entry, which the line
+		# above does not reach.
+		unset(${setting} CACHE)
+	endif()
+endforeach()
 
 # Is there git history to read, and is it this tree's? Asked from this file's
 # own directory, so the answer is about this checkout whoever includes the
@@ -119,6 +127,12 @@ if(NOT GIT_DIR_ERROR AND (NOT DEFINED RELEASE_STRING OR NOT DEFINED UBERTOOTH_RE
 		OUTPUT_VARIABLE RELEASE_TAG
 		OUTPUT_STRIP_TRAILING_WHITESPACE
 	)
+	if(NOT GIT_DESCRIBE_ERROR AND NOT RELEASE_TAG MATCHES "${RELEASE_TAG_FORM}")
+		# A tag the glob let through that is not a release name after
+		# all. Read as no release tag, rather than reported as the
+		# release this build came from.
+		set(GIT_DESCRIBE_ERROR 1)
+	endif()
 	if(GIT_DESCRIBE_ERROR)
 		# No release tag in reach. The tree is at least as new as the
 		# last release there was, and how much newer is not known.
@@ -183,6 +197,7 @@ endif()
 # inherited them.
 unset(LATEST_RELEASE)
 unset(RELEASE_TAG_MATCH)
+unset(RELEASE_TAG_FORM)
 unset(RELEASE_TAG)
 unset(RELEASE_AHEAD)
 unset(GIT_DIR_ERROR)

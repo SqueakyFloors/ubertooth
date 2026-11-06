@@ -232,7 +232,7 @@ Firmware version: bluetooth_rxtx 2026-11-DEV1+22 (API:<version>)
 Firmware build: Mon Oct 27 11:22:33 2025
 ```
 
-With no board attached it prints the host lines and `Firmware version: no
+With no board attached it prints the host line and `Firmware version: no
 Ubertooth attached`, and still exits 0, so it answers "which tools am I
 running?" on its own. Reading the version does not stop a mode the board is
 running, and works on whatever firmware the board is carrying.

@@ -226,11 +226,18 @@ def main():
             # Nothing a commit can be read from. No warning: a libbtbb from a
             # distribution package looks like this and may be fine.
             ("no-commit", [], False, ["commit unknown"]),
-            # A libbtbb older than the prefix, which recorded the commit in
-            # its release string instead. There is nothing here to read, and
-            # that library may be fine for what its user is doing.
-            ("older-libbtbb", ["git-%s" % recorded[:7]], False,
-             ["commit unknown"]),
+            # A libbtbb installed before the commit field, which recorded
+            # the commit in its release string instead. That is the library a
+            # machine with an older install has, and it is not the pinned one,
+            # so it has to be read and warned about rather than passing as a
+            # library that records nothing.
+            ("older-libbtbb", ["git-%s" % other[:7]], True,
+             ["built from commit %s" % other[:7]]),
+            # The same form, holding the pinned commit: a libbtbb built at the
+            # pin before the field existed is the right library, and must not
+            # be warned about.
+            ("older-libbtbb-pinned", ["git-%s" % recorded[:7]], False,
+             ["built from commit %s" % recorded[:7]]),
             # The library's own commit and another string that looks like one.
             # This one does warn: the library may well be the wrong one, and a
             # status line among hundreds is how that went unnoticed before.

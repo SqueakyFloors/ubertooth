@@ -140,8 +140,10 @@ endfunction()
 # with a commit, and btbb.h has no version macro. So the string is read out of
 # the library file, which needs no compiler to build a program and no loader
 # to run one, and so works for a static library and for a cross-compiled
-# build. A libbtbb older than that prefix, or one from a distribution package,
-# records no commit this can read, and then the report says so.
+# build. A libbtbb installed before that field carried the commit in its
+# release string instead, as "git-" and git's abbreviation of it, and that
+# form is read too: it is what a machine with an older install has. One from a
+# distribution package records no commit at all, and then the report says so.
 # The pin is a commit while libbtbb fixes are landing, and a release points it
 # at a matching tag of the libbtbb fork instead. A tag names no commit here,
 # and resolving it would need libbtbb's repository, which a build of these
@@ -174,13 +176,27 @@ function(btbb_library_commit out reason)
     return()
   endif()
 
-  # The prefix libbtbb puts in front of the commit, which is what makes it
-  # findable: the library holds every other string the compiler put there
-  # too, and a commit on its own is forty characters that could be anything.
-  # Not anchored, and the hex digits are matched greedily, because the string
-  # sits next to whatever the compiler put beside it. libbtbb writes it as its
-  # own NUL-terminated literal, so nothing is run up against it.
-  set(pattern "libbtbb-commit:[0-9a-fA-F]+\\*?")
+  # Two forms, because a libbtbb installed before the pin that records a
+  # commit of its own still has to be recognized -- that is the library every
+  # machine with an older install has, and the one this report most needs to
+  # warn about.
+  #
+  # The prefix libbtbb puts in front of the commit it records is what makes
+  # the new form findable: the library holds every other string the compiler
+  # put there too, and a commit on its own is forty characters that could be
+  # anything. The older form is the release string those libbtbb builds
+  # carried, "git-" and git's abbreviation of the commit; seven hex digits at
+  # least, written out because CMake's regular expressions have no repetition
+  # count, since a shorter match would be compared against the pin on too few
+  # characters to mean anything.
+  #
+  # Neither is anchored, and the hex digits are matched greedily, because the
+  # string sits next to whatever the compiler put beside it. libbtbb writes
+  # each as its own NUL-terminated literal, so nothing is run up against one.
+  set(hex "[0-9a-fA-F]")
+  set(patterns
+    "libbtbb-commit:[0-9a-fA-F]+\\*?"
+    "git-${hex}${hex}${hex}${hex}${hex}${hex}${hex}+\\*?")
 
   # Each run of printable bytes holding the pattern, then the pattern out of
   # each run. Two steps, because the pattern cannot be anchored.
@@ -190,17 +206,26 @@ function(btbb_library_commit out reason)
   # of printable bytes around libbtbb's string would report no commit at all,
   # which is the silence this whole report exists to remove. Reading a 34 MB
   # library costs about a second, and libbtbb installs at about 250 KB.
-  file(STRINGS "${library}" runs REGEX "${pattern}")
+  #
+  # The forms are tried in turn and the first one that is there decides: a
+  # libbtbb that records a commit of its own is read from that field, and the
+  # release string beside it, which names a release, is not searched at all.
   set(candidates "")
-  foreach(run IN LISTS runs)
-    string(REGEX MATCHALL "${pattern}" matches "${run}")
-    list(APPEND candidates ${matches})
+  foreach(pattern IN LISTS patterns)
+    file(STRINGS "${library}" runs REGEX "${pattern}")
+    foreach(run IN LISTS runs)
+      string(REGEX MATCHALL "${pattern}" matches "${run}")
+      list(APPEND candidates ${matches})
+    endforeach()
+    list(REMOVE_DUPLICATES candidates)
+    if(NOT candidates STREQUAL "")
+      break()
+    endif()
   endforeach()
 
-  list(REMOVE_DUPLICATES candidates)
   list(LENGTH candidates count)
   if(count EQUAL 1)
-    string(REGEX REPLACE "^libbtbb-commit:" "" commit "${candidates}")
+    string(REGEX REPLACE "^(libbtbb-commit:|git-)" "" commit "${candidates}")
     set(${out} "${commit}" PARENT_SCOPE)
     set(${reason} "" PARENT_SCOPE)
   elseif(count EQUAL 0)

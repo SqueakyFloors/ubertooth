@@ -201,9 +201,12 @@ def main():
         # rather than counted from the start of history -- that count is not
         # the distance from a release, and a shallow clone would answer it
         # with its own depth.
+        # A name that starts like a release and goes on, which a glob cannot
+        # rule out, is in the same position: not a release.
         untagged = new_tree(work, repo_root, "untagged")
         git(untagged, "tag", "wip-something")
         git(untagged, "tag", "2025-03-snapshot")
+        git(untagged, "tag", "2026-11-R1-local")
         expect(cmake, untagged, "no release tag in reach",
                "%s+unknown" % latest, "OFF")
 
@@ -246,9 +249,14 @@ def main():
                "a version of my own", "ON",
                "-DRELEASE_STRING=a version of my own",
                "-DUBERTOOTH_RELEASE=ON")
-        # One given as an empty value says nothing, so git decides it.
+        # One given as an empty value says nothing, so git decides it. That
+        # matters most for the release build: an empty value left as given
+        # would warn about firmware of another API version where a release
+        # build has to refuse it.
         expect(cmake, tagged, "an empty version on the command line",
                "2026-11-RC1+2", "OFF", "-DRELEASE_STRING=")
+        expect(cmake, tagged, "an empty release setting on the command line",
+               "2026-11-RC1+2", "OFF", "-DUBERTOOTH_RELEASE=")
 
         # The firmware works the string out the same way, so a board and the
         # tools report one version between them. Asked of the same checkouts,

@@ -94,7 +94,7 @@ attached. With several boards attached and no `-U`, both lines are printed for
 each of them with its index in the label, as the identity queries of
 ubertooth-util(1) are: `Firmware version (0): ...`, `Firmware build (0): ...`.
 
-With no Ubertooth attached the host lines are followed by `Firmware version:
+With no Ubertooth attached the host line is followed by `Firmware version:
 no Ubertooth attached` and the status is still 0: the host half of the answer
 needs no board, and nothing attached is an answer rather than a failure. A
 board sitting in the DFU bootloader is named in a `note:` on standard error

@@ -81,10 +81,16 @@ not be written to.
 
 ### 2b. The version answer
 - [ ] Run `ubertooth-util -V`
-- [ ] Confirm: four lines -- `Host tools version:`, `libbtbb loaded from:`,
-      `Firmware version:` and `Firmware build:` -- and exit 0
+- [ ] Confirm: three lines -- `Host tools version:`, `Firmware version:` and
+      `Firmware build:` -- and exit 0
+- [ ] Confirm: each version names a release (`2026-11-R1`, or a release and
+      how many commits past it such as `2026-11-R1+22`, with `*` where the
+      tree had uncommitted changes), and no commit hash appears
+- [ ] Confirm: `Firmware build:` is a date, with no user or host name in it
+- [ ] Confirm: nothing on standard error, unless this machine has a second
+      libbtbb install, which is reported as one `warning:` line there
 - [ ] Run `ubertooth-util -V` with no board attached
-- [ ] Confirm: the two host lines, then
+- [ ] Confirm: the host line, then
       `Firmware version: no Ubertooth attached`, and exit 0
 
 ### 2c. LED test (identify)

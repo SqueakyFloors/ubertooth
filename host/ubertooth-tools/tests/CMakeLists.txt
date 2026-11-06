@@ -16,6 +16,13 @@ remove_definitions(-DUBERTOOTH_RELEASE_BUILD=${UBERTOOTH_RELEASE_BUILD})
 # This directory asks for libusb itself: the directories are a normal
 # variable, and src/ is a sibling rather than a parent, so neither its
 # find_package() nor its include_directories() reaches here.
+# ubertooth.c and the source it calls beside it, for the targets below that
+# compile the library's device code rather than linking the library. Named in
+# one place so a source split out of ubertooth.c reaches all of them.
+set(libubertooth_device
+	${libubertooth_SOURCE_DIR}/src/ubertooth.c
+	${libubertooth_SOURCE_DIR}/src/libbtbb_origin.c)
+
 find_package(USB1 REQUIRED)
 if(USE_OWN_GNU_GETOPT)
 	# Ahead of libusb's directories, which on a Homebrew install are a
@@ -901,7 +908,7 @@ if(libubertooth_SOURCE_DIR)
 	# fail the allocation on demand.
 	add_executable(test-init-failure
 		test_init_failure.c
-		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_device}
 		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
@@ -933,7 +940,7 @@ if(libubertooth_SOURCE_DIR)
 	# case for a buffer no case reads a packet from.
 	add_executable(test-device-select
 		test_device_select.c
-		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_device}
 		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
@@ -953,7 +960,7 @@ if(libubertooth_SOURCE_DIR)
 	# reason as above.
 	add_executable(test-select-quiet
 		test_select_quiet.c
-		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_device}
 		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
@@ -974,7 +981,7 @@ if(libubertooth_SOURCE_DIR)
 	# what stops the receive loops.
 	add_executable(test-afh-requests
 		test_afh_requests.c
-		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_device}
 		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
@@ -994,7 +1001,7 @@ if(libubertooth_SOURCE_DIR)
 	# of the library is linked for the symbols the callbacks reference.
 	add_executable(test-clk100ns-wrap
 		test_clk100ns_wrap.c
-		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_device}
 		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_fifo.c
@@ -1136,7 +1143,7 @@ if(libubertooth_SOURCE_DIR)
 	# callbacks reference.
 	add_executable(test-le-decode-buffer
 		test_le_decode_buffer.c
-		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_device}
 		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c)
@@ -1158,7 +1165,7 @@ if(libubertooth_SOURCE_DIR)
 	# test's own, so no file is written and nothing is decoded.
 	add_executable(test-le-capture-reports
 		test_le_capture_reports.c
-		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_device}
 		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c)
@@ -1192,7 +1199,7 @@ if(libubertooth_SOURCE_DIR)
 	# above), so no board or ring buffer is involved.
 	add_executable(test-stream-failure
 		test_stream_failure.c
-		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_device}
 		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
@@ -1217,7 +1224,7 @@ if(libubertooth_SOURCE_DIR)
 	# case can see which slots were published and what was in them.
 	add_executable(test-keep-alive
 		test_keep_alive.c
-		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_device}
 		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
@@ -1239,7 +1246,7 @@ if(libubertooth_SOURCE_DIR)
 	# involved.
 	add_executable(test-capture-noise-flag
 		test_capture_noise_flag.c
-		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_device}
 		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
@@ -1258,7 +1265,7 @@ if(libubertooth_SOURCE_DIR)
 	# for the same reason as above.
 	add_executable(test-signal-ceiling
 		test_signal_ceiling.c
-		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_device}
 		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
@@ -1279,7 +1286,7 @@ if(libubertooth_SOURCE_DIR)
 	# (ubertooth_fifo.c is not linked, for the same reason as above).
 	add_executable(test-btle-dump-streams
 		test_btle_dump_streams.c
-		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_device}
 		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_le_frag.c
@@ -1299,7 +1306,7 @@ if(libubertooth_SOURCE_DIR)
 	# above).
 	add_executable(test-stop-on-signal
 		test_stop_on_signal.c
-		${libubertooth_SOURCE_DIR}/src/ubertooth.c
+		${libubertooth_device}
 		${libubertooth_SOURCE_DIR}/src/ubertooth_api_version.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_callback.c
 		${libubertooth_SOURCE_DIR}/src/ubertooth_control.c
@@ -1476,6 +1483,20 @@ foreach(tool debug dump tx)
 	# receive or transmit loop should fail instead of hanging the suite.
 	set_tests_properties(${tool}-main PROPERTIES TIMEOUT 10)
 endforeach()
+
+# -V warns when a run loads a libbtbb other than the one the build linked,
+# because the two decode packets differently and nothing else in a run says
+# which is in use. The decision is made on paths alone, so this gives it paths
+# of its own: a second install, two names for one directory, and the corners
+# where there is nothing to compare.
+add_executable(test-libbtbb-origin
+	test_libbtbb_origin.c
+	${libubertooth_SOURCE_DIR}/src/libbtbb_origin.c)
+target_include_directories(test-libbtbb-origin PRIVATE
+	${libubertooth_SOURCE_DIR}/src)
+add_test(NAME libbtbb-origin COMMAND test-libbtbb-origin)
+# String comparisons and one symbolic link in a temporary directory.
+set_tests_properties(libbtbb-origin PROPERTIES TIMEOUT 30)
 
 # set_release.cmake must name the release a build came from, and must not
 # report a distance it cannot know. Each case is a checkout this test writes

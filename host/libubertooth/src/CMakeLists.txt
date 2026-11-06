@@ -24,7 +24,8 @@
 add_definitions( -DRELEASE="${RELEASE_STRING}" )
 
 # Targets
-set(c_sources ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth.c
+set(c_sources ${CMAKE_CURRENT_SOURCE_DIR}/libbtbb_origin.c
+              ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth.c
               ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth_api_version.c
               ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth_callback.c
               ${CMAKE_CURRENT_SOURCE_DIR}/ubertooth_control.c

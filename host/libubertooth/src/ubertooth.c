@@ -42,6 +42,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "libbtbb_origin.h"
 #include "ubertooth.h"
 #include "ubertooth_callback.h"
 #include "ubertooth_control.h"
@@ -160,23 +161,6 @@ static const char* loaded_libubertooth_path(void)
 	return file_of_symbol(probe.address);
 }
 
-/* The directory part of a path, or 0 when it has none or will not fit. */
-static int directory_of(const char* path, char* out, size_t size)
-{
-	const char* slash = strrchr(path, '/');
-	size_t length;
-
-	if (slash == NULL)
-		return 0;
-	/* The root directory is one slash, not none. */
-	length = (size_t)(slash == path ? 1 : slash - path);
-	if (length >= size)
-		return 0;
-	memcpy(out, path, length);
-	out[length] = '\0';
-	return 1;
-}
-
 /*
  * The directory of the libbtbb this build was configured against, which the
  * build records; empty where it could not say, and then there is nothing to
@@ -189,30 +173,21 @@ static int directory_of(const char* path, char* out, size_t size)
 /*
  * A line about the libbtbb in use, but only when it is not the one these
  * tools were built against: a second install decodes packets differently, and
- * nothing else in a run would say so. The directories are compared rather
- * than the whole paths, because a build records the library it linked
- * (libbtbb.so) and the loader reports the file it opened (libbtbb.so.1).
- *
- * Silent where the two are the same, where either is unknown, and where
- * libbtbb is inside this very binary -- a static link, or a build without
- * position-independent code -- which is not a second install at all.
+ * nothing else in a run would say so. What counts as another install is
+ * ubertooth_libbtbb_is_elsewhere()'s question, in libbtbb_origin.c, where it
+ * is decided on paths alone and so can be tested on paths of a test's own.
  *
  * On standard error, with the other warnings: -V's answer on standard output
  * is the versions the user asked for.
  */
 static void warn_about_another_libbtbb(void)
 {
-	const char* loaded = loaded_libbtbb_path();
-	const char* self = loaded_libubertooth_path();
 	char loaded_dir[1024];
 
-	if (BTBB_BUILD_LIBDIR[0] == '\0' || loaded == NULL)
-		return;
-	if (self != NULL && strcmp(loaded, self) == 0)
-		return;
-	if (!directory_of(loaded, loaded_dir, sizeof(loaded_dir)))
-		return;
-	if (strcmp(loaded_dir, BTBB_BUILD_LIBDIR) == 0)
+	if (!ubertooth_libbtbb_is_elsewhere(loaded_libbtbb_path(),
+	                                    loaded_libubertooth_path(),
+	                                    BTBB_BUILD_LIBDIR, loaded_dir,
+	                                    sizeof(loaded_dir)))
 		return;
 	fprintf(stderr, "warning: libbtbb was loaded from %s, not the %s these "
 	        "tools were built against; packets may decode differently\n",

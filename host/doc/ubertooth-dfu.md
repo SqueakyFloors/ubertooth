@@ -620,10 +620,13 @@ command read back off the board. From `-d <image> -r` that is one line:
 
     Verified firmware revision: 2026-11-DEV1+22
 
-That is the revision the board reported once it was running the new firmware,
+That is the version the board reported once it was running the new firmware,
 so a script can read it on its own; the image name the verification also reads
 is checked rather than printed, because the `Image: ...` line already said
-which one was written. From `--update-bootloader` it is what the board now
+which one was written. The version names the release the image was built from,
+not the commit, so two builds the same distance past a release carry the same
+one: this line says the board is running that release and that image, and
+telling two particular builds apart means comparing the file's checksum. From `--update-bootloader` it is what the board now
 holds and what to do next:
 
     Bootloader installed: ubertooth-util -B will report CRC32:0x7c52e323.

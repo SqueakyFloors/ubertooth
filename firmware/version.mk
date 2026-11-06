@@ -50,7 +50,12 @@ ifeq ($(HAVE_GIT),true)
 # when HEAD is the tag itself. Two plain questions rather than one `git
 # describe --long` line to take apart, because a release name has dashes of
 # its own and the parsing would have to know how many.
-RELEASE_TAG := $(shell git describe --tags --abbrev=0 $(UBERTOOTH_RELEASE_TAG_MATCH) 2>/dev/null)
+# A glob cannot say "digits and then nothing", so the name git found is
+# checked as well: "2026-11-R1-local" matches the first pattern above and is
+# not a release. A name that does not hold up leaves this empty, which is the
+# no-release-tag branch below.
+RELEASE_TAG := $(shell git describe --tags --abbrev=0 $(UBERTOOTH_RELEASE_TAG_MATCH) 2>/dev/null \
+	| grep -E '^[0-9]{4}-[0-9]{2}-(R|RC|DEV)[0-9]+$$')
 
 ifeq ($(RELEASE_TAG),)
 
@@ -82,8 +87,10 @@ endif
 else
 
 # No git history to read. The including makefile uses a version.h shipped
-# beside these sources where there is one; this is what it reports when there
-# is not, and then the version really is unknown.
+# beside these sources where there is one, which is what a release archive
+# carries; this is what it reports when there is not, and then the version
+# really is unknown. The host tools answer that case with the latest release
+# instead, because their build has no shipped header to fall back on.
 VERSION_NOW := unknown
 
 endif

@@ -1056,6 +1056,12 @@ for `-h`.
 Everything else goes to standard error, so a script reading a value is not fed
 anything else.
 
+`-V` writes one line to standard error where this machine loads a libbtbb
+other than the one these tools were built against, because the two decode
+packets their own way and nothing else in a run says which is in use:
+
+    warning: libbtbb was loaded from /opt/homebrew/lib, not the /usr/local/lib these tools were built against; packets may decode differently
+
 `-n` follows the range test it starts, and its `waiting for the repeater...
 (<n> s)` lines are progress, so they go to standard error with
 `Starting range test`. Standard output carries the four result lines `-m`
