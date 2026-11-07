@@ -341,36 +341,26 @@ void ubertooth_capture_clock_reset( ubertooth_t* ut )
  * What says so is the host's own clock, as it does for a wrap above: the two
  * packets' counts and readings together claim how much time passed between
  * them, and only a count from another mode claims an amount the host never
- * saw. The slack is the wrap test's, for the same reason - it is how far the
- * host's measure of the gap may be out - plus a whole period, because the
+ * saw. The slack is the wrap test's, plus a whole period, because the
  * firmware latches a packet's count and its clock reading with separate reads
  * of CLKN: a packet caught as the count ticks over carries one a period from
- * its own reading, which is legitimate and has to be believed. One period is
- * as far as that can take a single packet, and one period is also as far as it
- * can take a pair of them. The two reads happen at one place in the firmware
- * per capture, in a fixed order - a counted capture's packets are stamped by
- * the receive interrupt, which reads the clock before the count - so whichever
- * way that order leans, both packets lean the same way and the difference
- * between their counts is out by at most the one period. Two packets leaning
- * opposite ways would have to come from two different places, which is a mode
- * change: the case below.
+ * its own reading, which is legitimate. One period covers both a single
+ * packet and a pair, because the two reads happen at one place in the
+ * firmware per capture and in a fixed order, so both packets lean the same
+ * way. Two packets leaning opposite ways would mean two different places,
+ * which is a mode change: the case below.
  *
- * The two allowances share one budget, and the budget cannot be widened: a
- * leftover count two periods from the capture's own already claims only about
- * two periods, so anything wider would stop catching it. A packet whose count
- * really was latched a period from its reading therefore leaves only the gap
- * slack to cover error in the host's measure of the gap, which is why that
- * measure is taken as each packet's transfer completes rather than where the
- * reconstruction is reached: a capture whose output is blocked on a slow pipe
- * can be minutes behind by the time it reads its first packet, and measured
- * there the gap before the second would be almost nothing, rejecting a count
- * the firmware legitimately latched and losing the whole gap between the two.
+ * The budget cannot be widened: a leftover count two periods from the
+ * capture's own already claims only about two periods. That leaves the gap
+ * slack alone to cover error in the host's measure of the gap, which is why
+ * that measure is taken as each packet's transfer completes rather than where
+ * the reconstruction is reached -- a capture blocked on a slow pipe can be
+ * minutes behind by the time it reads its first packet.
  *
  * What is left unsettled is a leftover count a period from the capture's own,
- * which looks exactly like that latch, or two periods from it where the two
- * readings are also within the slack of a whole period apart. Either costs
- * those one or two periods, as it did before, and no more: the capture runs at
- * the right rate from there, a fixed amount behind. ubertooth-rx(1) says so. */
+ * which looks exactly like that latch. It costs those one or two periods and
+ * no more: the capture runs at the right rate from there, a fixed amount
+ * behind. ubertooth-rx(1) says so. */
 static int count_came_from_the_mode_before( const ubertooth_t* ut,
                                             uint32_t clk100ns, uint8_t periods,
                                             uint64_t since_last_ns )
@@ -473,37 +463,33 @@ static uint64_t wraps_the_gap_accounts_for( const ubertooth_t* ut,
  * the move and without it, only one is near that gap, and they are a whole
  * move apart.
  *
- * The amount this packet's reading stands for is read as a difference in CLKN,
- * from the period count and the reading together, so that a move in either
- * direction reads as the signed amount it is. The byte's own wrap costs
- * nothing, and the half of its range kept for backwards differences covers
- * every move a follow can ask for, note_a_move_of_the_clock() above having
- * reduced the amount into that same range.
+ * The amount this packet's reading stands for is read as a difference in
+ * CLKN, from the period count and the reading together, so that a move in
+ * either direction reads as the signed amount it is. The half of the byte's
+ * range kept for backwards differences covers every move a follow can ask
+ * for, note_a_move_of_the_clock() below having reduced the amount into that
+ * same range.
  *
- * What the test takes as the measure of the gap can itself be out by a period,
- * for reasons that have nothing to do with the move: a count that reads
- * backwards is declined, and a packet caught as the count ticks over carries
- * one a period from its own reading. So a move within a period or two of
- * 327.68 s can be found on such a packet instead of the right one. That costs
- * that packet's time and the move's, the same as any other wrong reading here,
- * and the slack below is what keeps the much commoner small case out. */
+ * The measure of the gap can itself be out by a period, for reasons that have
+ * nothing to do with the move, so a move within a period or two of 327.68 s
+ * can be found on the wrong packet. That costs that packet's time and the
+ * move's, and the slack below is what keeps the much commoner small case
+ * out. */
 /* Records a move of the board's clock the capture has asked for, so that the
  * reconstruction can find it and take it out.
  *
  * offset is in CLKN ticks, as the request carries it, and comes from the
  * decoder as a plain signed difference between two clocks. It is reduced into
- * the range a record can state: a packet gives its clock as a period count and
- * a reading, 256 periods between them, and an amount past half of that is the
- * same reading reached the short way round. That 2^28 ticks of CLKN is also
- * the modulus the decoder works the offset out in, so the two agree on which
- * way round a given amount is. The firmware's own clkn counts further, to
- * 2^32, but nothing outside it ever sees those top bits.
+ * the range a record can state: a packet gives its clock as a period count
+ * and a reading, 256 periods between them, and an amount past half of that is
+ * the same reading reached the short way round. That 2^28 ticks of CLKN is
+ * also the modulus the decoder works the offset out in, so the two agree on
+ * which way round a given amount is.
  *
- * A move no larger than the slack is not recorded at all. Looking for it would
- * as often find it on a packet stamped before the board moved, which costs
- * that packet's time and clears the move, leaving the real one in the capture.
- * A move that small is worth less than the precision finding it would cost, so
- * it stays in the times. */
+ * A move no larger than the slack is not recorded at all: looking for it
+ * would as often find it on a packet stamped before the board moved, which
+ * costs that packet's time and clears the move, leaving the real one in the
+ * capture. */
 static void note_a_move_of_the_clock( ubertooth_t* ut, int offset )
 {
 	/* The range a record states its clock in, which is the clock CLKN
@@ -552,22 +538,19 @@ static int the_move_landed_on_this_packet( const ubertooth_t* ut,
  *
  * What is taken out is the whole disagreement between what the reconstruction
  * made of this packet and the gap the host saw, rather than the amount asked
- * for. The two differ: the reconstruction declines a period count that reads
- * backwards, so a move backwards shows in it only as far as the reading
- * itself went, and taking out more than it holds would leave the capture a
- * period adrift. So the capture re-anchors on this packet: the one gap that
- * spans the move is measured on the host clock, and every other gap keeps the
- * board clock's precision, which is the point of using it.
+ * for: the reconstruction declines a period count that reads backwards, so a
+ * move backwards shows in it only as far as the reading went, and taking out
+ * more than it holds would leave the capture a period adrift. So the capture
+ * re-anchors on this packet -- the one gap spanning the move is measured on
+ * the host clock, and every other gap keeps the board clock's precision.
  *
- * The period count is re-based here too. A move backwards makes the count read
- * backwards, which the counted branch above rightly declines to believe, but it
- * also leaves the baseline on the clock the capture no longer has: every later
- * count would read backwards from it as well, and the periods after the move
- * would stop being counted.
+ * The period count is re-based here too, or the baseline would stay on the
+ * clock the capture no longer has and every later count would read backwards
+ * from it, so the periods after the move would stop being counted.
  *
  * One move is taken out per request. A packet read wrongly as the move costs
- * that packet's time and the real move's, which is the whole of what a wrong
- * reading here can cost; nothing else in the capture is second-guessed. */
+ * that packet's time and the real move's, and nothing else in the capture is
+ * second-guessed. */
 static void take_out_the_move_of_the_clock( ubertooth_t* ut,
                                             uint64_t upper_before,
                                             uint32_t clk100ns, uint8_t periods,
@@ -1014,20 +997,15 @@ void ubertooth_watch_signal_level(ubertooth_t* ut, const usb_pkt_rx* rx)
 	 * read. Both engines that take readings this way -- the Basic Rate
 	 * stream and the generic receive's symbol path -- send this type.
 	 *
-	 * Every other type is either not a sample of the air or not a sample at
-	 * all, so a positive test rather than a list of exclusions: a low-energy
-	 * record exists because a packet decoded, so a run of them at the top of
-	 * the range is an ordinary close link; a keep-alive is one byte on the
-	 * wire, so its every other field holds whatever the record before it
-	 * left in the buffer; a continuation record repeats the readings of the
-	 * record that started its packet; and a promiscuous state change, a
-	 * spectrum analyzer sweep and an E-GO packet carry no signal figure of
-	 * their own.
+	 * A positive test rather than a list of exclusions, because every other
+	 * type is either not a sample of the air or not a sample at all: a
+	 * low-energy record exists because a packet decoded, a keep-alive is one
+	 * byte on the wire with every other field left as the record before it,
+	 * a continuation repeats the readings of the record that started its
+	 * packet, and the remaining types carry no signal figure.
 	 *
-	 * It matters on a replay as well as live. A dump holds whatever records
-	 * were captured, and ubertooth-rx -i will replay one written by any tool,
-	 * so the type has to be checked here rather than left to which callback
-	 * is running.
+	 * Checked here rather than left to which callback is running, because
+	 * ubertooth-rx -i will replay a dump written by any tool.
 	 */
 	if (rx->pkt_type != BR_PACKET)
 		return;
@@ -1787,37 +1765,25 @@ static int drift_ppm( int32_t correction_100ns, uint32_t clkn_ticks )
  * ut->br_following, ut->br_calibrated, ut->br_heard_ms, ut->br_clock_gone,
  * ut->br_trim_counter and ut->br_clkn_trim.
  *
- * ut->br_following: whether the library has handed this capture a clock of the
- * piconet's that it has not since given up. Only then is there a clock to be
- * told about losing, and a board to take off its offset.
+ * br_following is whether the library has handed this capture a clock of the
+ * piconet's and not since given it up: only then is there a clock to be told
+ * about losing, and a board to take off its offset. br_calibrated is whether
+ * the clock trim has been measured against that offset, which a clock handed
+ * over or given up starts again. br_heard_ms is when a packet of the piconet
+ * was last heard. br_clock_gone is whether the library has no clock for it
+ * any more while the board may still be hopping on the old offset, which is
+ * where a board that refused the request below leaves this capture.
+ * br_trim_counter and br_clkn_trim are how far the access code has been
+ * arriving from CLK_TUNE_TIME and the CLKN the last trim was sent at, which
+ * is what the drift in PPM is measured over. br_searching and
+ * br_search_start_ms are whether a clock search is running with a packet
+ * behind it and no clock confirmed yet, and when it started.
  *
- * ut->br_calibrated: whether the clock trim has been measured against the
- * offset being followed. A clock handed over, or given up, starts that again.
- *
- * ut->br_heard_ms: when a packet of that piconet was last heard, on the
- * monotonic clock. A clock handed over starts it, because nothing has been
- * heard on that clock yet. See ubertooth_follow_quiet_ms().
- *
- * ut->br_clock_gone: whether the library has no clock for this piconet any
- * more while the board may still be hopping on the old offset, which is where
- * a board that refused the request below leaves this capture.
- *
- * ut->br_trim_counter and ut->br_clkn_trim: how far the access code has been
- * arriving from CLK_TUNE_TIME, and the CLKN the last trim was sent at, which
- * is what the drift in PPM is measured over.
- *
- * ut->br_searching and ut->br_search_start_ms: whether a clock search is
- * running on this board with a packet of the piconet behind it and no clock
- * confirmed yet, and when it started, on the monotonic clock. See
- * ubertooth_clock_search_ms().
- *
- * ut->br_clock_confirmed: whether the library has accepted a clock for this
- * board at any point in this run, whether or not it turned out to be the
- * piconet's. It ends the reading above for the rest of the run: a search
- * running again after a clock was accepted and lost is not one that never got
- * that far, and a caller must not be told that the search cannot confirm a
- * clock in a run where it did. That a clock was wrong is reported where it is
- * lost. */
+ * br_clock_confirmed is whether a clock was accepted for this board at any
+ * point in this run, piconet's or not. It ends the search reading for the
+ * rest of the run, because a caller must not be told the search cannot
+ * confirm a clock in a run where it did; that a clock was wrong is reported
+ * where it is lost. */
 
 static uint64_t monotonic_ms(void)
 {

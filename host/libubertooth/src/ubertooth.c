@@ -1333,22 +1333,21 @@ static void cb_xfer(struct libusb_transfer *xfer)
 		 * arrived, and the timer had already gone off. Either way the
 		 * buffer holds a packet.
 		 *
-		 * The count of bytes is this transfer's own and not the last
-		 * one's, because libusb writes actual_length as it completes a
-		 * transfer, every time, before calling this. So a slot nothing
-		 * filled in cannot read as a full one.
+		 * The count of bytes is this transfer's own, because libusb
+		 * writes actual_length as it completes a transfer, every time,
+		 * before calling this, so a slot nothing filled in cannot read
+		 * as a full one.
 		 *
 		 * Short of 64 bytes is not a packet. When a capture goes quiet
 		 * the firmware answers the bulk endpoint with a one-byte
 		 * keep-alive, which sets pkt_type in the receive slot and leaves
-		 * the other 63 bytes as they were. Handing that slot on publishes
-		 * a packet nothing filled in, and a consumer that writes records
-		 * out then saves 64 bytes of which only pkt_type was ever set. The
-		 * slot is kept instead, for the next real packet to read into.
+		 * the other 63 bytes as they were, so handing that slot on
+		 * would publish a record only pkt_type was ever set in. The slot
+		 * is kept for the next real packet to read into.
 		 *
-		 * Anything short other than that keep-alive is a fault, and
-		 * dropping it in silence left a capture losing packets looking
-		 * like a quiet board, so it is reported. */
+		 * Anything short other than that keep-alive is a fault and is
+		 * reported, or a capture losing packets reads as a quiet
+		 * board. */
 		if (xfer->actual_length == PKT_LEN) {
 			/* When this packet arrived, stamped here because this is
 			 * the moment it did. The loop that drains the ring
@@ -1576,28 +1575,25 @@ static int wait_for_idle(ubertooth_t* ut, unsigned* waited_ms)
  * idle, which is what a tool exiting normally leaves: every one of them sends
  * STOP on the way out, and leaving a mode drops the firmware's own queue.
  *
- * A board still streaming is the case this covers. Its mode's loop can hand
- * the endpoint another packet in the gap between the clear and the mode
- * request the caller sends next, by which time the receive transfer is already
- * submitted, so the new capture reads a packet of somebody else's -- a
- * basic-rate dump opening with low-energy records. It needs a previous capture
- * that was killed without stopping the board.
+ * A board still streaming is the case this covers, which needs a previous
+ * capture killed without stopping the board. Its mode's loop can hand the
+ * endpoint another packet in the gap between the clear and the mode request
+ * the caller sends next, so the new capture opens with a packet of somebody
+ * else's -- a basic-rate dump showing low-energy records.
  *
  * Asking the board to stop is not enough on its own: UBERTOOTH_STOP only sets
  * the requested mode, the dispatch acts on it at its next turn, and the
- * control transfer has returned long before that, so "stop, then clear" leaves
- * a smaller version of the same gap. What closes it is waiting until the board
+ * control transfer returns long before that, so "stop, then clear" leaves a
+ * smaller version of the same gap. What closes it is waiting until the board
  * reports that it has left the mode (wait_for_idle() above).
  *
- * Nothing is sent to a board that is already idle, which is every normal run:
- * the mode read is one control request, and a capture start is not a hot path.
+ * Nothing is sent to a board that is already idle, which is every normal run.
  * A run of two phases is idle here as well, because the phase that ends waits
  * for the stop it sent (rx_afh()); without that this would report the run's
  * own previous phase as a mode somebody left behind.
  *
- * A board that will not stop is a warning rather than a failure. The capture
- * works; it may just open with a packet or two of the previous mode's, which
- * is what every capture did before this.
+ * A board that will not stop is a warning rather than a failure: the capture
+ * works, and may just open with a packet or two of the previous mode's.
  */
 static void idle_the_board(ubertooth_t* ut)
 {
@@ -2186,21 +2182,18 @@ static void ubertooth_cleanup(ubertooth_t* ut, int send_stop)
 		 * never ran, so there is no status to tell them apart, and a stop
 		 * sent blind would reach only the live one.
 		 *
-		 * Sending it would also hand this thread an event loop. cmd_stop()
-		 * uses libusb's synchronous control transfer, which handles events
-		 * until its own completes -- and the receive transfer is still in
-		 * flight, so its cancellation could complete inside that call and
-		 * run cb_xfer() here, on the one thread that is meant to be past
-		 * the stream (the poll thread was joined above). The teardown has
-		 * already chosen this branch by then.
+		 * Sending it would also hand this thread an event loop:
+		 * cmd_stop() uses libusb's synchronous control transfer, which
+		 * handles events until its own completes, and the receive
+		 * transfer is still in flight, so its cancellation could
+		 * complete inside that call and run cb_xfer() here -- on the one
+		 * thread meant to be past the stream.
 		 *
 		 * The warning covers every one of those boards: it says this one
-		 * may still be capturing, and ubertooth(7) names ubertooth-util -S
-		 * for a board that is.
-		 *
-		 * Said once per handle, because a handle left in this state is
-		 * closed again by a tool that cleans up on two paths, and the
-		 * board is in no worse a state the second time. */
+		 * may still be capturing, and ubertooth(7) names
+		 * ubertooth-util -S for a board that is. Said once per handle,
+		 * because a tool that cleans up on two paths closes the handle
+		 * again and the board is in no worse a state the second time. */
 		if (!ut->xfer_lost_warned) {
 			ut->xfer_lost_warned = 1;
 			fprintf(stderr, "warning: the receive transfer did not finish; "

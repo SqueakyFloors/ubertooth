@@ -327,8 +327,7 @@ int cmd_rx_generic(struct libusb_device_handle* devh);
  * each, so it is still in the generic transmit mode when this returns -- a
  * caller that needs the air clear reads the mode out of the watchdog
  * breadcrumb (cmd_get_watchdog_quiet()) until it is no longer
- * MODE_TX_GENERIC. UBERTOOTH_STOP ends a burst; it took 27 ms to be answered
- * in the middle of one.
+ * MODE_TX_GENERIC. UBERTOOTH_STOP ends a burst.
  *
  * Returns 0, or a negative libusb error already reported; -1 for a request
  * the board would refuse, which is reported here. */

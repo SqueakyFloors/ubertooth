@@ -105,30 +105,20 @@ long ubertooth_follow_quiet_ms(ubertooth_t* ut);
  * milliseconds, and -1 when no search is running: the library has not built a
  * list of clock candidates for this piconet, or it has accepted a clock at
  * some point in this run, whether or not that clock turned out to be the
- * piconet's. The reading starts where the library builds that list and runs on
- * whether or not packets are still arriving, so it is the span since the first
- * search of this run began -- the search starts over, and this does not --
- * and not the time since the last packet. A capture that has
- * heard nothing of the piconet, and one that has heard too little of it to
- * settle CLK1-6, read -1 however long they run: neither has a search to
- * report. A link that goes quiet after the search started keeps the reading,
- * and a caller that cares about the difference has
- * ubertooth_follow_quiet_ms() for the follow and the packets themselves for
- * the search.
+ * piconet's. The reading starts where the library builds that list and runs
+ * on whether or not packets are still arriving, so it is the span since the
+ * first search of this run began -- the search starts over, and this does not
+ * -- and not the time since the last packet. A capture that has heard nothing
+ * of the piconet, or too little of it to settle CLK1-6, reads -1 however long
+ * it runs, because neither has a search to report.
  *
- * For a tool that reports what the search is waiting for. The search prints a
- * candidate count for each list it builds and nothing else, so nothing it
- * prints tells a user how long it has been going or how little it has had to
- * narrow with. An accepted clock ends the reading for the rest of the run,
- * because a search that is running again after one was given up did get that
- * far once.
+ * For a tool that reports what the search is waiting for: the search prints a
+ * candidate count per list and nothing that says how long it has been going.
+ * An accepted clock ends the reading for the rest of the run, because a
+ * search running again after one was given up did get that far once.
  *
- * How long is long enough is the caller's, as it is above.
- *
- * Per board: a capture reading several boards asks each one separately,
- * because each runs a search of its own. What a search is waiting for is the
- * same for every board, so a tool reporting it needs only one board to have
- * run that long. */
+ * How long is long enough is the caller's, as it is above. Per board, because
+ * each board runs a search of its own. */
 long ubertooth_clock_search_ms(ubertooth_t* ut);
 
 /* Gives up the clock this capture is following, for a caller that has decided
