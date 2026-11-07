@@ -703,225 +703,50 @@ Behavior the tools share.
 
 ### Build and compatibility
 
-- `install.sh` provides one-command source installation on Debian/Ubuntu and on
-  macOS with Homebrew, with optional virtual environments, a custom `--prefix`,
-  `--skip-deps` for already-installed packages, udev setup on Linux, firmware
-  builds, and explicitly selected flashing through
-  `--flash-device <index|serial|all>`, which now recognizes several attached
-  boards and refuses to skip one it cannot read.
-  [#23](https://github.com/SqueakyFloors/ubertooth/issues/23)
-  [#25](https://github.com/SqueakyFloors/ubertooth/issues/25)
-- `install.sh --update-bootloader`, alongside `--flash-device`, installs the
-  bootloader this tree builds on the board named and puts `bluetooth_rxtx` back
-  afterwards, which used to be four steps by hand. A board that already
-  has that bootloader is left alone, boards are done one at a time, and the
-  result is read off each board. Keep a serial programmer to hand: an
-  interrupted bootloader write leaves a board needing one.
-  [#1229](https://github.com/SqueakyFloors/ubertooth/issues/1229)
-- The supported macOS minimum is 15 (Sequoia), the oldest version CI builds
-  now that GitHub has retired the macOS 14 runner image. macOS 14 should still
-  build, but it is no longer tested.
-  [#1242](https://github.com/SqueakyFloors/ubertooth/issues/1242)
-- `install.sh` stops with a clear error, before installing or building
-  anything, when Python is older than 3.8. [#154](https://github.com/SqueakyFloors/ubertooth/issues/154)
-- `install.sh` installs `libnewlib-arm-none-eabi` explicitly, and its apt hint
-  names `python3-pyqt5` (Ubuntu has no `python3-pyside6` before 24.10).
-  [#152](https://github.com/SqueakyFloors/ubertooth/issues/152)
-  [#154](https://github.com/SqueakyFloors/ubertooth/issues/154)
-- The configure step says which libbtbb it found, the commit that library was
-  built from, and the commit these tools are built against, and warns when the
-  two commits differ. A libbtbb older than the pin used to be accepted
-  without a word as long as it had every function the tools call, so the tools
-  ran with that library's behavior, and a capture measured against it looked
-  like a change in the tools themselves. It is a warning and not a refusal: a
-  libbtbb from a distribution package records no commit, and the line says
-  that rather than guessing.
-  [#1118](https://github.com/SqueakyFloors/ubertooth/issues/1118)
-- libubertooth installs to the directory your system keeps libraries in,
-  which is where libbtbb already went: `lib64` on a 64-bit Fedora, RHEL or
-  SUSE, `lib/<triplet>` where the prefix is `/usr` on a multiarch Debian or
-  Ubuntu, and `lib` elsewhere. The two used to land in different directories
-  on such a system, so the loader had to be told about both.
-  `-DCMAKE_INSTALL_LIBDIR=` chooses the directory, `-DCMAKE_INSTALL_INCLUDEDIR=`
-  the headers', and `LIB_SUFFIX` still decides where a build command passes it.
-  `libubertooth.pc` follows, so `pkg-config --libs libubertooth` names the
-  directory the library is really in, and `./install.sh` puts that directory
-  first on the installed tools' run path and says so if an earlier install
-  left a libubertooth in `lib`.
-  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
-- `./install.sh` installs on Fedora. It used to stop on any Linux without
-  `apt-get`; it now finds `dnf` and asks it for the same dependencies under
-  Fedora's names, the ARM toolchain for `--with-firmware` included, and the
-  rest of the run is what it has always been on Linux.
-  [#24](https://github.com/SqueakyFloors/ubertooth/issues/24)
-- The install writes `libubertooth.pc`, so a program of your own built against
-  the installed library takes its flags from `pkg-config --cflags --libs
-  libubertooth` instead of being given them by hand, including the include
-  directory `<libusb-1.0/libusb.h>` resolves against. It reads its prefix back
-  from where it is installed, so a staged or relocated install describes the
-  directories it really landed in.
-  [#886](https://github.com/SqueakyFloors/ubertooth/issues/886)
-- The install also writes `ubertoothConfig.cmake`, so a CMake project of your
-  own says `find_package(ubertooth REQUIRED)` and links
-  `ubertooth::ubertooth`. The target carries the installed library, its header
-  directory, and libbtbb and libusb, whose headers the Ubertooth headers
-  include, so nothing else has to be found or named by hand; a version can be
-  asked for, and any 1.x satisfies a request for 1.0. It reads its prefix back
-  from where it is installed, as `libubertooth.pc` does.
-  host/README.cmake.md has the three lines a consumer needs.
-  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
-- Configuring on macOS no longer tells you to install a Linux package to get
-  `ubertooth-scan` and `ubertooth-follow`. It says BlueZ is Linux only and
-  points at `ubertooth-rx` and `ubertooth-afh`, which cover much of the same
-  ground by listening and need no adapter. The docs now state that these two
-  tools stay Linux only, and why.
-  [#47](https://github.com/SqueakyFloors/ubertooth/issues/47)
-- A reconfigure after libbtbb, libubertooth or libbluetooth moves finds it
-  where it is now, the check libusb already had. A moved libbtbb was the worst
-  of the three: the configure failed with instructions to rebuild a libbtbb
-  that was installed and fine, because the check for the functions the tools
-  call ran against the header that had gone.
-  [#913](https://github.com/SqueakyFloors/ubertooth/issues/913)
-- A reconfigure after a Homebrew upgrade finds libusb where it is now. The
-  build remembered where it found libusb, and Homebrew puts each version in a
-  directory of its own, so after an upgrade the remembered one had gone: the
-  configure reported libusb found and the build then failed on the missing
-  header. It now checks the remembered header and library are still there and
-  searches again if either has moved.
-  [#905](https://github.com/SqueakyFloors/ubertooth/issues/905)
-- A release now carries the btbr image (`btbr.dfu`, `.bin` and `.hex`)
-  alongside bluetooth_rxtx, so `ubertooth-btbr` has firmware to flash without
-  building it. Published images report the release version rather than
-  `unknown`, and no image records the name of whoever built it.
-- `cmake -S host/ubertooth-tools -B build` configures: the tools can be built
-  on their own against an installed libubertooth, which is what
-  `FindUBERTOOTH.cmake` is for. CMake 4 refused the directory outright,
-  because nothing there said which CMake versions it was written for, and
-  before that the first `find_package` failed because nothing pointed at the
-  Find modules beside it. The tools built that way now ask glibc for the
-  interfaces they use, as a build of the whole tree does, so a strict C
-  standard works there too.
-  [#798](https://github.com/SqueakyFloors/ubertooth/issues/798)
-- Configuring the tools against a libubertooth installed from an older commit
-  is refused in one line that names what is missing and how to install a
-  current one. Such an install used to configure without a word and then fail
-  in the compiler with dozens of errors naming symbols its header has not
-  got: `FindUBERTOOTH.cmake` now asks the libubertooth it found for a few of
-  the functions the tools call, as the libbtbb check already did.
-  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
-- The host tools build with a strict C standard (`-std=c17`, `-std=c2x`) on
-  Linux, where that used to fail on `CLOCK_REALTIME`, `usleep()` and the
-  byte-order helpers: the build asks glibc for the interfaces it uses, instead
-  of leaving it to the compiler's default GNU standard.
-  [#648](https://github.com/SqueakyFloors/ubertooth/issues/648)
-- `install.sh` finds the libbtbb it just built wherever libbtbb installed it,
-  so the tools run on a system whose libraries live in `lib64` or a multiarch
-  `lib/<triplet>`. It built them for a libbtbb in `lib` under the prefix, and
-  on such a system the installed `ubertooth-util` would not start at all:
-  `Library not loaded: @rpath/libbtbb.1.dylib`, or the equivalent on Linux.
-  The build guide and READMEs say where libbtbb installs.
-  [#88](https://github.com/SqueakyFloors/libbtbb/issues/88)
-- `install.sh --uninstall` takes the install back off again: the files the
-  install recorded, the udev rule with them, and nothing else. The libbtbb it
-  installed is kept unless you ask for it, because other builds link against it.
-  [#337](https://github.com/SqueakyFloors/ubertooth/issues/337)
-- `install.sh` says it is checking Homebrew, and that it is working out which
-  Ubertooth to flash, before those slow steps run; on macOS its first line
-  used to be a couple of seconds late, which looked like a hang.
-  [#640](https://github.com/SqueakyFloors/ubertooth/issues/640)
-- `install.sh` refuses a command line in the same words as the tools:
-  `error: unrecognized option '--bogus'` where it said
-  `error: unknown option: --bogus (use --help)`, and
-  `error: unexpected argument 'extra'` for a word or a lone `-`, which it used
-  to call an unknown option too. A lone `--` now ends the options and the
-  install goes ahead with the defaults, and `-h` answers once the whole
-  command line has parsed, so `install.sh -h --bogus` reports the bad option
-  instead of printing the help and exiting 0.
-  [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
-- Fixed: `install.sh --help` printed its usage text and then the whole script;
-  it now prints the usage text and stops.
-  [#1205](https://github.com/SqueakyFloors/ubertooth/issues/1205)
-- On macOS, `cmake -S host -B build && cmake --build build` builds the whole
-  tree. It used to stop on one test unless the configure was given
-  `-DCMAKE_C_FLAGS="-I$(brew --prefix)/include"`, because Homebrew keeps
-  libusb's header off the compiler's search path; the build now takes that
-  directory from libusb, so no include flag of your own is needed and
-  `install.sh` passes none. `install.sh` now also hands your `CFLAGS` to every
-  configure, on Linux as well as macOS, so a second run with different
-  `CFLAGS` builds with them rather than with the first run's.
-  [#715](https://github.com/SqueakyFloors/ubertooth/issues/715)
-  [#728](https://github.com/SqueakyFloors/ubertooth/issues/728)
-- Removed the unmaintained Dockerfile.
-  [#324](https://github.com/SqueakyFloors/ubertooth/issues/324)
-- Removed `Jenkinsfile` and `ci-scripts/`, which described a Jenkins build
-  nobody runs here and switched two USB hubs that are not this project's. CI
-  for this fork is the GitHub Actions workflows.
-  [#349](https://github.com/SqueakyFloors/ubertooth/issues/349)
-- A build no longer rewrites the committed man pages in `host/doc/man`, and
-  installs the same pages with or without ronn. Refresh them after editing a
-  `host/doc/*.md`: `cmake --build <build dir> --target refresh-manpages`; CI
-  checks that the committed pages match. The installed pages now carry the
-  text of their Markdown, which a few had drifted from.
-  [#254](https://github.com/SqueakyFloors/ubertooth/issues/254)
-  [#311](https://github.com/SqueakyFloors/ubertooth/issues/311)
-- `man ubertooth-debug` is installed; its page was built but never installed.
-  [#235](https://github.com/SqueakyFloors/ubertooth/issues/235)
-- `man ubertooth-ducky`, `man ubertooth-follow` and `man ubertooth-tx` now
-  work: those three pages are generated from their `host/doc/*.md` and
-  installed with the rest, instead of shipping only as Markdown.
-  [#313](https://github.com/SqueakyFloors/ubertooth/issues/313)
-  [#327](https://github.com/SqueakyFloors/ubertooth/issues/327)
-- Python tools are installed natively under the chosen CMake prefix, so
-  custom prefixes and staged installs work without modifying the source tree
-  or requiring `PYTHONPATH`.
-  [#33](https://github.com/SqueakyFloors/ubertooth/issues/33)
-- CMake skips the Python tools with a warning when Python is older than 3.8
-  (an error with `-DREQUIRE_ALL=ON`) and names the interpreter it uses.
-  [#91](https://github.com/SqueakyFloors/ubertooth/issues/91)
-- Modern CMake and macOS builds are supported, including CMake 4 policy
-  compatibility, Homebrew libusb headers, corrected cache/error declarations,
-  and protection against system `MAX`/`MIN` macro collisions.
-  [upstream #551](https://github.com/greatscottgadgets/ubertooth/issues/551)
-- Python 3.12 and current setuptools releases are supported. Credit: Arnaud
-  Rebillout ([@elboulangero](https://github.com/elboulangero)) and Rhys Perry
-  ([@rhysperry111](https://github.com/rhysperry111)).
-  [upstream #524](https://github.com/greatscottgadgets/ubertooth/pull/524)
-- CMake reports which optional host tools are enabled; `REQUIRE_ALL=ON` makes
-  missing optional dependencies fatal, with requirements documented by tool.
-- Correct the firmware-build `ubertooth-dfu` variable. Credit: Michael Ossmann
-  ([@mossmann](https://github.com/mossmann)).
-  [upstream #485](https://github.com/greatscottgadgets/ubertooth/pull/485)
-- Replace deprecated Scapy packet-reading usage with `PcapReader`. Credit:
-  [@stryngs](https://github.com/stryngs).
-  [upstream #519](https://github.com/greatscottgadgets/ubertooth/pull/519)
-- The configure step refuses an installed libbtbb that is missing functions the
-  host tools call, naming them and the commit to rebuild libbtbb at, instead of
-  letting the build reach the compiler and fail with `call to undeclared
-  function`.
-  [#585](https://github.com/SqueakyFloors/ubertooth/issues/585)
-- The host builds again on Ubuntu 20.04, this fork's declared minimum, where
-  glibc still keeps the pthread calls out of libc: the libubertooth targets
-  link pthread, so linking the library no longer leaves `pthread_create`
-  undefined.
-  [#315](https://github.com/SqueakyFloors/ubertooth/issues/315)
-- The host builds on Ubuntu 20.04 and 22.04 again. One test asks the dynamic
-  linker for the real `pthread_create`, which needs a GNU extension the older
-  glibc headers hand out only when asked; the tests build by default, so the
-  whole host build stopped there.
-  [#725](https://github.com/SqueakyFloors/ubertooth/issues/725)
-- Each firmware image now compiles the shared sources under `firmware/common`
-  into its own directory. Building two images in one tree used to give the
-  second one the first's objects, built with the wrong flags, so a release or
-  CI build could ship an image nobody had built from clean.
-  [#486](https://github.com/SqueakyFloors/ubertooth/issues/486)
-- Editing a firmware compile flag, `OPT` or `DISABLE_TX` for example, rebuilds
-  the objects. The build records the flags it used, so `make` no longer takes
-  objects compiled with the old ones as up to date and links them into the
-  image.
-  [#544](https://github.com/SqueakyFloors/ubertooth/issues/544)
-- Firmware version strings and header dependencies now update reliably after
-  source or revision changes, including GNU Make 3.81 and source archives.
-  [#30](https://github.com/SqueakyFloors/ubertooth/issues/30)
+- **One-command install.** `install.sh` installs from source on Debian and
+  Ubuntu, Fedora, and macOS with Homebrew: virtual environments, `--prefix`,
+  `--skip-deps`, udev rules, firmware builds, flashing chosen boards with
+  `--flash-device <index|serial|all>`, and installing the bootloader with
+  `--update-bootloader` (a board that already has it is left alone).
+  `install.sh --uninstall` removes what it installed, keeping libbtbb unless
+  asked. It refuses Python older than 3.8 up front, rejects bad options in the
+  tools' wording, and `install.sh --help` prints only the usage.
+- **Current platforms.** macOS 15 (Sequoia) is the oldest macOS tested
+  (macOS 14 should still build). Ubuntu 20.04 and 22.04 build again, CMake 4
+  and current Homebrew work, and the host tools build with a strict C
+  standard (`-std=c17`, `-std=c2x`). Python 3.12 and current setuptools are
+  supported. Credit: Arnaud Rebillout
+  ([@elboulangero](https://github.com/elboulangero)) and Rhys Perry
+  ([@rhysperry111](https://github.com/rhysperry111)) ([upstream #524](https://github.com/greatscottgadgets/ubertooth/pull/524)).
+  `ubertooth-scan` and `ubertooth-follow` stay Linux only; configuring on
+  macOS says so and points at `ubertooth-rx` and `ubertooth-afh`.
+- **libubertooth in your own code.** libubertooth installs where your system
+  keeps libraries, beside libbtbb (`lib64` and multiarch included), with
+  `libubertooth.pc` for pkg-config and `ubertoothConfig.cmake` for
+  `find_package(ubertooth)` (see host/README.cmake.md). The tools build on
+  their own against an installed libubertooth, and an outdated one is refused
+  in one line. The Python tools install under the chosen prefix, with no
+  `PYTHONPATH` needed.
+- **Clear configure checks.** The configure step names the libbtbb it found
+  and warns when it is not the pinned commit, refuses one that lacks
+  functions the tools call (naming the commit to rebuild at), finds libraries
+  again after they move (Homebrew upgrades included), lists the optional
+  tools it enables (`-DREQUIRE_ALL=ON` makes a missing one fatal), and skips
+  the Python tools with a warning when Python is older than 3.8.
+- **Reliable firmware builds.** Each firmware image builds the shared
+  sources on its own, editing a compile flag rebuilds the objects, and
+  version strings update reliably. A release ships the `btbr` image beside
+  `bluetooth_rxtx`, and images report the release rather than `unknown`. The
+  firmware build's `ubertooth-dfu` path is corrected. Credit: Michael Ossmann
+  ([@mossmann](https://github.com/mossmann)) ([upstream #485](https://github.com/greatscottgadgets/ubertooth/pull/485)).
+- **Man pages and housekeeping.** Every man page is installed (the
+  `ubertooth-debug`, `-ducky`, `-follow`, and `-tx` pages were missing), with
+  or without ronn, and a build no longer rewrites the committed pages. The
+  Dockerfile, `Jenkinsfile`, and `ci-scripts/` are removed; CI is the GitHub
+  Actions workflows. Scripts read captures with Scapy's `PcapReader`. Credit:
+  [@stryngs](https://github.com/stryngs) ([upstream #519](https://github.com/greatscottgadgets/ubertooth/pull/519)).
+
+([#23](https://github.com/SqueakyFloors/ubertooth/issues/23), [#25](https://github.com/SqueakyFloors/ubertooth/issues/25), [#1229](https://github.com/SqueakyFloors/ubertooth/issues/1229), [#24](https://github.com/SqueakyFloors/ubertooth/issues/24), [#337](https://github.com/SqueakyFloors/ubertooth/issues/337), [#154](https://github.com/SqueakyFloors/ubertooth/issues/154), [#152](https://github.com/SqueakyFloors/ubertooth/issues/152), [#640](https://github.com/SqueakyFloors/ubertooth/issues/640), [#323](https://github.com/SqueakyFloors/ubertooth/issues/323), [#1205](https://github.com/SqueakyFloors/ubertooth/issues/1205), [#1242](https://github.com/SqueakyFloors/ubertooth/issues/1242), [#315](https://github.com/SqueakyFloors/ubertooth/issues/315), [#725](https://github.com/SqueakyFloors/ubertooth/issues/725), [#648](https://github.com/SqueakyFloors/ubertooth/issues/648), [#715](https://github.com/SqueakyFloors/ubertooth/issues/715), [#728](https://github.com/SqueakyFloors/ubertooth/issues/728), [#47](https://github.com/SqueakyFloors/ubertooth/issues/47), [#745](https://github.com/SqueakyFloors/ubertooth/issues/745), [#886](https://github.com/SqueakyFloors/ubertooth/issues/886), [#798](https://github.com/SqueakyFloors/ubertooth/issues/798), [#33](https://github.com/SqueakyFloors/ubertooth/issues/33), [libbtbb issue 88](https://github.com/SqueakyFloors/libbtbb/issues/88), [#1118](https://github.com/SqueakyFloors/ubertooth/issues/1118), [#585](https://github.com/SqueakyFloors/ubertooth/issues/585), [#913](https://github.com/SqueakyFloors/ubertooth/issues/913), [#905](https://github.com/SqueakyFloors/ubertooth/issues/905), [#91](https://github.com/SqueakyFloors/ubertooth/issues/91), [#486](https://github.com/SqueakyFloors/ubertooth/issues/486), [#544](https://github.com/SqueakyFloors/ubertooth/issues/544), [#30](https://github.com/SqueakyFloors/ubertooth/issues/30), [#235](https://github.com/SqueakyFloors/ubertooth/issues/235), [#313](https://github.com/SqueakyFloors/ubertooth/issues/313), [#327](https://github.com/SqueakyFloors/ubertooth/issues/327), [#254](https://github.com/SqueakyFloors/ubertooth/issues/254), [#311](https://github.com/SqueakyFloors/ubertooth/issues/311), [#324](https://github.com/SqueakyFloors/ubertooth/issues/324), [#349](https://github.com/SqueakyFloors/ubertooth/issues/349), [upstream #551](https://github.com/greatscottgadgets/ubertooth/issues/551))
 
 ### Documentation
 
