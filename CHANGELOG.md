@@ -166,191 +166,46 @@ Behavior the tools share.
 
 #### New features
 
-- `ubertooth-util -B` says which bootloader a board has, which nothing used to
-  report. One built from this tree reports its version and revision; every
-  board as shipped reports no version block, and a hash of the whole
-  bootloader, which is what tells two such bootloaders apart.
-  [#1056](https://github.com/SqueakyFloors/ubertooth/issues/1056)
-- **Script-visible change:** `ubertooth-util -n` now runs the range test
-  instead of only starting it: progress while it waits, then the result block
-  `-m` prints. Nothing answering within 10 seconds (`-n <seconds>` to choose
-  that wait, `-n 0` to wait forever) stops the test and exits 1.
-  [#649](https://github.com/SqueakyFloors/ubertooth/issues/649)
-- **Script-visible change:** `ubertooth-util -U <index|serial> -N` and
-  `-U all -N` are refused: `-N` counts the boards on the USB bus and asks
-  nothing of the board a selector names. Both used to print the count.
-  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
-- **Script-visible change:** `ubertooth-util -9` is gone, with the two
-  developer scratch requests it sent, which the firmware no longer answers.
-  [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
-- **Script-visible change:** `ubertooth-util -f` is gone; use `ubertooth-dfu`
-  to reflash a board.
-  [#333](https://github.com/SqueakyFloors/ubertooth/issues/333)
-- **Script-visible change:** `ubertooth-util -N` prints the device count and
-  then runs the rest of the command, instead of dropping it.
-  [#332](https://github.com/SqueakyFloors/ubertooth/issues/332)
-- **Script-visible change:** `ubertooth-util` refuses a command line that asks
-  for nothing, `-U 0` on its own included: it used to open the board, do
-  nothing and exit 0.
-  [#367](https://github.com/SqueakyFloors/ubertooth/issues/367)
-- **Script-visible change:** `ubertooth-util -m` reports a range test whose
-  packets came back corrupted as `error: invalid range test: mismatch on byte
-  <n>` on standard error and exits 1; it was a line on standard output with
-  exit 0.
-  [#338](https://github.com/SqueakyFloors/ubertooth/issues/338)
-- `ubertooth-util -I` blinks the LEDs faster for easier
-  identification, and now runs the blink on the board like every other mode, so
-  the command returns at once and the board stays reachable; `-S` or any mode
-  option stops it and leaves the LEDs off.
-  [#167](https://github.com/SqueakyFloors/ubertooth/issues/167)
-- **Script-visible change:** `ubertooth-util -V` now prints that same
-  three-line answer. It used to print the firmware build string alone, which
-  is the third line of it now, and `-U all -V` no longer lists that string per
-  board: `-V` reports every attached board itself. The build string is no
-  longer prefixed with the image name it came from (`bluetooth_rxtx: ubertooth
-  git-...`): the line above it names the image, and the `Firmware build: `
-  label names the line. `-V` also ends the command, as `-h` does, so
-  `ubertooth-util -V -r` prints the version and does not reset the board; it
-  used to be a query that ran alongside the rest of the command line.
-  [#542](https://github.com/SqueakyFloors/ubertooth/issues/542)
-- **Script-visible change:** `ubertooth-util -H` and `--host-version` are
-  removed. `-V` prints the host lines, with no board needed, so nothing is
-  lost; they were added in this fork and have never been in a release.
-  [#542](https://github.com/SqueakyFloors/ubertooth/issues/542)
-- `ubertooth-util -v` is deprecated in favor of `-V`. It keeps printing the
-  `Firmware version:` line alone, unchanged and with no warning, so scripts
-  that parse it are undisturbed.
-  [#542](https://github.com/SqueakyFloors/ubertooth/issues/542)
+- `ubertooth-util -B` reports the bootloader's version and revision, or, for
+  a board as shipped, a hash that tells such bootloaders apart.
+- **The two-board range test works.** `ubertooth-util -n` against a second
+  board running `ubertooth-util -e` reports the power levels each way within a
+  couple of seconds (before, it reported nothing). It runs to a result
+  instead of only starting the test, gives up after 10 seconds (`-n
+  <seconds>` to change, `-n 0` to wait forever), ignores other boards'
+  traffic, stops on Ctrl-C, and keeps its progress on standard error.
+- **Faster identify blink.** `ubertooth-util -I` blinks the LEDs faster, and
+  stops on `-S`.
+- **Script-visible change.** `ubertooth-util -f` (use `ubertooth-dfu`) and
+  `-9` are removed. `ubertooth-util -V` prints the standard version lines and
+  ends the command; `-v` still prints the `Firmware version:` line alone, and
+  is deprecated in favor of `-V`.
+- **Script-visible change.** `ubertooth-util` refuses, before opening a board,
+  a word that is not an option, two mode options, `-z` with a mode, `-N` with
+  `-U`, a command line that asks for nothing, and out-of-range values (for
+  example `-a` outside 0-7, or `-q` outside 20-120; bare `-q` uses -85 dBm).
+  `ubertooth-util -N` prints the count and then runs the rest of the command.
+
+([#1056](https://github.com/SqueakyFloors/ubertooth/issues/1056), [#649](https://github.com/SqueakyFloors/ubertooth/issues/649), [#26](https://github.com/SqueakyFloors/ubertooth/issues/26), [#483](https://github.com/SqueakyFloors/ubertooth/issues/483), [#686](https://github.com/SqueakyFloors/ubertooth/issues/686), [#784](https://github.com/SqueakyFloors/ubertooth/issues/784), [#694](https://github.com/SqueakyFloors/ubertooth/issues/694), [#1026](https://github.com/SqueakyFloors/ubertooth/issues/1026), [#190](https://github.com/SqueakyFloors/ubertooth/issues/190), [#338](https://github.com/SqueakyFloors/ubertooth/issues/338), [#167](https://github.com/SqueakyFloors/ubertooth/issues/167), [#635](https://github.com/SqueakyFloors/ubertooth/issues/635), [#333](https://github.com/SqueakyFloors/ubertooth/issues/333), [#21](https://github.com/SqueakyFloors/ubertooth/issues/21), [#542](https://github.com/SqueakyFloors/ubertooth/issues/542), [#146](https://github.com/SqueakyFloors/ubertooth/issues/146), [#82](https://github.com/SqueakyFloors/ubertooth/issues/82), [#159](https://github.com/SqueakyFloors/ubertooth/issues/159), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#367](https://github.com/SqueakyFloors/ubertooth/issues/367), [#172](https://github.com/SqueakyFloors/ubertooth/issues/172), [#161](https://github.com/SqueakyFloors/ubertooth/issues/161), [#189](https://github.com/SqueakyFloors/ubertooth/issues/189), [#332](https://github.com/SqueakyFloors/ubertooth/issues/332))
 
 #### Fixes
 
-- Fixed: `ubertooth-util -n` printed its `waiting for the repeater... (<n> s)`
-  progress on standard output, so a script reading `-n` for the range test
-  result was handed those lines along with the result whenever the repeater
-  took more than a second to answer. The progress now goes to standard error,
-  where `Starting range test` and the run's error lines already were, and
-  standard output carries the four result lines alone.
-  [#1026](https://github.com/SqueakyFloors/ubertooth/issues/1026)
-- The two-board range test (`ubertooth-util -n` against a `-e` repeater)
-  ignores traffic that is not its own exchange instead of ending the run on
-  it. The sender took any packet the radio's CRC accepted as the repeater's
-  reply, so a second pair testing on the same channel, or a stray packet,
-  ended the run as `error: invalid range test: mismatch on byte <n>`. The
-  sender now keeps listening and names what it discarded once per run on
-  standard error, `warning: range test: a packet that is not this board's
-  reply was ignored (first difference at byte <n>)`, and the repeater answers
-  only requests, so two repeaters cannot answer each other. A reply that is
-  this board's but arrived corrupted is still reported as a mismatch.
-  [#784](https://github.com/SqueakyFloors/ubertooth/issues/784)
-- **Script-visible change:** `ubertooth-util -n` interrupted with Ctrl-C stops
-  the range test, like every other ending of the wait, and exits 1 with
-  `error: interrupted before the range test finished; the range test has been
-  stopped`. A signal used to leave the board listening for a reply forever,
-  until someone ran `-S`.
-  [#694](https://github.com/SqueakyFloors/ubertooth/issues/694)
-- The two-board range test reports a result every run, instead of
-  `invalid range test: mismatch on byte 0` every five to ten runs. Both boards
-  started reading a packet out of the radio the moment it reported the sync
-  word, which is before the radio has written the first byte, so byte 0 came
-  back wrong -- and only byte 0, because the read trails the air from there on.
-  Each now waits for the radio to have the start of the packet.
-  [#686](https://github.com/SqueakyFloors/ubertooth/issues/686)
-- `ubertooth-util -i` is reported as the success it is. The board used to go
-  off the bus from inside the request handler, throwing away the answer the
-  host was waiting for, so a board that had done exactly what was asked was
-  reported as one that had timed out (`libusb -7`) and the command exited 1.
-  Both images now answer the host first. The command also says, in a note of
-  its own, that the board stays in its programmer and answers nothing else
+- **Wrong or hidden results.** A failed read printed an error code as the
+  value (or `Part ID: 0`) and could exit 0; it now names the failed read and
+  exits 1, and a later success no longer hides an earlier failure. A set and
+  a read of one value in a command (`ubertooth-util -c 2426 -c`) both run, and
+  `ubertooth-util -m` no longer reports an earlier range test's numbers as the
+  latest.
+- **Reset and programmer mode.** `ubertooth-util -r` waits up to 10 seconds
+  for the board to come back (macOS can be slow), and later options in the
+  same command stay on the board that was reset. `ubertooth-util -i` reports
+  success instead of a timeout, and says the board stays in its programmer
   until its power is cut.
-  [#508](https://github.com/SqueakyFloors/ubertooth/issues/508)
-- `ubertooth-util -I` says what every other tool says about firmware it was not
-  built with, so it no longer tells you to flash older firmware over a board
-  that is the newer of the two.
-  [#635](https://github.com/SqueakyFloors/ubertooth/issues/635)
-- `ubertooth-util -r` no longer reports an older range test's numbers as the
-  current test's. A test that found no reply, or that the host stopped, now
-  leaves no result, and the command says so.
-- The two-board range test measures something at last: `ubertooth-util -n`
-  against a `-e` repeater reports the power levels within a couple of seconds,
-  in either direction, where it used to report nothing at all. Neither mode
-  held the radio's receive gain amplifier out of reset, so both receivers reported
-  a strong signal and never a sync word; the repeater answered before the
-  sender had finished transmitting, because its delay was a loop the compiler
-  deleted; it decoded requests only while the radio still held its reset
-  value; and neither mode reached the radio's packet buffer in a way the radio
-  accepts, so the packets carried no payload and the replies read back as
-  zeros.
-  [#26](https://github.com/SqueakyFloors/ubertooth/issues/26)
-  [#483](https://github.com/SqueakyFloors/ubertooth/issues/483)
-- A set and a read of the same `ubertooth-util` value in one command both run,
-  the set first, so `-c2426 -c`, `-a5 -a`, `-l1 -l` and `-d1 -d` report the new
-  value instead of dropping the set.
-  [#228](https://github.com/SqueakyFloors/ubertooth/issues/228)
-- `ubertooth-util -m` says `no range test result yet` when no range test has
-  completed since the board started, instead of `invalid range test result`.
-  [#190](https://github.com/SqueakyFloors/ubertooth/issues/190)
-- `ubertooth-util -q <N>` (LED spectrum analyzer, threshold -N dBm) takes
-  20-120, the radio's RSSI range, and bare `-q` uses -85 dBm. The old default
-  (225) and `-q183` to `-q225` lit no LED at all; the firmware refuses values
-  outside 20-120.
-  [#189](https://github.com/SqueakyFloors/ubertooth/issues/189)
-- `ubertooth-util` stops a previous operation before starting a new mode and
-  validates both frequency and channel-number arguments.
-  [#22](https://github.com/SqueakyFloors/ubertooth/issues/22)
-  [#5](https://github.com/SqueakyFloors/ubertooth/issues/5)
-  [upstream #448](https://github.com/greatscottgadgets/ubertooth/issues/448)
-- `ubertooth-util` exits 0 after a successful query such as `-b`, `-c`, `-a`,
-  or `-z`, and an earlier failure is no longer hidden by a later success.
-  [#40](https://github.com/SqueakyFloors/ubertooth/issues/40)
-- `ubertooth-util` no longer prints error codes as values when a query read
-  fails (`-c`, `-a`, `-z`, `-l`, `-d`, `-m`); it names the failed read on
-  standard error instead, as `-b`, `-p` and `-s` now also do.
-  [#59](https://github.com/SqueakyFloors/ubertooth/issues/59)
-  [#123](https://github.com/SqueakyFloors/ubertooth/issues/123)
-- `ubertooth-util -p` exits non-zero when the device reports a failed part ID
-  read instead of printing `Part ID: 0`. In libubertooth, `cmd_get_partnum()`
-  now returns a negative error for that case (it returned 0), and the new
-  `cmd_get_part_id()` returns the full unsigned 32-bit ID.
-  [#52](https://github.com/SqueakyFloors/ubertooth/issues/52)
-- `ubertooth-util -v` and `-V` now exit with an error when the firmware
-  version can't be read, instead of printing `error: <n>`.
-  [#51](https://github.com/SqueakyFloors/ubertooth/issues/51)
-- `ubertooth-util` now releases the device when it finishes a command,
-  without stopping a running mode.
-  [#117](https://github.com/SqueakyFloors/ubertooth/issues/117)
-- `ubertooth-util -r` waits up to 10 seconds for the device to re-enumerate
-  instead of a fixed 2 seconds, so a slow macOS re-enumeration no longer fails
-  a successful reset. libubertooth adds
-  `ubertooth_start_select_quiet()` for this silent, STOP-free polling, and
-  `ubertooth_count()` no longer leaves libusb initialized.
-  [#94](https://github.com/SqueakyFloors/ubertooth/issues/94)
-- `ubertooth-util -r` reads the board's serial before the reset and waits for
-  that serial, so later options in the same command (`-U0 -r -b`) stay on the
-  board that was reset even if the index order changed across the reset. That
-  read is quiet, through libubertooth's new `ubertooth_read_serial_string()`:
-  a board that has stopped answering no longer prints a transfer error, or
-  costs a second of timeout, on the command used to recover it.
-  [#139](https://github.com/SqueakyFloors/ubertooth/issues/139)
-  [#306](https://github.com/SqueakyFloors/ubertooth/issues/306)
-- `ubertooth-util` refuses option values that are not a whole number in range
-  (`-l`, `-d`, `-c`, `-C`, `-q`, `-z`); `-Cabc` used to set 2402 MHz, and
-  `-q0` (once "the default") is now an error: use bare `-q`.
-  [#172](https://github.com/SqueakyFloors/ubertooth/issues/172)
-- `ubertooth-util -a0` sets PA level 0 instead of reading the level, and a
-  level outside 0-7 is refused before opening the device.
-  [#161](https://github.com/SqueakyFloors/ubertooth/issues/161)
-- `ubertooth-util` refuses `-z` combined with a mode option, where it silently
-  had no effect: a mode stops the device, which resets the squelch.
-  [#159](https://github.com/SqueakyFloors/ubertooth/issues/159)
-- `ubertooth-util` refuses a word that is not an option, such as `- V`, with an
-  error and exit 1 before opening the device, instead of ignoring it and
-  running the rest of the command. Option values may now be the next word:
-  `-c 2440` sets the channel like `-c2440` (it used to read the channel).
-  [#146](https://github.com/SqueakyFloors/ubertooth/issues/146)
-- `ubertooth-util` refuses two or more mode options (`-q`, `-n`, `-e`, `-t`,
-  `-x`, `-I`, `-i`, `-f`) with an error and exit 1 before opening the device,
-  instead of running only one of them and exiting 0.
-  [#82](https://github.com/SqueakyFloors/ubertooth/issues/82)
+- **Leftover state.** `ubertooth-util` stops a previous operation before
+  starting a new mode, checks frequency and channel values, and releases the
+  board when it is done without stopping a running mode.
+
+([#59](https://github.com/SqueakyFloors/ubertooth/issues/59), [#123](https://github.com/SqueakyFloors/ubertooth/issues/123), [#52](https://github.com/SqueakyFloors/ubertooth/issues/52), [#51](https://github.com/SqueakyFloors/ubertooth/issues/51), [#40](https://github.com/SqueakyFloors/ubertooth/issues/40), [#228](https://github.com/SqueakyFloors/ubertooth/issues/228), [#94](https://github.com/SqueakyFloors/ubertooth/issues/94), [#139](https://github.com/SqueakyFloors/ubertooth/issues/139), [#306](https://github.com/SqueakyFloors/ubertooth/issues/306), [#508](https://github.com/SqueakyFloors/ubertooth/issues/508), [#22](https://github.com/SqueakyFloors/ubertooth/issues/22), [#5](https://github.com/SqueakyFloors/ubertooth/issues/5), [upstream #448](https://github.com/greatscottgadgets/ubertooth/issues/448), [#117](https://github.com/SqueakyFloors/ubertooth/issues/117))
 
 ### ubertooth-dfu
 
