@@ -127,22 +127,20 @@ int opt_check_stdout_not_tty(const char *what);
  * spell it out again. NULL, a tool given no such option, is not standard
  * output.
  *
- * The documented value is the lone "-". The fixed names of descriptor 1 on
- * the descriptor filesystem count too -- /dev/stdout and /dev/fd/1, plus
- * /proc/self/fd/1 on Linux, with any redundant separators or "." elements
- * between names -- because a user who writes one of those means the same
- * stream, and a capture that shared it with the tool's own report would have
- * report lines in the middle of the capture data. So does any other spelling
- * the platform's own descriptor filesystem answers with descriptor 1: the
- * BSDs read a leading zero as part of the number, so "/dev/fd/01" is that
- * stream there and nothing at all on Linux. The platform is asked rather than
- * the spelling ruled on, so a destination that cannot be created is never
- * taken for the stream. /dev/fd/<n> for any other
- * <n> is an ordinary file name here: it reaches whatever the caller's shell
- * opened on that descriptor, so the capture goes there and the tool's report
- * stays on standard output. So is a name
- * that ends in a separator or a "." element ("/dev/stdout/."), which asks for
- * something inside a file that is not a directory.
+ * The documented value is the lone "-". The fixed names of descriptor 1 count
+ * too -- /dev/stdout and /dev/fd/1, plus /proc/self/fd/1 on Linux, with any
+ * redundant separators or "." elements -- because a capture sharing that
+ * stream with the tool's own report would have report lines in the middle of
+ * the capture data. So does any other spelling the platform's descriptor
+ * filesystem answers with descriptor 1: the BSDs read a leading zero as part
+ * of the number, so "/dev/fd/01" is that stream there and nothing at all on
+ * Linux. The platform is asked rather than the spelling ruled on, so a
+ * destination that cannot be created is never taken for the stream.
+ *
+ * /dev/fd/<n> for any other <n> is an ordinary file name here, reaching
+ * whatever the caller's shell opened on that descriptor. So is a name ending
+ * in a separator or a "." element ("/dev/stdout/."), which asks for something
+ * inside a file that is not a directory.
  */
 int opt_writes_to_stdout(const char *filename);
 
@@ -203,19 +201,15 @@ typedef struct {
  *
  * Two destinations that both mean standard output are not this check's: one
  * stream cannot carry two captures however they are spelled, and each tool
- * has its own rule for that pair. Keep the two in step -- a capture option
- * able to hold such a value that the tool's own rule does not reach would
- * fall between the two gates.
+ * has its own rule for that pair. Keep the two in step, or a capture option
+ * able to hold such a value would fall between the two gates.
  *
  * A destination reached through a descriptor the calling shell opened
- * ("/dev/fd/3") is one of these too, on every platform: the descriptor is
- * already open here, so it is asked which file it holds rather than the path
- * being looked up, which answers differently on Linux and the BSDs.
+ * ("/dev/fd/3") is asked which file it holds rather than having its path
+ * looked up, because that path answers differently on Linux and the BSDs.
  *
  * Some pairs that are one file cannot be told apart from the names alone and
- * are not refused; ubertooth(7), OPTION VALUES lists them for the user. They
- * all wait on the destination being identified after it is open and before it
- * is truncated, which reaches into how every writer opens its file.
+ * are not refused; ubertooth(7), OPTION VALUES lists them for the user.
  */
 int opt_check_destinations_differ(const opt_capture_dest *destinations,
                                  size_t count);
@@ -237,10 +231,9 @@ int opt_check_destinations_differ(const opt_capture_dest *destinations,
  * the destination (opt_parse.c says how each kind is answered), so two
  * spellings of one path, a symbolic link, a hard link, a shell that has
  * pointed standard output at the dump, and a shell descriptor are all caught.
- * Anything the two share counts, whatever kind of file it is: a named pipe on
- * both sides would feed the replay its own records forever, and a character
- * device on both sides loses nothing but is still a command line that says
- * two things and means one.
+ * Anything the two share counts, whatever kind of file: a named pipe on both
+ * sides would feed the replay its own records forever, and a character device
+ * on both sides is still a command line that says two things and means one.
  *
  * Call it with the input open and before any writer opens, so a refused run
  * has created and truncated nothing.

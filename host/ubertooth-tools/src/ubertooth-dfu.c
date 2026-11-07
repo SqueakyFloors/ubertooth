@@ -605,16 +605,15 @@ struct dfu_runtime_context {
  * here, where the image and the part are both known, rather than reporting
  * whatever comes back from the board.
  *
- * It is the same cause as the read-back bound: asking for flash the part has
- * not got. On a bootloader from this tree both paths end the same way, with
- * ERRADDRESS before the part is touched. On an older one they do not: a read
- * past the end is a bus fault that takes the bootloader down until the board
- * is power-cycled, while a write past the end stops part-way through the
+ * It is the same cause as the read-back bound, asking for flash the part has
+ * not got, but not the same outcome on an older bootloader: a read past the
+ * end is a bus fault that takes the bootloader down until the board is
+ * power-cycled, while a write past the end stops part-way through the
  * application.
  *
- * The part identification number says how much flash there is; it is readable
- * only while the board still runs its application, which is where this is
- * called from, so a refusal costs the user nothing.
+ * The part identification number says how much flash there is, and it is
+ * readable only while the board still runs its application, which is where
+ * this is called from.
  *
  * Returns 1 when the image is refused, having said why. A part this host
  * cannot identify gives no figure to check against, so that warns and lets
@@ -1533,11 +1532,11 @@ static int send_image_block(libusb_device_handle* devh, FILE* downfile,
  *
  * The region's first block holds the vector table: the initial stack pointer
  * and the reset vector that decide where a board goes when it is powered up.
- * Written first, as it used to be, it is in place for the whole of the
- * transfer, so a download that stops -- a cable pulled, a board that leaves
- * the bus, a host that dies -- leaves a board that starts an application
- * missing the rest of itself. It faults on every power-up from then on, and
- * only bridging the bootloader entry pin at the bench brings it back.
+ * Written first, it is in place for the whole of the transfer, so a download
+ * that stops -- a cable pulled, a board that leaves the bus, a host that dies
+ * -- leaves a board that starts an application missing the rest of itself. It
+ * faults on every power-up from then on, and only bridging the bootloader
+ * entry pin at the bench brings it back.
  *
  * So the vector table goes away first and is written last:
  *
@@ -1559,17 +1558,15 @@ static int send_image_block(libusb_device_handle* devh, FILE* downfile,
  * to keep working with the bootloader already on the board.
  *
  * An interruption after the vector table and before the end of that 4 KiB
- * sector leaves a startable vector table in front of a sector that is only
- * partly written, and the checksum over the table says nothing about it. The
- * image check block is what closes that: it goes into the flash in the same
- * program as the vector table, and the length and checksum in it cover every
- * byte of the image, so a board can tell whether the rest of that sector
- * arrived. Everything else -- all of a download bar its last few blocks --
- * leaves a board whose bootloader finds nothing to start and waits in DFU for
- * another image.
+ * sector leaves a startable vector table in front of a half-written sector,
+ * and the checksum over the table says nothing about it. The image check
+ * block closes that: it goes into the flash in the same program as the vector
+ * table, and its length and checksum cover every byte of the image.
+ * Everything else -- all of a download bar its last few blocks -- leaves a
+ * board whose bootloader finds nothing to start and waits in DFU.
  *
- * All of this needs a bootloader from this tree on the board. One carrying an
- * earlier bootloader jumps into whatever it finds, as it always did.
+ * All of this needs a bootloader from this tree on the board; an earlier one
+ * jumps into whatever it finds.
  */
 /* Step 3 writes SECTOR_SIZE worth of blocks and relies on that being the
  * whole of the sector the region starts in, so that the erase its first block
@@ -2026,18 +2023,15 @@ static int plan_upload(struct dfu_runtime_context *runtime)
  *
  * getopt does not take long options, and the getopt the tools carry for
  * platforms without a GNU one does not answer getopt_long the way glibc does,
- * so each word is taken out of the command line here instead, before getopt
- * sees it. Neither word has a value of its own, each has to be written out in
- * full, and anything else beginning with "--" still reaches getopt and is
- * reported by opt_report_bad_option() with the whole word quoted, as it
- * always was.
+ * so each word is taken out of the command line here, before getopt sees it.
+ * Neither word has a value of its own, each has to be written out in full,
+ * and anything else beginning with "--" still reaches getopt.
  *
- * The one thing a user could notice is that this scan runs before getopt and
- * so does not know which options take a value: written where a value belongs,
- * as in "-U --update-bootloader", the word is taken out and the option then
- * consumes whatever follows. That command line is refused either way, because
- * no board has that serial and the file name is left over as a stray word, so
- * it costs an unhelpful message rather than a wrong action.
+ * The trap: this scan runs before getopt and so does not know which options
+ * take a value, so written where a value belongs, as in
+ * "-U --update-bootloader", the word is taken out and the option consumes
+ * whatever follows. That command line is refused either way, so it costs an
+ * unhelpful message rather than a wrong action.
  *
  * Returns 1 when the word was there, and removes every copy of it from argv
  * so that getopt sees the rest of the command line as if it had not been

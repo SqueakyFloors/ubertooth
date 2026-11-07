@@ -844,21 +844,18 @@ int main(int argc, char *argv[])
 	 * timestamp. Both requests are synchronous, so the board has them before
 	 * anything is in flight; the asynchronous ones below cannot move up here,
 	 * because the poll thread is what completes them. Both results are
-	 * checked, as the AFH requests below are: a board that took neither
-	 * would follow nothing the user asked for. It used to carry on, having
-	 * printed only a generic line that did not say which request had failed.
-	 * A board without the address matches no packet, and a board whose CLKN
-	 * was never zeroed keeps the clock it has been running since it was
-	 * plugged in, which start-hopping adds its offset to rather than
-	 * replacing, so the follow hops on the wrong clock and every packet time
-	 * is out by however long the board had been up.
+	 * checked, as the AFH requests below are: a board without the address
+	 * matches no packet, and a board whose CLKN was never zeroed keeps the
+	 * clock it has been running since it was plugged in, which start-hopping
+	 * adds its offset to rather than replacing, so the follow hops on the
+	 * wrong clock and every packet time is out by however long the board had
+	 * been up.
 	 *
-	 * What this costs is a slightly staler hop offset. Start-hopping adds its
-	 * offset to whatever CLKN has reached since the reset rather than
-	 * replacing it, so everything between the two is error in the followed
-	 * clock, and the endpoint flush and the thread creation are now inside
-	 * that window: a few of the 312.5 us ticks the hop clock counts, against
-	 * timestamps that were hours out. */
+	 * The cost of ordering it this way is a slightly staler hop offset:
+	 * everything between the reset and start-hopping is error in the
+	 * followed clock, and the endpoint flush and the thread creation are
+	 * inside that window -- a few of the 312.5 us ticks the hop clock
+	 * counts. */
 	r = cmd_set_bdaddr_quiet(ut->devh, btbb_piconet_get_bdaddr(pn));
 	if (r < 0)
 		return follow_request_failed(ut, sock, handle, cc, &files,

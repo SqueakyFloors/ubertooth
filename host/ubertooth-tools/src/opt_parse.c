@@ -427,21 +427,17 @@ static int descriptor_entry(const char *path, const char *directory, int fd)
  * that will resolve them anyway: "/dev/fd/../fd/3" is descriptor 3 wherever
  * the writer's own open would reach it. The text comparisons elsewhere in
  * this file deliberately leave ".." alone, because the element above a
- * symbolic link is not the directory the text suggests; here the lookup
- * answers that question instead of guessing at it.
+ * symbolic link is not the directory the text suggests.
  *
  * The lookup is also what keeps an ordinary file whose name ends in a number
  * a file. Without it, "-d out/1" with standard output redirected to that very
- * file would read as descriptor 1 and the capture would be written through
- * the stream rather than to the name the user gave.
+ * file would read as descriptor 1 and write the capture through the stream.
  *
- * One spelling is not settled for good by any of this: macOS answers a ".."
- * element above the number only most of the time, the same path resolving in
- * one run and not in the next, about one run in two hundred. A run that
- * cannot resolve it hands the name to the writer, which is right when the
- * writer cannot open it either and leaves the report on standard output when
- * the writer can. Nothing short of opening the destination closes that, and
- * opening one to look at it is what costs a named pipe its reader. */
+ * One spelling is not settled by any of this: macOS answers a ".." element
+ * above the number only most of the time, the same path resolving in one run
+ * and not the next. A run that cannot resolve it hands the name to the
+ * writer. Nothing short of opening the destination closes that, and opening
+ * one to look at it is what costs a named pipe its reader. */
 static int descriptor_in(const char *path, const char *directory)
 {
 	char holding[PATH_MAX];
@@ -1240,30 +1236,23 @@ static void getopt_restart(void)
  * has already moved past a word whose last letter it is on, so a dash that
  * ends a word ("-v-") leaves optind on the word after, while a dash with more
  * of its word to come ("-r-x") leaves optind on the word itself. Which of the
- * two happened cannot be told from optind alone, and guessing it named the
- * wrong word on a command line that holds both: "-v- -Ufoo-" blamed
- * "-Ufoo-", where the dash is part of -U's value and nothing is wrong.
+ * two happened cannot be told from optind alone, and guessing names the wrong
+ * word on a command line holding both: "-v- -Ufoo-" blames "-Ufoo-", where
+ * the dash is part of -U's value and nothing is wrong.
  *
  * Telling them apart needs the option letters, so this takes them and parses
  * the command line again, one word at a time: the first word whose arrival
  * makes getopt refuse a dash is the word that holds it.
  *
- * Two kinds of refusal on the way are not the one being reported, and each
- * is handled on its own:
- *
- * An option whose value is missing ("-U" with nothing after it yet) is kept.
- * A required value may be the next word, which the pass that stops at the
- * option has not reached: "ubertooth-util -U -v- -r-x" gives -U the value
- * "-v-", so that word is not a mistake and must not be named for one.
- * Dropping the option here would leave its value to be read as options.
- *
- * An option getopt does not know is left out of the passes that follow. That
- * is how a separate optional value is got past: an optional value may be
- * written as its own word ("ubertooth-util -z -90"), which getopt does not
- * read -- the tool picks it up with opt_separate_value() afterwards -- and
- * which getopt refuses on its own, '9' being no option. Leaving it out is
- * safe because the refusal the tool stopped on was the dash, so a word getopt
- * will not read here is one the tool's own loop read another way.
+ * Two kinds of refusal on the way are not the one being reported. An option
+ * whose value is missing ("-U" with nothing after it yet) is kept, because a
+ * required value may be the next word, which this pass has not reached:
+ * "ubertooth-util -U -v- -r-x" gives -U the value "-v-", so that word is not
+ * a mistake. An option getopt does not know is left out of the passes that
+ * follow, which is how a separate optional value is got past
+ * ("ubertooth-util -z -90", picked up by opt_separate_value()). Leaving it
+ * out is safe because the refusal the tool stopped on was the dash, so a word
+ * getopt will not read here is one the tool's own loop read another way.
  *
  * getopt is left part-way through a command line of its own afterwards, so
  * this may only be called where the tool is giving up: every caller of

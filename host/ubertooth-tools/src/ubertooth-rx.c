@@ -243,31 +243,26 @@ static int rx_split_list(char* text, const char* what, char** words, int max)
  * the value came from another board.
  *
  * Reading rather than remembering is the point. A board does not keep the UAP
- * it reaches for the length of a run: giving a clock up takes the UAP with it,
- * because discovery cannot find another while the hop reversal is still
- * filtering on this one, so drop_followed_clock() sets the piconet's UAP to
- * zero and starts the search over. This tool asks for that itself once a
- * follow has heard nothing for FOLLOW_QUIET_MS, and the library does it on its
- * own account when header after header fails. The board then rediscovers, and
- * one packet whose header checks out is enough to settle a different value --
- * so there is no moment a caller can rely on seeing a board hold nothing, and
- * a value noted once would be evidence for something no board holds.
+ * it reaches for the length of a run: giving a clock up takes the UAP with
+ * it, because discovery cannot find another while the hop reversal is still
+ * filtering on this one, so drop_followed_clock() zeroes it and starts the
+ * search over. The board then rediscovers, and one packet whose header checks
+ * out settles a different value, so a value noted once would be evidence for
+ * something no board holds.
  *
- * What makes reading every pass enough is the packet, not the value: the only
- * writer of a different UAP is the library's header discovery, which runs on a
- * packet, and the capture loop reads every board whenever a pass decoded one.
- * So a reading is never older than the last packet a board had. It is not true
- * that a piconet's UAP has to pass through zero to change -- the search
- * running out of candidates leaves the old value with BTBB_UAP_VALID clear,
- * and the next packet can settle a different one from there without the value
- * ever being zero -- which is why nothing here is cached across a packet.
+ * Reading every pass is enough because of the packet, not the value: the only
+ * writer of a different UAP is the library's header discovery, which runs on
+ * a packet, and the capture loop reads every board whenever a pass decoded
+ * one. A piconet's UAP does not have to pass through zero to change -- the
+ * search running out of candidates leaves the old value with BTBB_UAP_VALID
+ * clear, and the next packet can settle a different one from there -- which
+ * is why nothing here is cached across a packet.
  *
- * A UAP of zero with the flag clear is a board holding none: the state giving a
- * clock up leaves, and a piconet's initial state. The flag clear with a value
- * still there is the search having run out of candidates, which is a board
- * that still holds its answer, so the reading is left alone. Treating that as
- * a board with nothing would let the others' agreement be written over an
- * answer the board had worked out, which is the one thing this must not do. */
+ * A UAP of zero with the flag clear is a board holding none. The flag clear
+ * with a value still there is the search having run out of candidates, which
+ * is a board that still holds its answer, so the reading is left alone:
+ * treating it as a board with nothing would write the others' agreement over
+ * an answer the board had worked out. */
 static void rx_read_own_uap(struct rx_board* board)
 {
 	uint8_t uap;
@@ -326,26 +321,23 @@ static void rx_read_own_uaps(struct rx_board* boards, int n_boards)
  * another's whatever clock either board is on, and btbb_piconet_set_afh_map()
  * rebuilds the hop tables from the union. Each board then narrows its clock
  * candidates against a map that filled as many times faster as there are
- * boards, and an incomplete map is what makes a wrong clock look right: the
- * candidates are narrowed against hops the piconet never made.
+ * boards, which matters because an incomplete map narrows the candidates
+ * against hops the piconet never made and makes a wrong clock look right.
  *
- * The upper address part (UAP) is a scalar, and it is passed on once two
+ * The upper address part (UAP) is a scalar, and it is passed on only once two
  * boards have worked out the same one from their own packets. Not the first
- * board's: the library settles a UAP on as few as two packets and is sometimes
- * wrong about it -- a bench run settled on 0xdb where the peer's is 0x0d --
- * and a wrong one handed over is not something the board it was handed to can
- * get out of. The library restores the UAP it was filtering on whenever the
- * clock search runs out of candidates, so that board filters on the wrong
- * value for the rest of the run and works out nothing of its own. Two boards
- * settling on the same value from different packets is a cross-check a single
- * board cannot make, and it is what makes passing the value on worth doing.
- * A board whose UAP was handed to it is not evidence for it. The value goes
- * only to a board that has worked out none of its own, and only once; a board
- * is never taken off its own answer, for the reason the loop below gives.
+ * board's: the library settles a UAP on as few as two packets and is
+ * sometimes wrong, and a wrong one handed over is not something the receiving
+ * board can get out of -- the library restores the UAP it was filtering on
+ * whenever the clock search runs out of candidates, so that board filters on
+ * the wrong value for the rest of the run. Two boards settling on the same
+ * value from different packets is the cross-check that makes passing it on
+ * worth doing, so a board whose UAP was handed to it is not evidence for it:
+ * the value goes only to a board that has worked out none of its own, once,
+ * and no board is ever taken off its own answer.
  *
- * The clock is not shared and does not need to be: it is the piconet's own, so
- * each board recovers it from its own packets once it has the address. Two
- * boards agreeing on one is evidence a single board cannot produce.
+ * The clock is not shared and does not need to be: it is the piconet's own,
+ * so each board recovers it from its own packets once it has the address.
  *
  * `merged` carries the union between calls, so a map is pushed only when it has
  * grown. One board shares nothing: its piconet already holds everything it
