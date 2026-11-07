@@ -224,72 +224,32 @@ Behavior the tools share.
 
 #### New features
 
-- `btle-extcap.py` reports an option it does not know and an option whose
-  value is missing in the wording every other tool uses:
-  `error: unrecognized option '--bogus'` and
-  `error: option '--fifo' requires a value`, instead of passing on Python's
-  `option --bogus not recognized`.
-  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
-- `btle-extcap.py` refuses a call that asks for no operation in a bare call's
-  words, `error: nothing to do: give --extcap-interfaces, ...`, whether or not
-  the call named an interface. A lone `--`, and an option that asks for
-  nothing, used to be blamed on the interface the call had not given either:
-  `error: --extcap-interface must be ubertooth<serial>`.
-  [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
+- **Each board is its own Wireshark interface.** Interfaces are named by the
+  board's serial, so re-plugging cannot move a capture to another board, and
+  several boards no longer list as `Ubertooth One 0:` repeated. A Wireshark
+  profile that saved an Ubertooth has to pick it again.
+
+([#269](https://github.com/SqueakyFloors/ubertooth/issues/269))
 
 #### Fixes
 
-- Every answer `btle-extcap.py` gives reports a standard output that is not
-  there, not only `-h`: the interface listing, the DLT, the configuration and
-  a filter verdict that could not be printed are one `error: ` line and exit
-  1, where they used to exit 0 or, over a descriptor open for reading only,
-  120. A standard error in that state costs neither Python tool its own exit
-  status either.
-  [#926](https://github.com/SqueakyFloors/ubertooth/issues/926)
-- `btle-extcap.py --capture --fifo=-` reports a standard output that would not
-  take the capture and starts no `ubertooth-btle`, instead of exiting 0 as
-  though the capture had worked: with that descriptor closed the child's first
-  `open()` took its number and the capture was written into whatever that
-  turned out to be. A capture Wireshark names goes to a real fifo and is
-  unaffected.
-  [#929](https://github.com/SqueakyFloors/ubertooth/issues/929)
-- `btle-extcap.py` names each Wireshark interface by its board's serial, so
-  re-plugging boards cannot move a capture to another board and two or more
-  boards no longer list as `Ubertooth One 0:` repeated. The name changed with
-  it, so an Ubertooth saved in a Wireshark profile has to be picked once more.
-  [#269](https://github.com/SqueakyFloors/ubertooth/issues/269)
-- `btle-extcap.py` takes the options Wireshark adds to its own calls, so an
-  Ubertooth reaches Wireshark's capture list instead of the listing being
-  refused, and a failed or refused capture exits non-zero.
-  [#297](https://github.com/SqueakyFloors/ubertooth/issues/297)
-  [#334](https://github.com/SqueakyFloors/ubertooth/issues/334)
-- `btle-extcap.py --extcap-interfaces` no longer hides a failing
-  `ubertooth-util` as an empty interface list: it passes the reason on and
-  exits 1, and reports a tool missing from `PATH` instead of a traceback.
-  [#362](https://github.com/SqueakyFloors/ubertooth/issues/362)
-- **Script-visible change:** `btle-extcap.py --extcap-interfaces` exits 1 when
-  a board could not be opened, even if it named others; it used to exit 0 so
-  that Wireshark kept the boards it could capture on. Wireshark discards a
-  failed call's output, so one board another capture is already holding now
-  leaves its capture list without the Ubertooths that were fine, until that
-  board is freed. The reason is on standard error as before.
-  [#386](https://github.com/SqueakyFloors/ubertooth/issues/386)
-- `btle-extcap.py -h` names the options the script accepts, not
-  `--list-interfaces`, `--list-dlts` and `--config`, which it rejects.
-  [#268](https://github.com/SqueakyFloors/ubertooth/issues/268)
-- A capture filter typed for an Ubertooth interface in Wireshark now turns the
-  filter box red with `this interface does not apply capture filters; use a
-  display filter`. The box used to stay green and the capture ran unfiltered,
-  with the notice on an error output Wireshark shows only for a capture that
-  failed. An empty filter box is still accepted.
-  [#343](https://github.com/SqueakyFloors/ubertooth/issues/343)
-- **Script-visible change:** `btle-extcap.py --capture` exits 0 or 1 and
-  nothing else. It used to pass `ubertooth-btle`'s own exit status through, or
-  report 128 plus the number of the signal that killed it. It also handles
-  Ctrl-C, which `tshark` sends to the whole process group: the script used to
-  die of it and report nothing, where now a capture that was asked to stop
-  exits 0 as it does under Wireshark.
-  [#343](https://github.com/SqueakyFloors/ubertooth/issues/343)
+- **Fixed: Ubertooth missing from Wireshark.** `btle-extcap.py` refused the
+  options Wireshark adds to its calls, so no Ubertooth appeared in the capture
+  list. `btle-extcap.py -h` also lists the options the script really takes.
+- **Fixed: failures reported as success.** A failing `ubertooth-util`, a
+  missing tool, or a closed standard output used to give an empty interface
+  list, exit 0, or a traceback. Each is now one `error:` line and exit 1.
+- **Fixed: capture filters silently ignored.** A capture filter typed for an
+  Ubertooth interface now turns Wireshark's filter box red and says to use a
+  display filter (before, the capture ran unfiltered).
+- **Script-visible change.** `btle-extcap.py --capture` exits only 0 or 1, and
+  stopping it with Ctrl-C, from Wireshark or `tshark`, exits 0.
+  `btle-extcap.py --extcap-interfaces` exits 1 if any board could not be
+  opened, so Wireshark lists no Ubertooths until that board is free. Unknown
+  options and calls with nothing to do get the same error wording as every
+  other tool.
+
+([#297](https://github.com/SqueakyFloors/ubertooth/issues/297), [#334](https://github.com/SqueakyFloors/ubertooth/issues/334), [#268](https://github.com/SqueakyFloors/ubertooth/issues/268), [#362](https://github.com/SqueakyFloors/ubertooth/issues/362), [#926](https://github.com/SqueakyFloors/ubertooth/issues/926), [#929](https://github.com/SqueakyFloors/ubertooth/issues/929), [#343](https://github.com/SqueakyFloors/ubertooth/issues/343), [#386](https://github.com/SqueakyFloors/ubertooth/issues/386), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#323](https://github.com/SqueakyFloors/ubertooth/issues/323))
 
 ### ubertooth-rx
 
