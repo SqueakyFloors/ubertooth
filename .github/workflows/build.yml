@@ -1083,15 +1083,46 @@ jobs:
   # dfu-package job below.
   image-revision:
     # Every leg of the firmware matrix, so a toolchain that spoils the block
-    # on one platform only is still caught. A firmware job that failed skips
-    # this one rather than reporting a second, derived failure.
-    needs: firmware
+    # on one platform only is still caught.
+    #
+    # The condition below, rather than `needs: firmware` on its own, because
+    # a job whose dependency was canceled is skipped, a skipped check
+    # satisfies the protection rule on main, and this is a required check. A
+    # run whose firmware leg never started -- a retired runner image, a
+    # runner outage, a timeout -- then read as a run with nothing to check,
+    # when in fact the images were never read. The `changes` output tells the
+    # two cases apart: a branch with no firmware to build still skips this
+    # job, and a branch that had firmware to build reports a failure, naming
+    # the leg, when the build did not finish.
+    needs: [changes, firmware]
+    if: always() && needs.changes.outputs.firmware == 'true'
     runs-on: ubuntu-24.04
     # Above the download's own four minutes plus the checkout, the compile and
     # the check, so a download that nearly used its budget still fails on its
     # own clock rather than this one.
     timeout-minutes: 8
     steps:
+    - name: Check that the firmware build finished
+      if: needs.firmware.result != 'success'
+      env:
+        FIRMWARE_RESULT: ${{ needs.firmware.result }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        echo "error: the firmware build did not finish ($FIRMWARE_RESULT), so the" >&2
+        echo "       images this check reads were not all built." >&2
+        # The leg names are read from the run's job list, because a leg that
+        # was canceled before it started runs no step of its own and leaves
+        # no other trace of itself. The result above is what decides this
+        # step, so a job list that cannot be read costs the names and nothing
+        # else.
+        legs=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs" -q '.jobs[] | select(.name | startswith("firmware (")) | select(.conclusion != "success") | "       \(.name): \(.conclusion)"') || legs=
+        if [ -n "$legs" ]; then
+          printf '%s\n' "$legs" >&2
+        else
+          echo "       the legs are named on the run's own page." >&2
+        fi
+        exit 1
+
     - uses: actions/checkout@v4
 
     - name: Download the built firmware images
@@ -1243,9 +1274,11 @@ jobs:
   # that the host job compiles and unit-tests on every supported platform, so
   # a second runner here would package the same bytes again.
   dfu-package:
-    # A firmware job that failed skips this one rather than reporting a
-    # second, derived failure.
-    needs: firmware
+    # The condition is image-revision's, for the same reason: a canceled
+    # firmware leg used to skip this required check, which reads as a run
+    # with nothing to package. See the note at that job.
+    needs: [changes, firmware]
+    if: always() && needs.changes.outputs.firmware == 'true'
     runs-on: ubuntu-24.04
     # Above the sum of the bounded steps below -- ten minutes for the install
     # and four for the download -- plus the two checkouts and the two cmake
@@ -1253,6 +1286,25 @@ jobs:
     # than being cancelled with the job and read as a broken build.
     timeout-minutes: 22
     steps:
+    - name: Check that the firmware build finished
+      if: needs.firmware.result != 'success'
+      env:
+        FIRMWARE_RESULT: ${{ needs.firmware.result }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        echo "error: the firmware build did not finish ($FIRMWARE_RESULT), so the" >&2
+        echo "       images this check packages were not all built." >&2
+        # As in image-revision: the names come from the run's job list,
+        # because a leg canceled before it started leaves no other trace,
+        # and the result above is what decides the step.
+        legs=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs" -q '.jobs[] | select(.name | startswith("firmware (")) | select(.conclusion != "success") | "       \(.name): \(.conclusion)"') || legs=
+        if [ -n "$legs" ]; then
+          printf '%s\n' "$legs" >&2
+        else
+          echo "       the legs are named on the run's own page." >&2
+        fi
+        exit 1
+
     - uses: actions/checkout@v4
 
     - uses: actions/checkout@v4
