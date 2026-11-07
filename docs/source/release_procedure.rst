@@ -155,6 +155,13 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
 
     * Export gerbers from KiCad (or copy from previous release if unchanged)
 
+    * Run the test harness's release plan on the release candidate, then
+      commit that release's evidence folder under ``validation/releases/`` and
+      link its ``summary.md``, with the harness version used, from the release
+      notes. ``validation/README.md`` explains which commits qualify a release
+      and which gates are required; ``validation/releases/README.md`` gives the
+      folder's contents and the sanitizing rule.
+
     * Write the release notes in ``tools/RELEASENOTES``, which
       ``tools/ubertooth-release.sh`` copies to the top level of the archive,
       and put them on the GitHub release page as well. Start from the
