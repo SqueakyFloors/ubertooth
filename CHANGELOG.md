@@ -55,8 +55,7 @@ Contents:
   board is missing.
 - **`ubertooth-util -w` says why a board stopped:** resets, the mode and wait
   it stopped in, processor faults and their address, timed-out waits, failed
-  transfers, and stack use. The firmware API version moved with it; reflash
-  older boards.
+  transfers, and stack use.
 
 ([#904](https://github.com/SqueakyFloors/ubertooth/issues/904), [#764](https://github.com/SqueakyFloors/ubertooth/issues/764), [#239](https://github.com/SqueakyFloors/ubertooth/issues/239), [#505](https://github.com/SqueakyFloors/ubertooth/issues/505), [#509](https://github.com/SqueakyFloors/ubertooth/issues/509), [#488](https://github.com/SqueakyFloors/ubertooth/issues/488), [#953](https://github.com/SqueakyFloors/ubertooth/issues/953), [#823](https://github.com/SqueakyFloors/ubertooth/issues/823), [#731](https://github.com/SqueakyFloors/ubertooth/issues/731), [#723](https://github.com/SqueakyFloors/ubertooth/issues/723), [#730](https://github.com/SqueakyFloors/ubertooth/issues/730), [#458](https://github.com/SqueakyFloors/ubertooth/issues/458), [#608](https://github.com/SqueakyFloors/ubertooth/issues/608), [#609](https://github.com/SqueakyFloors/ubertooth/issues/609), [#149](https://github.com/SqueakyFloors/ubertooth/issues/149), [#223](https://github.com/SqueakyFloors/ubertooth/issues/223), [#175](https://github.com/SqueakyFloors/ubertooth/issues/175), [#429](https://github.com/SqueakyFloors/ubertooth/issues/429), [#174](https://github.com/SqueakyFloors/ubertooth/issues/174), [#495](https://github.com/SqueakyFloors/ubertooth/issues/495), [#370](https://github.com/SqueakyFloors/ubertooth/issues/370), [#185](https://github.com/SqueakyFloors/ubertooth/issues/185), [#158](https://github.com/SqueakyFloors/ubertooth/issues/158), [#213](https://github.com/SqueakyFloors/ubertooth/issues/213), [#282](https://github.com/SqueakyFloors/ubertooth/issues/282), [#877](https://github.com/SqueakyFloors/ubertooth/issues/877))
 
@@ -141,8 +140,8 @@ Contents:
 - **Script-visible change.** A capture that cannot start, loses its USB
   stream, or cannot end its mode exits 1 and says so, instead of a false 0 or
   a board left unusable. One Ctrl-C ends a run, even during startup; closing
-  the terminal ends the board's mode; stops are prompt; and captured data is
-  still written.
+  the terminal (SIGHUP) or a `-t` alarm ends the board's mode cleanly; stops
+  are prompt; and captured data is still written.
 
 ([#319](https://github.com/SqueakyFloors/ubertooth/issues/319), [#379](https://github.com/SqueakyFloors/ubertooth/issues/379), [#431](https://github.com/SqueakyFloors/ubertooth/issues/431), [#454](https://github.com/SqueakyFloors/ubertooth/issues/454), [#515](https://github.com/SqueakyFloors/ubertooth/issues/515), [#545](https://github.com/SqueakyFloors/ubertooth/issues/545), [#584](https://github.com/SqueakyFloors/ubertooth/issues/584), [#741](https://github.com/SqueakyFloors/ubertooth/issues/741), [#802](https://github.com/SqueakyFloors/ubertooth/issues/802), [#844](https://github.com/SqueakyFloors/ubertooth/issues/844))
 
@@ -161,12 +160,10 @@ Contents:
 - **Faster identify blink.** `ubertooth-util -I` blinks the LEDs faster, and
   stops on `-S`.
 - **Script-visible change.** `ubertooth-util -f` (use `ubertooth-dfu`) and
-  `-9` are removed. `ubertooth-util -V` prints the standard version lines and
-  ends the command; `-v` still prints the `Firmware version:` line alone, and
+  `-9` are removed. `ubertooth-util -V` now ends the command; `-v` still prints the `Firmware version:` line alone, and
   is deprecated in favor of `-V`.
 - **Script-visible change.** `ubertooth-util` refuses, before opening a board,
-  a word that is not an option, two mode options, `-z` with a mode, `-N` with
-  `-U`, a command line that asks for nothing, and out-of-range values (for
+  two mode options, `-z` with a mode, `-N` with `-U`, and out-of-range values (for
   example `-a` outside 0-7, or `-q` outside 20-120; bare `-q` uses -85 dBm).
   `ubertooth-util -N` prints the count and then runs the rest of the command.
 
@@ -195,11 +192,13 @@ Contents:
 
 #### New features
 
-- **Install the bootloader over USB.** `ubertooth-dfu --update-bootloader -d
-  bl_update.dfu` installs this release's bootloader with no serial programmer.
-  It writes nothing when the board already has that bootloader (`--force`
-  writes anyway), then reads it back and reports what the board holds. Keep a
-  serial adapter to hand: an interrupted bootloader write needs one.
+- **Install the bootloader over USB.** `make -C firmware bl_update` builds an
+  updater image, and `ubertooth-dfu --update-bootloader -d bl_update.dfu`
+  installs it with no serial programmer. It writes nothing when the board
+  already has that bootloader (`--force` writes anyway), then reads it back
+  and reports what the board holds. Keep a serial adapter to hand: an
+  interrupted bootloader write needs one. See ubertooth-dfu(1), UPDATING THE
+  BOOTLOADER.
 - **Script-visible change.** All of `ubertooth-dfu`'s progress goes to
   standard error. Standard output carries only the revision `ubertooth-dfu -d
   <image> -r` verified after the reset, and every failure is one `error:`
@@ -259,8 +258,8 @@ Contents:
   takes only a full address.
 - **Script-visible change.** `ubertooth-btle` refuses, before opening a board
   and with exit 1, two capture modes at once, `-i`/`-I` without `-f` or `-p`,
-  `-A` or `-t` with `-p`, `-a` or `-s` with a capture mode, and a command line
-  with nothing to do. A capture whose board stops answering exits 1.
+  `-A` or `-t` with `-p`, and `-a` or `-s` with a capture mode. A capture
+  whose board stops answering exits 1.
 
 ([#745](https://github.com/SqueakyFloors/ubertooth/issues/745), [#1025](https://github.com/SqueakyFloors/ubertooth/issues/1025), [#7](https://github.com/SqueakyFloors/ubertooth/issues/7), [#542](https://github.com/SqueakyFloors/ubertooth/issues/542), [#804](https://github.com/SqueakyFloors/ubertooth/issues/804), [#1017](https://github.com/SqueakyFloors/ubertooth/issues/1017), [#383](https://github.com/SqueakyFloors/ubertooth/issues/383), [#779](https://github.com/SqueakyFloors/ubertooth/issues/779), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#237](https://github.com/SqueakyFloors/ubertooth/issues/237), [#299](https://github.com/SqueakyFloors/ubertooth/issues/299), [#309](https://github.com/SqueakyFloors/ubertooth/issues/309), [#308](https://github.com/SqueakyFloors/ubertooth/issues/308), [#330](https://github.com/SqueakyFloors/ubertooth/issues/330), [#346](https://github.com/SqueakyFloors/ubertooth/issues/346), [#347](https://github.com/SqueakyFloors/ubertooth/issues/347), [#258](https://github.com/SqueakyFloors/ubertooth/issues/258))
 
@@ -295,8 +294,7 @@ Contents:
   `Error from extcap pipe`: undecodable packets are counted in one note, with
   detail under `-v`, and no longer flood the terminal. `ubertooth-btle` warns
   that `-i`, `-I`, `-j`, and `-J` do nothing yet, warns when a long PcapNG
-  capture runs out of room for connection parameters, validates `-a`, and
-  refuses a replay that would write into its own dump.
+  capture runs out of room for connection parameters, and validates `-a`.
 
 ([#836](https://github.com/SqueakyFloors/ubertooth/issues/836), [#571](https://github.com/SqueakyFloors/ubertooth/issues/571), [#625](https://github.com/SqueakyFloors/ubertooth/issues/625), [#774](https://github.com/SqueakyFloors/ubertooth/issues/774), [#660](https://github.com/SqueakyFloors/ubertooth/issues/660), [#933](https://github.com/SqueakyFloors/ubertooth/issues/933), [#1005](https://github.com/SqueakyFloors/ubertooth/issues/1005), [#1015](https://github.com/SqueakyFloors/ubertooth/issues/1015), [#824](https://github.com/SqueakyFloors/ubertooth/issues/824), [#825](https://github.com/SqueakyFloors/ubertooth/issues/825), [#713](https://github.com/SqueakyFloors/ubertooth/issues/713), [#659](https://github.com/SqueakyFloors/ubertooth/issues/659), [#614](https://github.com/SqueakyFloors/ubertooth/issues/614), [#819](https://github.com/SqueakyFloors/ubertooth/issues/819), [#4](https://github.com/SqueakyFloors/ubertooth/issues/4), [#546](https://github.com/SqueakyFloors/ubertooth/issues/546), [#434](https://github.com/SqueakyFloors/ubertooth/issues/434), [#657](https://github.com/SqueakyFloors/ubertooth/issues/657), [#823](https://github.com/SqueakyFloors/ubertooth/issues/823), [#838](https://github.com/SqueakyFloors/ubertooth/issues/838), [#710](https://github.com/SqueakyFloors/ubertooth/issues/710), [#547](https://github.com/SqueakyFloors/ubertooth/issues/547), [#38](https://github.com/SqueakyFloors/ubertooth/issues/38), [#859](https://github.com/SqueakyFloors/ubertooth/issues/859), [#1194](https://github.com/SqueakyFloors/ubertooth/issues/1194), [#570](https://github.com/SqueakyFloors/ubertooth/issues/570), [#662](https://github.com/SqueakyFloors/ubertooth/issues/662), [#974](https://github.com/SqueakyFloors/ubertooth/issues/974), [#602](https://github.com/SqueakyFloors/ubertooth/issues/602), [#1141](https://github.com/SqueakyFloors/ubertooth/issues/1141), [#771](https://github.com/SqueakyFloors/ubertooth/issues/771), [#871](https://github.com/SqueakyFloors/ubertooth/issues/871), [#171](https://github.com/SqueakyFloors/ubertooth/issues/171), [#265](https://github.com/SqueakyFloors/ubertooth/issues/265))
 
@@ -318,9 +316,7 @@ Contents:
 - **Script-visible change.** `btle-extcap.py --capture` exits only 0 or 1, and
   stopping it with Ctrl-C, from Wireshark or `tshark`, exits 0.
   `btle-extcap.py --extcap-interfaces` exits 1 if any board could not be
-  opened, so Wireshark lists no Ubertooths until that board is free. Unknown
-  options and calls with nothing to do get the same error wording as every
-  other tool.
+  opened, so Wireshark lists no Ubertooths until that board is free.
 
 ([#269](https://github.com/SqueakyFloors/ubertooth/issues/269), [#297](https://github.com/SqueakyFloors/ubertooth/issues/297), [#334](https://github.com/SqueakyFloors/ubertooth/issues/334), [#268](https://github.com/SqueakyFloors/ubertooth/issues/268), [#362](https://github.com/SqueakyFloors/ubertooth/issues/362), [#926](https://github.com/SqueakyFloors/ubertooth/issues/926), [#929](https://github.com/SqueakyFloors/ubertooth/issues/929), [#343](https://github.com/SqueakyFloors/ubertooth/issues/343), [#386](https://github.com/SqueakyFloors/ubertooth/issues/386), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#323](https://github.com/SqueakyFloors/ubertooth/issues/323))
 
@@ -362,10 +358,9 @@ Contents:
   minutes ahead). Per-packet times track the run (before, a 15-second follow
   could span 191 seconds), and a packet too strong to measure reads `s=none
   snr=none`. `ubertooth-scan` no longer places packets a slot late.
-- **Replays and empty files.** `ubertooth-rx -i` reports the host time
+- **Replays.** `ubertooth-rx -i` reports the host time
   stored in the capture rather than the replay's, and exits 1 with an error
-  for an unreadable file or a cut-off last record (before, exit 0). A run
-  refused before it captures anything leaves no empty capture file behind.
+  for an unreadable file or a cut-off last record (before, exit 0).
 
 ([#968](https://github.com/SqueakyFloors/ubertooth/issues/968), [#771](https://github.com/SqueakyFloors/ubertooth/issues/771), [#903](https://github.com/SqueakyFloors/ubertooth/issues/903), [#666](https://github.com/SqueakyFloors/ubertooth/issues/666), [#792](https://github.com/SqueakyFloors/ubertooth/issues/792), [#778](https://github.com/SqueakyFloors/ubertooth/issues/778), [#767](https://github.com/SqueakyFloors/ubertooth/issues/767), [#842](https://github.com/SqueakyFloors/ubertooth/issues/842), [#664](https://github.com/SqueakyFloors/ubertooth/issues/664), [#1182](https://github.com/SqueakyFloors/ubertooth/issues/1182), [#1162](https://github.com/SqueakyFloors/ubertooth/issues/1162), [#202](https://github.com/SqueakyFloors/ubertooth/issues/202), [#203](https://github.com/SqueakyFloors/ubertooth/issues/203), [#993](https://github.com/SqueakyFloors/ubertooth/issues/993), [#1013](https://github.com/SqueakyFloors/ubertooth/issues/1013))
 
@@ -380,8 +375,7 @@ Contents:
   used without hearing them, and could park on one channel and report only
   that.
 - **Fixed: failures that looked like results.** When the board refuses the
-  band sweep, `ubertooth-afh` exits 1 instead of printing a one-channel map,
-  and `ubertooth-btle` likewise names the setup request the board refused.
+  band sweep, `ubertooth-afh` exits 1 instead of printing a one-channel map.
   `ubertooth-afh -t` exits 2 when detection hears nothing, instead of
   monitoring an all-zero map, and stops on the first Ctrl-C.
 
@@ -406,9 +400,8 @@ Contents:
   target's address or the clock reset, `ubertooth-follow` followed anyway; it
   now stops and says which. A UAP you gave is kept after a wrong clock instead
   of being worked out again from the air.
-- **Fixed: timestamps and empty files.** Packet times could be hours out
-  after a packet caught around the clock reset, and a run refused before it
-  captured anything left an empty capture file.
+- **Fixed: timestamps hours out.** Packet times could be hours out after a
+  packet caught around the clock reset.
 
 ([#316](https://github.com/SqueakyFloors/ubertooth/issues/316), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#529](https://github.com/SqueakyFloors/ubertooth/issues/529), [#540](https://github.com/SqueakyFloors/ubertooth/issues/540), [#34](https://github.com/SqueakyFloors/ubertooth/issues/34), [#44](https://github.com/SqueakyFloors/ubertooth/issues/44), [#261](https://github.com/SqueakyFloors/ubertooth/issues/261), [#788](https://github.com/SqueakyFloors/ubertooth/issues/788), [#672](https://github.com/SqueakyFloors/ubertooth/issues/672), [#504](https://github.com/SqueakyFloors/ubertooth/issues/504), [#745](https://github.com/SqueakyFloors/ubertooth/issues/745), [#494](https://github.com/SqueakyFloors/ubertooth/issues/494), [#995](https://github.com/SqueakyFloors/ubertooth/issues/995))
 
@@ -441,8 +434,7 @@ Contents:
   boards. With several attached and no `-U`, it lists them and opens none
   (before, it opened whichever came first). `ubertooth-btbr -h` prints usage.
 - **More of a session is visible.** `ubertooth-btbr` prints the LMP packets a
-  connection decodes, says why a peer hung up (`Peer detached: reason 0x13,
-  the peer's user ended the connection`), and names the LMP power-control
+  connection decodes, says why a peer hung up, and names the LMP power-control
   packets correctly.
 - **Script-visible change.** A session's output is a clean packet log:
   packets and inquiry responses go to standard output, one line each with the
@@ -494,10 +486,8 @@ Contents:
   samples left over from an earlier run; it now starts from a clean board.
   `ubertooth-specan -l` and `-u` must be valid, ordered frequencies in the
   band.
-- **Fixed: unclear errors.** A `-d` file that cannot be written stops the
-  sweep and names the failure (for example, no space left on device), and a
-  bad option gets the same error wording as every other tool. Every tool also
-  stops the board cleanly on SIGHUP and SIGALRM.
+- **Fixed: write failures went unnamed.** A `-d` file that cannot be written stops the
+  sweep and names the failure (for example, no space left on device).
 
 ([#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#231](https://github.com/SqueakyFloors/ubertooth/issues/231), [#259](https://github.com/SqueakyFloors/ubertooth/issues/259), [#510](https://github.com/SqueakyFloors/ubertooth/issues/510), [#471](https://github.com/SqueakyFloors/ubertooth/issues/471), [#173](https://github.com/SqueakyFloors/ubertooth/issues/173), [#37](https://github.com/SqueakyFloors/ubertooth/issues/37), [#655](https://github.com/SqueakyFloors/ubertooth/issues/655), [#338](https://github.com/SqueakyFloors/ubertooth/issues/338))
 
@@ -635,13 +625,8 @@ Contents:
 
 #### The bootloader
 
-- **Install the bootloader over USB.** `make -C firmware bl_update` builds an
-  updater image, `ubertooth-dfu --update-bootloader -d bl_update.dfu`
-  installs it, and `ubertooth-util -B` confirms it. Keep a serial adapter to
-  hand: an interrupted bootloader write needs one. See ubertooth-dfu(1),
-  UPDATING THE BOOTLOADER.
 - **Updating is optional.** This release runs on whatever bootloader a board
-  has. With this release's bootloader, a board also recovers over USB from an
+  has; `ubertooth-dfu --update-bootloader` installs this one. With it, a board also recovers over USB from an
   interrupted download, refuses to start a half-written or corrupt image,
   keeps downloads and read-backs within the flash it has, and reports its own
   version to `ubertooth-util -B`.
@@ -831,8 +816,7 @@ Fixes with no visible change in normal use.
   ([upstream #481](https://github.com/greatscottgadgets/ubertooth/pull/481)).
 - **Bootloader update safety.** A bootloader update whose read-back the part
   refuses leaves the board in its serial programmer, where a serial adapter
-  recovers it, and the bootloader keeps downloads and read-backs within the
-  flash the part has.
+  recovers it.
 
 ([#44](https://github.com/SqueakyFloors/ubertooth/issues/44), [#783](https://github.com/SqueakyFloors/ubertooth/issues/783), [#1074](https://github.com/SqueakyFloors/ubertooth/issues/1074), [#884](https://github.com/SqueakyFloors/ubertooth/issues/884), [#438](https://github.com/SqueakyFloors/ubertooth/issues/438), [#933](https://github.com/SqueakyFloors/ubertooth/issues/933), [#1011](https://github.com/SqueakyFloors/ubertooth/issues/1011), [#942](https://github.com/SqueakyFloors/ubertooth/issues/942), [#505](https://github.com/SqueakyFloors/ubertooth/issues/505), [#391](https://github.com/SqueakyFloors/ubertooth/issues/391), [#352](https://github.com/SqueakyFloors/ubertooth/issues/352), [#870](https://github.com/SqueakyFloors/ubertooth/issues/870), [#887](https://github.com/SqueakyFloors/ubertooth/issues/887), [#638](https://github.com/SqueakyFloors/ubertooth/issues/638), [#600](https://github.com/SqueakyFloors/ubertooth/issues/600), [#597](https://github.com/SqueakyFloors/ubertooth/issues/597), [#584](https://github.com/SqueakyFloors/ubertooth/issues/584), [#818](https://github.com/SqueakyFloors/ubertooth/issues/818), [#768](https://github.com/SqueakyFloors/ubertooth/issues/768), [#774](https://github.com/SqueakyFloors/ubertooth/issues/774), [#764](https://github.com/SqueakyFloors/ubertooth/issues/764), [#743](https://github.com/SqueakyFloors/ubertooth/issues/743), [#732](https://github.com/SqueakyFloors/ubertooth/issues/732), [#691](https://github.com/SqueakyFloors/ubertooth/issues/691), [#705](https://github.com/SqueakyFloors/ubertooth/issues/705), [#987](https://github.com/SqueakyFloors/ubertooth/issues/987), [#343](https://github.com/SqueakyFloors/ubertooth/issues/343), [#440](https://github.com/SqueakyFloors/ubertooth/issues/440), [#358](https://github.com/SqueakyFloors/ubertooth/issues/358), [#676](https://github.com/SqueakyFloors/ubertooth/issues/676), [#397](https://github.com/SqueakyFloors/ubertooth/issues/397), [#546](https://github.com/SqueakyFloors/ubertooth/issues/546), [#624](https://github.com/SqueakyFloors/ubertooth/issues/624), [#576](https://github.com/SqueakyFloors/ubertooth/issues/576), [#568](https://github.com/SqueakyFloors/ubertooth/issues/568), [#593](https://github.com/SqueakyFloors/ubertooth/issues/593), [#496](https://github.com/SqueakyFloors/ubertooth/issues/496), [#681](https://github.com/SqueakyFloors/ubertooth/issues/681), [#506](https://github.com/SqueakyFloors/ubertooth/issues/506), [#577](https://github.com/SqueakyFloors/ubertooth/issues/577), [#586](https://github.com/SqueakyFloors/ubertooth/issues/586), [#431](https://github.com/SqueakyFloors/ubertooth/issues/431), [#564](https://github.com/SqueakyFloors/ubertooth/issues/564), [#567](https://github.com/SqueakyFloors/ubertooth/issues/567), [#483](https://github.com/SqueakyFloors/ubertooth/issues/483), [#464](https://github.com/SqueakyFloors/ubertooth/issues/464), [#499](https://github.com/SqueakyFloors/ubertooth/issues/499), [#515](https://github.com/SqueakyFloors/ubertooth/issues/515), [#416](https://github.com/SqueakyFloors/ubertooth/issues/416), [#384](https://github.com/SqueakyFloors/ubertooth/issues/384), [#409](https://github.com/SqueakyFloors/ubertooth/issues/409), [#450](https://github.com/SqueakyFloors/ubertooth/issues/450), [#359](https://github.com/SqueakyFloors/ubertooth/issues/359), [#393](https://github.com/SqueakyFloors/ubertooth/issues/393), [#239](https://github.com/SqueakyFloors/ubertooth/issues/239), [#248](https://github.com/SqueakyFloors/ubertooth/issues/248), [#252](https://github.com/SqueakyFloors/ubertooth/issues/252), [#256](https://github.com/SqueakyFloors/ubertooth/issues/256), [#423](https://github.com/SqueakyFloors/ubertooth/issues/423), [#424](https://github.com/SqueakyFloors/ubertooth/issues/424), [#208](https://github.com/SqueakyFloors/ubertooth/issues/208), [#216](https://github.com/SqueakyFloors/ubertooth/issues/216), [#29](https://github.com/SqueakyFloors/ubertooth/issues/29), [#31](https://github.com/SqueakyFloors/ubertooth/issues/31), [#35](https://github.com/SqueakyFloors/ubertooth/issues/35), [#245](https://github.com/SqueakyFloors/ubertooth/issues/245), [#247](https://github.com/SqueakyFloors/ubertooth/issues/247), [#307](https://github.com/SqueakyFloors/ubertooth/issues/307), [#370](https://github.com/SqueakyFloors/ubertooth/issues/370), [#366](https://github.com/SqueakyFloors/ubertooth/issues/366), [#381](https://github.com/SqueakyFloors/ubertooth/issues/381), [#387](https://github.com/SqueakyFloors/ubertooth/issues/387), [#388](https://github.com/SqueakyFloors/ubertooth/issues/388), [#399](https://github.com/SqueakyFloors/ubertooth/issues/399), [#407](https://github.com/SqueakyFloors/ubertooth/issues/407), [#385](https://github.com/SqueakyFloors/ubertooth/issues/385), [#3](https://github.com/SqueakyFloors/ubertooth/issues/3), [#2](https://github.com/SqueakyFloors/ubertooth/issues/2), [#661](https://github.com/SqueakyFloors/ubertooth/issues/661), [#670](https://github.com/SqueakyFloors/ubertooth/issues/670), [#429](https://github.com/SqueakyFloors/ubertooth/issues/429), [#395](https://github.com/SqueakyFloors/ubertooth/issues/395), [#656](https://github.com/SqueakyFloors/ubertooth/issues/656), [#820](https://github.com/SqueakyFloors/ubertooth/issues/820), [#849](https://github.com/SqueakyFloors/ubertooth/issues/849), [#745](https://github.com/SqueakyFloors/ubertooth/issues/745), [#1127](https://github.com/SqueakyFloors/ubertooth/issues/1127), [upstream #542](https://github.com/greatscottgadgets/ubertooth/issues/542))
 
