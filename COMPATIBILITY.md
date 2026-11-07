@@ -24,7 +24,7 @@ Legend:
 |---|---|---|---|---|
 | **Ubuntu** | 20.04 LTS | 20.04, 22.04, 24.04 (CI, host+fw); 24.04.4 x86_64 on hardware (host tools) | ≤ 18.04 (use 2020-12-R1) | ✅ 20.04 verified in CI (container) |
 | **Fedora** | none declared: whatever `fedora:latest` is ([note below](#fedora-is-the-unpinned-canary)) | `fedora:latest` (CI): the host tools and their tests, and all of `install.sh` | older than `latest`: untested | ✅ verified in CI only; no Fedora machine has run it, and `install.sh --with-firmware` there is unverified |
-| **macOS** | 14 (Sonoma) | 15, 26 / arm64 (CI, host+fw); 26.7.1 arm64 on hardware (host tools) | ≤ 13 | 🎯 14 was verified in CI until GitHub retired its runner image; 15 is now the oldest verified |
+| **macOS** | 14 (Sonoma) | 15, 26 / arm64 (CI, host+fw); 26.7.1 arm64 on hardware (host tools) | ≤ 13 | 🎯 14 untested (runner retired); 15 is the oldest verified in CI |
 | **Windows** | — | — | all | ❌ Unsupported (libusb + udev; use Linux/VM) |
 | **CMake** | 3.5 | 3.5 … 3.27 (enforced range); 3.28.3 (Ubuntu 24.04) and 4.4.4 (macOS 26) build the host tools | < 3.5 (CMake 4 removed it) | ✅ floor enforced in CMakeLists |
 | **GNU make (firmware)** | 3.81 | 3.81 (macOS), 4.3 (Linux) | — | ✅ 3.81 verified; build avoids make ≥ 4.0 features |
