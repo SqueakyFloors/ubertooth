@@ -309,84 +309,28 @@ Behavior the tools share.
 
 ### ubertooth-follow
 
-#### New features
+- **Name the target by its full address.** `ubertooth-follow -t <BD_ADDR>`
+  follows any target, not only one whose address begins `00:00`, and gives
+  the LAP and UAP to follow. A failed connection after `-l` and `-u` asks for
+  `-t` instead.
+- **Script-visible change.** `ubertooth-follow -a` (follow with an AFH map)
+  needs `-t`, and `-l` without `-u`, or `-u` without `-l`, is refused (before,
+  it followed the local adapter instead). Progress goes to standard error.
+- **Fixed: hopping on the wrong channels.** AFH hopping sat on 2402 MHz; a
+  board left in another mode, or by a killed tool, stayed on one channel or
+  hopped all 79; and `ubertooth-follow -w` compensated half the delay it
+  named. A new AFH map takes effect at once, an unreadable map or one with
+  fewer than 20 channels is refused, and a follow without a map clears an
+  earlier run's.
+- **Fixed: following without what was asked for.** When the board refused the
+  target's address or the clock reset, `ubertooth-follow` followed anyway; it
+  now stops and says which. A UAP you gave is kept after a wrong clock instead
+  of being worked out again from the air.
+- **Fixed: timestamps and empty files.** Packet times could be hours out
+  after a packet caught around the clock reset, and a run refused before it
+  captured anything left an empty capture file.
 
-- `ubertooth-follow -t <BD_ADDR>` names the whole target address, so a follow
-  reaches a target whose address does not begin `00:00`. It gives the LAP and
-  UAP to follow as well.
-  [#316](https://github.com/SqueakyFloors/ubertooth/issues/316)
-- **Script-visible change:** `ubertooth-follow -a` needs `-t` instead of `-l`
-  and `-u`, and the tool's progress moved from standard output to standard
-  error.
-  [#316](https://github.com/SqueakyFloors/ubertooth/issues/316)
-  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
-- **Script-visible change:** `ubertooth-follow -l` without `-u`, or `-u`
-  without `-l`, is refused and names the missing half. It used to say "No
-  address given" and follow the local adapter's own address instead of the
-  piconet that was named.
-  [#529](https://github.com/SqueakyFloors/ubertooth/issues/529)
-
-#### Fixes
-
-- Fixed: `ubertooth-follow` threw away the UAP it was given with every clock it
-  stopped following, and worked the UAP out from the air again, which takes
-  packets and can settle on a wrong value. However the target was named -- by
-  `-t`, by `-l` with `-u`, or by the local Bluetooth device when no target is
-  given -- the UAP is now put back, and the line says which one the tool is
-  holding you to: `warning: the clock being followed was not this piconet's;
-  searching for its clock again, and putting UAP 0d back`.
-  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
-- A `ubertooth-follow` run that is refused before it captures anything leaves
-  no empty capture file behind. The `-q`, `-r`, and `-d` files are created once
-  the board is open and its firmware accepted, and every failure after that --
-  an address or clock request the board refused, a clock the local adapter
-  would not read, or a capture that would not start -- removes them again, so
-  there is nothing on disk to tell apart from a capture that caught nothing.
-  [#995](https://github.com/SqueakyFloors/ubertooth/issues/995)
-- `ubertooth-follow` hops on the piconet's channels after a run that captured
-  nothing. The board now keeps an AFH channel map stated after the mode
-  request, as it already kept a channel: on a board left in a mode that
-  captures no packets -- a killed `ubertooth-specan`, `-btle` or `-ego` -- the
-  map that arrived next used to be thrown away by the mode start's reset, and
-  the follow hopped all 79 channels instead. Clearing the map drops one kept
-  that way as well, so a tool that asks for the whole band gets it.
-  [#788](https://github.com/SqueakyFloors/ubertooth/issues/788)
-- `ubertooth-follow -w` compensates the delay it says it does. The option
-  counts 625 us timeslots, and the clock the board hops on counts 312.5 us
-  ticks; the delay was added tick for tick, so every value compensated half of
-  what it said -- 1562.5 us of the default's 3125 us, leaving the board
-  hopping on a clock more than two slots out, which on a hopping piconet is
-  the wrong channel.
-  [#672](https://github.com/SqueakyFloors/ubertooth/issues/672)
-- `ubertooth-follow -l <LAP> -u <UAP>` says what to do when its connection to
-  the target fails: those four bytes leave the connection to be made to a
-  guessed `00:00:<UAP>:<LAP>`, so the failure now asks for the whole address
-  with `-t`.
-  [#540](https://github.com/SqueakyFloors/ubertooth/issues/540)
-- `ubertooth-follow` stops when the board refuses the target's address or the
-  clock reset, and says which of the two it was. It used to print a generic
-  line that named neither, and follow anyway: without the address the board
-  matched no packet, and without the reset it hopped on a clock the offset was
-  not measured from.
-  [#504](https://github.com/SqueakyFloors/ubertooth/issues/504)
-- `ubertooth-follow` hops with the piconet when it starts on a board that was
-  still in another mode, such as a spectrum scan that was never stopped. It
-  used to sit on one channel and follow nothing. The same went for a transmit
-  started that way.
-  [#261](https://github.com/SqueakyFloors/ubertooth/issues/261)
-- `ubertooth-follow` timestamps are no longer hours out. It zeroed the board's
-  clock after the capture had started, so a packet caught around the reset
-  added about 34,700 s to every later packet time.
-  [#494](https://github.com/SqueakyFloors/ubertooth/issues/494)
-- `ubertooth-follow -a` needs `-l` and `-u`, and stops with an error instead of
-  following an AFH map it could not read or that has fewer than 20 channels. A
-  follow without a map clears any map an earlier run left on the board.
-  [#44](https://github.com/SqueakyFloors/ubertooth/issues/44)
-- Firmware AFH hopping (`ubertooth-follow` with an AFH map) now follows the
-  piconet's used channels instead of sitting on 2402 MHz, matching the
-  Bluetooth spec's re-mapping and same-channel rules. A new AFH map now takes
-  effect at once, including in sweep and `ubertooth-afh` modes.
-  [#34](https://github.com/SqueakyFloors/ubertooth/issues/34)
+([#316](https://github.com/SqueakyFloors/ubertooth/issues/316), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#529](https://github.com/SqueakyFloors/ubertooth/issues/529), [#540](https://github.com/SqueakyFloors/ubertooth/issues/540), [#34](https://github.com/SqueakyFloors/ubertooth/issues/34), [#44](https://github.com/SqueakyFloors/ubertooth/issues/44), [#261](https://github.com/SqueakyFloors/ubertooth/issues/261), [#788](https://github.com/SqueakyFloors/ubertooth/issues/788), [#672](https://github.com/SqueakyFloors/ubertooth/issues/672), [#504](https://github.com/SqueakyFloors/ubertooth/issues/504), [#745](https://github.com/SqueakyFloors/ubertooth/issues/745), [#494](https://github.com/SqueakyFloors/ubertooth/issues/494), [#995](https://github.com/SqueakyFloors/ubertooth/issues/995))
 
 ### ubertooth-scan
 
