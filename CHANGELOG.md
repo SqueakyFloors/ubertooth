@@ -160,381 +160,65 @@ Behavior the tools share.
 
 #### New features
 
-- `ubertooth-btle` saves and replays a capture: `-d <file>` dumps the records
-  as the board sent them, in the format `ubertooth-rx -d` writes, and
-  `-R <file>` decodes a saved dump again with no board and no connection. It
-  is the only way to keep what promiscuous mode works out about the connection
-  it found, those parameters arriving in records that carry no packet for a
-  capture file to hold. A replay takes the major mode the dump was recorded
-  with; ubertooth-btle(1), REPLAYING A SAVED CAPTURE says why and what else a
-  replay can do.
-  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
-- `ubertooth-btle -p` recovers connections that hop with channel selection
-  algorithm 2, which is what Bluetooth 5.0 devices normally use. It used to
-  get as far as the access address and the CRC init value of such a connection
-  and stop, because algorithm 2 has no hop increment to measure. It now
-  searches the connection interval and the 16-bit event counter instead,
-  scoring each candidate against the visits it heard on the channel it is
-  listening to, and follows the connection once one pair clearly accounts for
-  them. It reports the counter it found as `Algorithm 2 event counter`.
-  The search needs no channel map, and the follow does not have one either, so
-  a connection using fewer than the 37 channels is captured with gaps where
-  the map moved an event to a channel the follow did not predict; `-f` still
-  captures the whole of a connection it can see being made.
-  [#1025](https://github.com/SqueakyFloors/ubertooth/issues/1025)
-- **Script-visible change:** `ubertooth-btle -s` and `-t` each have their own
-  address, so `-s A -t B` advertises from A and follows B, which is what it
-  reads like. They shared one address, so whichever option was written last
-  set both, and `-s <address> -t none` advertised from `00:00:00:00:00:00`
-  without a word.
-  [#383](https://github.com/SqueakyFloors/ubertooth/issues/383)
-- **Script-visible change:** `ubertooth-btle -s` takes one whole address and
-  nothing else. The `/<bits>` mask and `none` that `-t` takes are refused with
-  `error: faux peripheral address must be xx:xx:xx:xx:xx:xx (got none)` and exit 1,
-  where they used to be parsed, dropped and the command run anyway: a faux
-  Peripheral advertises from a single address, so there is nothing for a mask to
-  narrow or for `none` to clear. A script that gave either one now gets a
-  failure instead of exit 0.
-  [#779](https://github.com/SqueakyFloors/ubertooth/issues/779)
-- `ubertooth-btle` refuses two major modes with `error: choose one of -f, -n
-  or -p`; the line no longer addresses the reader.
-  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
-- `ubertooth-btle -i` on its own says `error: -i needs -f or -p`, the message
-  its man page promises, rather than listing every major mode.
-  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
-- **Script-visible change:** `ubertooth-btle -A` is refused alongside `-p` and
-  exits 1. Promiscuous mode listens on the channel the board is holding and
-  sets none of its own, so the advertising channel index was taken and then
-  never sent.
-  [#237](https://github.com/SqueakyFloors/ubertooth/issues/237)
-- **Script-visible change:** `ubertooth-btle` refuses `-i`/`-I` without `-f` or
-  `-p`, and `-a`/`-s` alongside `-f`, `-n` or `-p`, before it opens a device.
-  Those command lines, and a mode the board refuses to start, now exit 1 where
-  they used to exit 0, so a script that read that as success sees a failure.
-  [#299](https://github.com/SqueakyFloors/ubertooth/issues/299)
-  [#309](https://github.com/SqueakyFloors/ubertooth/issues/309)
-- **Script-visible change:** `ubertooth-btle` exits 0 for `-h` and 1 when a
-  capture stops because the board stopped answering; it answers `-a`, `-v` and
-  `-t` on standard error when `-q -` or `-c -` has taken standard output, and
-  reports a bad command line, a capture file it cannot create, and a failed
-  request the way the converted tools do.
-  [#308](https://github.com/SqueakyFloors/ubertooth/issues/308)
-  [#330](https://github.com/SqueakyFloors/ubertooth/issues/330)
-  [#346](https://github.com/SqueakyFloors/ubertooth/issues/346)
-  [#347](https://github.com/SqueakyFloors/ubertooth/issues/347)
-- ubertooth-btle can stream PCAP data to stdout with `-q -`
-  or `-c -`, safely separating diagnostics for Wireshark and other consumers.
-  Credit: Ryan Govostes ([@rgov](https://github.com/rgov)).
-  [#7](https://github.com/SqueakyFloors/ubertooth/issues/7)
-  [upstream #362](https://github.com/greatscottgadgets/ubertooth/pull/362)
-- **Script-visible change:** `ubertooth-btle`'s CRC verify setting moves from
-  `-v` to `-k`: `-k` reads it, `-k 0` and `-k 1` set it. `-v` is verbose there,
-  as in every other tool, so a command line that spells the setting the old
-  way is refused rather than read as something `-v` does not mean. `-v` now
-  takes no value at all, as it does in every other tool, so `-v 1` is a stray
-  word (`error: unexpected argument '1'`) and `-v1` a letter the tool does not
-  have (`error: unrecognized option '-1'`); `-v` on its own still says where
-  the setting went: `error: -v needs -f, -n or -p: there is no decode for it to
-  describe; the CRC verify setting is -k now`. `-a` and `-k` keep their
-  optional values, which may be written as the next word (`-k 1`) or attached
-  (`-k1`), and bare still reads.
-  [#542](https://github.com/SqueakyFloors/ubertooth/issues/542),
-  [#804](https://github.com/SqueakyFloors/ubertooth/issues/804),
-  [#1017](https://github.com/SqueakyFloors/ubertooth/issues/1017)
+- **Save and replay.** `ubertooth-btle -d <file>` saves the board's raw
+  records (the `ubertooth-rx -d` format), and `ubertooth-btle -R <file>`
+  decodes them again with no board. It is the only way to keep the connection
+  parameters promiscuous mode works out.
+- **Promiscuous mode finds Bluetooth 5 connections.** `ubertooth-btle -p`
+  recovers connections that hop with channel selection algorithm 2 and reports
+  the `Algorithm 2 event counter`. It does not learn the channel map, so a
+  connection using fewer than 37 channels is captured with gaps.
+- **Stream to Wireshark.** `ubertooth-btle -q -` and `ubertooth-btle -c -`
+  stream PCAP to standard output with diagnostics kept off it. Credit: Ryan
+  Govostes ([@rgov](https://github.com/rgov))
+  ([upstream #362](https://github.com/greatscottgadgets/ubertooth/pull/362)).
+- **Script-visible change.** The CRC verify setting moves from `-v` to `-k`
+  (`ubertooth-btle -k` reads it, `-k 0` and `-k 1` set it), and `-v` is now
+  verbose with no value, as in every other tool. `ubertooth-btle -s A -t B`
+  advertises from A and follows B (before, the two shared one address), and `-s`
+  takes only a full address.
+- **Script-visible change.** `ubertooth-btle` refuses, before opening a board
+  and with exit 1, two capture modes at once, `-i`/`-I` without `-f` or `-p`,
+  `-A` or `-t` with `-p`, `-a` or `-s` with a capture mode, and a command line
+  with nothing to do. A capture whose board stops answering exits 1.
+
+([#745](https://github.com/SqueakyFloors/ubertooth/issues/745), [#1025](https://github.com/SqueakyFloors/ubertooth/issues/1025), [#7](https://github.com/SqueakyFloors/ubertooth/issues/7), [#542](https://github.com/SqueakyFloors/ubertooth/issues/542), [#804](https://github.com/SqueakyFloors/ubertooth/issues/804), [#1017](https://github.com/SqueakyFloors/ubertooth/issues/1017), [#383](https://github.com/SqueakyFloors/ubertooth/issues/383), [#779](https://github.com/SqueakyFloors/ubertooth/issues/779), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#237](https://github.com/SqueakyFloors/ubertooth/issues/237), [#299](https://github.com/SqueakyFloors/ubertooth/issues/299), [#309](https://github.com/SqueakyFloors/ubertooth/issues/309), [#308](https://github.com/SqueakyFloors/ubertooth/issues/308), [#330](https://github.com/SqueakyFloors/ubertooth/issues/330), [#346](https://github.com/SqueakyFloors/ubertooth/issues/346), [#347](https://github.com/SqueakyFloors/ubertooth/issues/347), [#258](https://github.com/SqueakyFloors/ubertooth/issues/258))
 
 #### Fixes
 
-- Fixed: `ubertooth-btle` reported `rssi=0` for a packet whose level the board
-  could not measure. The dBm scale stops rising at the top of the radio's
-  range, so that one figure stands for every level from there up. 0 dBm is a
-  milliwatt at the antenna, about what a peer transmits, and an advertiser a few
-  tens of centimeters away reaches it, low-energy receive turning the board's
-  amplifier and high-gain mode on. Such a packet now reads `rssi=none`, the
-  word the Basic Rate `s=` and `n=` columns already use for a level the board
-  does not have. A capture file still records the figure, as a Basic Rate
-  capture does.
-  [#1194](https://github.com/SqueakyFloors/ubertooth/issues/1194)
-- A good Wireshark capture no longer ends in `Error from extcap pipe`. Every
-  packet whose data did not match its own length fields used to put a line
-  reading `Error: attempt to read past end of buffer` on standard error, which
-  is where Wireshark looks for the reason a capture failed, so a capture that
-  worked perfectly was reported as an error and a board unplugged mid-capture
-  never reached the user. `ubertooth-btle` now says how many such packets there
-  were in one line where the decoded packets went -- `note: 312 packets held
-  data that could not be decoded; -v describes each one` -- and `-v` asks for
-  each one's detail as the run goes. Nothing about a malformed packet is called
-  an error any more, and the packets themselves are recorded as they arrived.
-  [#804](https://github.com/SqueakyFloors/ubertooth/issues/804)
-- Fixed: `ubertooth-btle -p -R promisc.bin -d - >> promisc.bin` read the
-  records it was appending and never ended, growing the dump until a `ulimit`
-  stopped it, with nothing said. A replay compared the name it was given
-  against the dump, and a shell redirection leaves no name to compare; a
-  capture written to `-` is now compared by the descriptor it would really go
-  to, so a standard output pointed at the dump is refused:
-  `error: -d would write over the dump -R is replaying (standard output)`,
-  exit 1, with the dump left as it was. `-q -` and `-c -` are covered too.
-  [#1141](https://github.com/SqueakyFloors/ubertooth/issues/1141)
-- Fixed: `ubertooth-btle -p` often stopped at the access address on a
-  connection that had data flowing, reporting nothing else and capturing only
-  what landed on the channel it was sitting on. It recovers a connection's CRC
-  init value from an empty data PDU, and it was waiting for one whose two
-  acknowledgment bits happened to be both clear, which is one such PDU in a
-  few hundred on a busy connection: of 2666 the board heard from a 50 ms link
-  between two development boards, ten had both bits clear. Everything the mode
-  recovers after that -- the interval, the hop increment, the hop sequence it
-  follows -- waited on one of those turning up. Neither bit changes the value
-  the mode works back from, so neither is waited on any more.
-- Fixed: `ubertooth-btle -f` caught about one connection event in ten of a
-  connection it was following. It hopped with channel selection algorithm 1
-  only, so a connection using algorithm 2, which Bluetooth 5.0 devices
-  normally use and both ends ask for in their advertising and connect packets,
-  was listened for on the right microsecond and the wrong channel.
-  What reached the user was the events where the two sequences happened to
-  coincide, about one in 37, and the connection's packets leaking in from a
-  neighboring channel too distorted to pass their CRC. Follow mode now reads
-  both ends' ChSel bits and hops with the algorithm the connection chose.
-  [#836](https://github.com/SqueakyFloors/ubertooth/issues/836)
-- `ubertooth-btle` no longer prints a `delta_t` short by whole periods of the
-  clock the packets are stamped with. A measured gap of 905.6 s was printed as
-  `delta_t=46611.718 ms` -- that gap less the two 429.4967 s periods inside it
-  -- beside a capture record that had it right. The figure is now the gap the
-  capture's own times have, so it holds the whole of a quiet gap, and the first
-  packet of a capture reports no gap rather than its own clock reading.
-  [#974](https://github.com/SqueakyFloors/ubertooth/issues/974)
-- Fixed: `ubertooth-btle -f` could abandon the connection it was following and
-  jump to another one. Any connection request the board heard on an
-  advertising channel started a fresh follow, even one from a different pair of
-  devices while a follow was running well, and rebuilding the connection's
-  state that way could also leave it half written under the connection event
-  that arrived next. A request heard during a follow is now ignored until that
-  follow ends, and the request still reaches the capture. See
-  ubertooth-btle(1) for how a follow ends.
-  [#933](https://github.com/SqueakyFloors/ubertooth/issues/933)
-- Fixed: `ubertooth-btle -f` stayed on a connection the devices had already
-  closed. The board read the connection update and channel map packets of a
-  followed connection but not the one that announces the connection is ending,
-  so the capture sat on a closed connection until its supervision timeout, up
-  to 32 s, and heard nothing in the meantime. The follow now ends a connection
-  event or two after that packet, once the connection has gone quiet, and the
-  board goes back to listening on the advertising channel, where a new
-  connection between the same devices can be followed. Waiting for quiet is
-  what keeps one damaged packet from stopping a capture of a connection still
-  in use; the cost is that a connection which carries on talking for longer
-  than that after a real close keeps its follow until the supervision timeout,
-  as before. `ubertooth-btle -k1` rules the mistake out altogether.
-  [#1005](https://github.com/SqueakyFloors/ubertooth/issues/1005)
-  [#1015](https://github.com/SqueakyFloors/ubertooth/issues/1015)
-- `ubertooth-btle -f` keeps following a connection through a connection
-  parameter update. The transmit window the update names was placed 1.25 ms
-  late, so the capture listened 1.25 ms late for every event after the update
-  until a packet put it back on the connection's timing — and where the
-  update's own event caught nothing, there was nothing to put it back and the
-  follow stayed quiet for the rest of the connection.
-  [#836](https://github.com/SqueakyFloors/ubertooth/issues/836)
-- `ubertooth-btle` prints one `warning:` line when interference (`-i`, `-I`,
-  `-j`, `-J`) is given: the option is accepted but no capture mode acts on it
-  yet, so the board transmits nothing. It used to follow or listen as usual and
-  say nothing, so a run looked like it had interfered when it had not. The man
-  page records this under KNOWN BROKEN FEATURES.
-  [#871](https://github.com/SqueakyFloors/ubertooth/issues/871)
-- **Script-visible change:** the `rssi=` figure `ubertooth-btle` prints beside
-  a packet is that packet's own level in dBm, the same number the signal field
-  of a `-q` or `-r` capture carries for it. It used to be the weakest reading
-  the board reports for the packet, through a rougher approximation, which ran
-  far below the packet's own level: on the bench that reached -96 dBm where the
-  quietest captured packet was -78, and a dump and a capture of one run
-  disagreed by as much as 90 dB on an individual packet.
-  [#859](https://github.com/SqueakyFloors/ubertooth/issues/859)
-- `ubertooth-btle -p` reports a connection interval that can be believed, or
-  none at all. It used to time how long the connection took to come back to
-  the channel it listens on, keep the smallest gap it had ever seen and divide
-  that by 37, which only holds for a connection that uses all 37 data channels
-  and so comes back once a trip round them. Against a 30 ms link the figure
-  came out anywhere from 0 to 11.25 ms, and a 0 took the hop increment to 0
-  with it, which stops the board hopping. The spacings between returns are now
-  taken as the repeating pattern they are, and one repeat of that pattern is 37
-  connection events whatever the channel map holds. A run whose spacings do not
-  repeat, or which give a figure outside the range a connection interval may
-  take, reports the access address and the CRC init value and no interval or
-  hop increment rather than a number that is wrong.
-  [#824](https://github.com/SqueakyFloors/ubertooth/issues/824)
-- `ubertooth-btle -p` discovers the access address of the connection it finds,
-  instead of inheriting one from an earlier command. A `-t` target set for
-  follow mode used to count on the board as "the host gave us an access
-  address", so promiscuous mode skipped the half of itself that discovers one
-  and synced on the advertising address `8e89bed6`, capturing nothing -- and
-  the setting stayed on the board, so every later `-p` did the same until the
-  board was reset. The board now keeps the two apart, and a connection
-  timeout during `-p` puts discovery back rather than falling to `8e89bed6`.
-  **Script-visible change:** `-t` with `-p` is now refused, `-t none`
-  included: `error: -t does not go with -p: promiscuous mode has no device
-  address to match a target against`, with exit 1 and before a board is
-  opened.
-  [#825](https://github.com/SqueakyFloors/ubertooth/issues/825)
-- `ubertooth-btle -a <address>` no longer narrows what a later `-f` or `-n`
-  run logs. Setting an access address used to switch the board's advertising
-  filter on with an empty target, which passes the six advertising packet
-  types it knows and drops every other, extended advertising included.
-  [#825](https://github.com/SqueakyFloors/ubertooth/issues/825)
-- `ubertooth-btle -p`, the promiscuous mode, stops waiting when a packet's
-  bytes stop arriving partway through, instead of waiting until the host
-  changes mode -- which a tool that is waiting for capture data never does. The
-  capture used to record nothing from that moment on while the board went on
-  answering, so it looked alive and was not. The wait now ends after the air
-  time of the bytes it is owed, the part-packet is dropped, and giving up is
-  counted with the other radio waits `ubertooth-util -w` reads back ("packet
-  bytes" on the "Radio waits that gave up since boot" line).
-  [#819](https://github.com/SqueakyFloors/ubertooth/issues/819)
-- `ubertooth-btle -f` keeps up with the connection it is following instead of
-  parking on one data channel. A first connection event that received nothing
-  left the next one armed at a moment the board's clock had gone past, which it
-  only reaches when that clock wraps 429 seconds later; and a connection that
-  then stopped delivering was chased forever rather than letting the capture go
-  back to the advertising channel for the next one. Against a bench peer
-  opening a connection every 4 seconds, the same 240 seconds now captures 20647
-  packets across 16 connections where it captured 8038 across 11.
-  [#774](https://github.com/SqueakyFloors/ubertooth/issues/774)
-- A packet in a low-energy capture carries the access address it was received
-  with. A connection request set the connection's address as soon as it was
-  read, while the radio went on listening for the advertising one until the
-  next hop, so packets received in between were recorded under the
-  connection's: other devices' advertising packets turned up in the capture as
-  the opening packets of the connection just followed.
-  [#774](https://github.com/SqueakyFloors/ubertooth/issues/774)
-- `ubertooth-btle -p` keeps capturing after a failed capture transfer. One such
-  error used to end the capture: the board went on answering the host and
-  recording nothing until the tool was killed.
-  [#823](https://github.com/SqueakyFloors/ubertooth/issues/823)
-- `ubertooth-btle -f` and `-n` keep capturing after a failed capture transfer.
-  An error part way through a packet used to end the capture the same way: the
-  board answered the host as if nothing had happened and recorded nothing more.
-  The part-received packet is now dropped and the receiver put back.
-  [#838](https://github.com/SqueakyFloors/ubertooth/issues/838)
-- A long BLE capture says when it can no longer record connection parameters.
-  A PcapNG file has room for a few hundred connections' worth, and past that
-  Wireshark cannot follow the connections a capture still holds packets for.
-  `ubertooth-btle -r` now reports that once and carries on, so the remedy --
-  a new capture file -- is visible while the capture is running.
-  [#771](https://github.com/SqueakyFloors/ubertooth/issues/771)
-- A low-energy capture is one of the captures that says what it lost. The
-  board had no way to report a low-energy packet it dropped for want of queue
-  room, and `ubertooth-btle` did not ask, so such a capture looked like a quiet
-  channel; the board now marks the next packet through and the tool reports the
-  gaps when the capture ends. It matters most for long packets, which take
-  several of the queue's slots and are dropped whole, so a busy capture could
-  lose exactly the packets that were wanted.
-  [#547](https://github.com/SqueakyFloors/ubertooth/issues/547)
-- A low-energy capture survives a poll the board did not answer in time. One
-  unlucky poll used to end the capture with `error: USB poll failed`, however
-  long it had been running; it is now retried, as a stalled poll already was,
-  up to three attempts. A board that has gone still ends the capture at once.
-  `ubertooth-ego` reads packets the same way and gets the same.
-  [#710](https://github.com/SqueakyFloors/ubertooth/issues/710)
-- `ubertooth-btle -f` waits out a connection's whole transmit window before
-  giving up on its first connection event. A connection request names that
-  window, and the Central's first packet may arrive anywhere inside it, but the
-  board allowed the time of one packet, so a window longer than the 1.25 ms
-  minimum could expire unwatched. A separate fault still loses the opening
-  events of most connections
-  ([#774](https://github.com/SqueakyFloors/ubertooth/issues/774)), so this is
-  not yet the whole of "the capture starts where the connection does".
-  [#625](https://github.com/SqueakyFloors/ubertooth/issues/625)
-- Every packet in a `ubertooth-btle` capture is
-  timestamped 8 microseconds earlier, which is where its preamble really
-  started. The board back-dated the reading to the preamble but left out the
-  header byte that had also arrived by then, so air times measured from a
-  capture, and comparisons against a capture taken by other hardware, were off
-  by that much.
-  [#662](https://github.com/SqueakyFloors/ubertooth/issues/662)
-- `ubertooth-btle -p` still reports the connection it found when the capture
-  is written to a file. The access address, CRC init value, hop interval and
-  hop increment went to standard output, which `-q -` or `-c -` has taken for
-  the capture, so a user had no way to learn the access address their capture
-  was of. They follow the tool's other answer lines to standard error.
-  [#614](https://github.com/SqueakyFloors/ubertooth/issues/614)
-- `ubertooth-btle -f` keeps up with a connection parameter update. The board
-  kept the new transmit window in a field too narrow for it, so every window
-  was cut to a fraction of its length -- 2.5 ms came out as 16.8 microseconds
-  -- and the first connection event under the new parameters could end before a
-  packet late in the window arrived.
-  [#571](https://github.com/SqueakyFloors/ubertooth/issues/571)
-- `ubertooth-btle -f -v1` keeps the data packets of a followed connection. The
-  board reversed the connection's CRC starting value over a whole 32-bit word
-  where the field is 24 bits wide, so every packet of the connection was
-  checked against the wrong value, failed, and was dropped: the capture was
-  empty for as long as the connection lasted. Advertising packets were
-  unaffected.
-  [#657](https://github.com/SqueakyFloors/ubertooth/issues/657)
-- `ubertooth-btle -f` keeps following when a channel map update asks for no
-  channels at all. Such an update -- which only a corrupted packet can carry --
-  used to park the capture on one data channel, where it saw nothing until the
-  connection's supervision timeout ran out. It is now refused and the
-  connection carries on with the map it has.
-  [#660](https://github.com/SqueakyFloors/ubertooth/issues/660)
-- The average RSSI of a captured Bluetooth low-energy packet is now the mean
-  of the samples taken while it arrived. The board computed it in unsigned
-  arithmetic, so the value in the per-packet header of a PCAP written by
-  `ubertooth-btle -c` was unrelated to the packet; the minimum and the maximum
-  beside it were always right.
-  [#570](https://github.com/SqueakyFloors/ubertooth/issues/570)
-- `ubertooth-btle -p` no longer latches a wrong connection interval and reports
-  it for the rest of the run when a packet arrives just after the capture clock
-  wraps.
-  [#659](https://github.com/SqueakyFloors/ubertooth/issues/659)
-- `ubertooth-btle -p` reports the access address of the connection it is
-  following. It is the first of the four parameters the mode works out and the
-  only one that says which connection a capture is of, and it never reached the
-  host: the board queued it and then emptied the queue on its way into the
-  half of the mode that follows the connection. The CRC init value, hop
-  interval and hop increment were unaffected.
-  [#237](https://github.com/SqueakyFloors/ubertooth/issues/237)
-- `ubertooth-btle -p` no longer measures its first connection interval against
-  a clock reading left by an earlier attempt. The board times how long the
-  connection takes to come back to the channel it is listening on and keeps the
-  smallest gap, but it kept the last sighting where nothing cleared it, and the
-  capture clock is stopped and zeroed between attempts: the first gap was
-  measured from a reading of a clock that had since restarted, so it was an
-  arbitrary number, and whenever it came out small it was the interval reported
-  for the rest of the attempt. The stamp the hop increment is counted from had
-  the same fault.
-  [#713](https://github.com/SqueakyFloors/ubertooth/issues/713)
-- `ubertooth-btle -q -` and `-c -` no longer fill the terminal with the
-  decoder's complaints about packets they do not print. A capture on standard
-  output leaves no room for the per-packet dump, so that dump is not produced
-  at all, and the complaints about fields in it go with it.
-  [#602](https://github.com/SqueakyFloors/ubertooth/issues/602)
-- `ubertooth-btle -f` and `-n` capture a Bluetooth low-energy packet longer
-  than 50 bytes whole. The board used to cut every one of them to 50 bytes and
-  the host then showed the first 46 bytes of the packet, so a Bluetooth 4.2
-  Data Length Extension payload came out short on screen and in PCAP and
-  PCAPNG files, with nothing to say it had been cut. A long packet now travels
-  in several records and is put back together before it is decoded, and the
-  paired libbtbb reads the payload length from all eight bits of the field, so
-  a payload up to its 251-byte maximum arrives as it was sent. The promiscuous
-  mode, `-p`, captures a long packet whole as well; its own capture path used
-  to cut one at 50 bytes and report the payload as shorter than it was, or
-  drop the packet for its length.
-  [#4](https://github.com/SqueakyFloors/ubertooth/issues/4)
-  [#546](https://github.com/SqueakyFloors/ubertooth/issues/546)
-- A set and a read of `ubertooth-btle`'s CRC verify setting in one command both
-  run, the set first, so `-v1 -v` reports the new value instead of dropping one
-  of the two. A read works alongside `-f`, `-n` and `-p` as well, and a set the
-  board does not answer exits 1 instead of being ignored.
-  [#265](https://github.com/SqueakyFloors/ubertooth/issues/265)
-- A `ubertooth-btle` command line with no work in it (a bare run, or only `-A`,
-  `-x`, `-i`/`-I` or a capture option) is refused with `error: nothing to do:
-  ...` and exit 1, instead of opening a board and exiting 0.
-  [#258](https://github.com/SqueakyFloors/ubertooth/issues/258)
-- `ubertooth-btle -n` and `-f` report the first two packets of a session. The
-  board used to hand them to a receive endpoint these modes never read.
-  [#434](https://github.com/SqueakyFloors/ubertooth/issues/434)
-- `ubertooth-btle -t none` now reliably clears the persistent target filter.
-  [#38](https://github.com/SqueakyFloors/ubertooth/issues/38)
-- `ubertooth-btle -a` refuses a value that is not 1-8 hex digits (`-azzzz` used
-  to set an uninitialized address), refuses get and set together, no longer
-  skips `-v` after a get, and reports a failed set. The address can be the
-  next word (`-a 8e89bed6`).
-  [#171](https://github.com/SqueakyFloors/ubertooth/issues/171)
+- **Fixed: follow mode lost connections.** `ubertooth-btle -f` hopped only
+  with channel selection algorithm 1, so it caught about one event in ten of a
+  Bluetooth 5 connection. It also mistimed connection updates and transmit
+  windows, parked on one channel after a missed first event or an empty
+  channel map, jumped to another pair's connection, and stayed on a closed
+  connection until its timeout. It now captures about 2.5 times as many
+  packets.
+- **Fixed: promiscuous mode stopped short or reported wrong figures.**
+  `ubertooth-btle -p` often stalled at the access address on a busy
+  connection, never reported the access address it found, reported
+  connection intervals that were wrong (it now reports none rather than a
+  wrong one), locked onto the advertising address after an earlier `-t`, sent
+  its findings into a capture on standard output, and stopped capturing when a
+  packet was cut off part-way.
+- **Fixed: missing packets.** Packets over 50 bytes were cut short (payloads
+  up to 251 bytes now arrive whole), the first two packets of a session were
+  lost, `ubertooth-btle -f -k 1` dropped every data packet, a single failed
+  transfer or late USB poll ended a capture, dropped packets went unreported,
+  some advertising packets were recorded under a connection's address, and
+  `ubertooth-btle -a` or `-t none` left a filter set for later runs.
+- **Fixed: wrong signal and timing figures.** The `rssi=` figure is now the
+  packet's own level and matches the capture file (before, it could be off by 90 dB),
+  and reads `rssi=none` when the packet is too strong to measure. The PCAP
+  average RSSI, packet timestamps (before, 8 microseconds late), and `delta_t`
+  (before, short by whole clock periods) are now correct.
+- **Fixed: misleading messages.** A good Wireshark capture no longer ends in
+  `Error from extcap pipe`: undecodable packets are counted in one note, with
+  detail under `-v`, and no longer flood the terminal. `ubertooth-btle` warns
+  that `-i`, `-I`, `-j`, and `-J` do nothing yet, warns when a long PcapNG
+  capture runs out of room for connection parameters, validates `-a`, and
+  refuses a replay that would write into its own dump.
+
+([#836](https://github.com/SqueakyFloors/ubertooth/issues/836), [#571](https://github.com/SqueakyFloors/ubertooth/issues/571), [#625](https://github.com/SqueakyFloors/ubertooth/issues/625), [#774](https://github.com/SqueakyFloors/ubertooth/issues/774), [#660](https://github.com/SqueakyFloors/ubertooth/issues/660), [#933](https://github.com/SqueakyFloors/ubertooth/issues/933), [#1005](https://github.com/SqueakyFloors/ubertooth/issues/1005), [#1015](https://github.com/SqueakyFloors/ubertooth/issues/1015), [#824](https://github.com/SqueakyFloors/ubertooth/issues/824), [#825](https://github.com/SqueakyFloors/ubertooth/issues/825), [#713](https://github.com/SqueakyFloors/ubertooth/issues/713), [#659](https://github.com/SqueakyFloors/ubertooth/issues/659), [#614](https://github.com/SqueakyFloors/ubertooth/issues/614), [#819](https://github.com/SqueakyFloors/ubertooth/issues/819), [#4](https://github.com/SqueakyFloors/ubertooth/issues/4), [#546](https://github.com/SqueakyFloors/ubertooth/issues/546), [#434](https://github.com/SqueakyFloors/ubertooth/issues/434), [#657](https://github.com/SqueakyFloors/ubertooth/issues/657), [#823](https://github.com/SqueakyFloors/ubertooth/issues/823), [#838](https://github.com/SqueakyFloors/ubertooth/issues/838), [#710](https://github.com/SqueakyFloors/ubertooth/issues/710), [#547](https://github.com/SqueakyFloors/ubertooth/issues/547), [#38](https://github.com/SqueakyFloors/ubertooth/issues/38), [#859](https://github.com/SqueakyFloors/ubertooth/issues/859), [#1194](https://github.com/SqueakyFloors/ubertooth/issues/1194), [#570](https://github.com/SqueakyFloors/ubertooth/issues/570), [#662](https://github.com/SqueakyFloors/ubertooth/issues/662), [#974](https://github.com/SqueakyFloors/ubertooth/issues/974), [#602](https://github.com/SqueakyFloors/ubertooth/issues/602), [#1141](https://github.com/SqueakyFloors/ubertooth/issues/1141), [#771](https://github.com/SqueakyFloors/ubertooth/issues/771), [#871](https://github.com/SqueakyFloors/ubertooth/issues/871), [#171](https://github.com/SqueakyFloors/ubertooth/issues/171), [#265](https://github.com/SqueakyFloors/ubertooth/issues/265))
 
 ### btle-extcap.py
 
