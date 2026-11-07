@@ -80,8 +80,10 @@ CentOS 8
 macOS (Homebrew)
 ++++++++++++++++
 
-macOS 14 (Sonoma) or newer is supported; see `COMPATIBILITY.md <https://github.com/SqueakyFloors/ubertooth/blob/main/COMPATIBILITY.md>`__ for the
+macOS 15 (Sequoia) or newer is supported; see `COMPATIBILITY.md <https://github.com/SqueakyFloors/ubertooth/blob/main/COMPATIBILITY.md>`__ for the
 tested versions and `REQUIREMENTS.md <https://github.com/SqueakyFloors/ubertooth/blob/main/REQUIREMENTS.md>`__ for what each dependency enables.
+macOS 14 (Sonoma) is expected to build, but it is no longer tested: its CI
+runner image has been retired.
 Install the Xcode command line tools (``xcode-select --install``) and
 `Homebrew <https://brew.sh>`__, then:
 

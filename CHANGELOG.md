@@ -2391,6 +2391,10 @@ Behavior the tools share.
   result is read off each board. Keep a serial programmer to hand: an
   interrupted bootloader write leaves a board needing one.
   [#1229](https://github.com/SqueakyFloors/ubertooth/issues/1229)
+- The supported macOS minimum is 15 (Sequoia), the oldest version CI builds
+  now that the macOS 14 runner image has been retired. macOS 14 is expected to
+  build, but it is no longer tested.
+  [#1242](https://github.com/SqueakyFloors/ubertooth/issues/1242)
 - `install.sh` stops with a clear error, before installing or building
   anything, when Python is older than 3.8. [#154](https://github.com/SqueakyFloors/ubertooth/issues/154)
 - `install.sh` installs `libnewlib-arm-none-eabi` explicitly, and its apt hint
