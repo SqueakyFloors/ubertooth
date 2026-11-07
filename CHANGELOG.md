@@ -352,339 +352,52 @@ Behavior the tools share.
 
 #### New features
 
-- `ubertooth-btbr` can put packet types on the air that a real stack almost
-  never sends, which is what a Classic decoder needs to be tested against.
-  With a connection up, `tx <format> [<length>] [<count>] [<hex>]` transmits
-  one packet built to that format: AUX1, DV, the HV voice packets, the EV
-  synchronous ones, and DM or DH at any length the format carries, including
-  the odd and boundary lengths. The data is a counted pattern unless you give
-  the bytes, and the line the command prints is what went on the air. A DV
-  packet's two fields get patterns that start at different bytes, `a0` for the
-  voice field and `00` for the data field, so a decoder can see where the
-  voice field ends without knowing how long either field is.
-  ubertooth-btbr(1), TRANSMITTING CHOSEN PACKET TYPES has the formats and
-  their lengths.
-  [#736](https://github.com/SqueakyFloors/ubertooth/issues/736)
-- `ubertooth-btbr` takes `-U <index|serial>` to choose one of several attached
-  boards, as every other tool does, and `-h` to print its usage text.
-  [#642](https://github.com/SqueakyFloors/ubertooth/issues/642)
-  [#410](https://github.com/SqueakyFloors/ubertooth/issues/410)
-- **Script-visible change:** `ubertooth-btbr` exits 0 for `-h`, and reports a
-  command line it will not take as one `error: ` line on standard error
-  instead of printing its usage text on standard output.
-  [#410](https://github.com/SqueakyFloors/ubertooth/issues/410)
-- **Script-visible change:** `ubertooth-btbr` reports a warning or a failure as
-  one `warning: ` or `error: ` line on standard error, as the other tools do,
-  instead of a `HH:MM:SS | WARNING | ...` log line.
-  [#410](https://github.com/SqueakyFloors/ubertooth/issues/410)
-- **Script-visible change:** `ubertooth-btbr` prints the packets a command
-  decodes, and the inquiry responses with their EIR, on standard output, one
-  line each with the time in front of it (`13:54:02 RX LMP ...`), so a session
-  can be piped or saved; they used to be `HH:MM:SS | INFO | ...` log lines on
-  standard error, where nothing reading the tool's output could see them. The
-  progress a command makes stays on standard error, now as plain lines with
-  neither the time nor the level.
-  [#735](https://github.com/SqueakyFloors/ubertooth/issues/735)
-- `ubertooth-btbr` reports the LMP packets a connection decodes (`page`,
-  `l2ping`, `page_scan`, `discoverable`), which it printed nowhere a reader
-  could see before. Packet lines carry no terminal color any more, and
-  `monitor` prints the payload of a packet that failed its CRC as plain hex
-  rather than a Python `b'...'` repr.
-  [#735](https://github.com/SqueakyFloors/ubertooth/issues/735)
-- **Script-visible change:** `ubertooth-btbr` says `error: standard output has
-  gone away` and exits 1 when whatever was reading it stops, as
-  `ubertooth-btbr | head -5` does. It used to end in status 120 and a message
-  from the interpreter.
-  [#735](https://github.com/SqueakyFloors/ubertooth/issues/735)
-- **Script-visible change:** `ubertooth-btbr` keeps its prompt and its
-  `Type ? to list commands` line out of a capture, so every line of one can
-  be read by the time in front of it. The prompt carries no newline of its
-  own, so the first packet after each one used to land on its end
-  (`bt> 12:14:53 RX FHS: ...`). A session at a terminal is unchanged: the
-  terminal's line editor still draws the prompt.
-  [#800](https://github.com/SqueakyFloors/ubertooth/issues/800)
-- **Script-visible change:** `ubertooth-btbr` prints what `?` and
-  `? <command>` list on standard error, with the prompt, so a capture holds
-  packets alone whatever the user types during it. Typing `?` with the capture
-  piped somewhere used to put untimed lines into it. A `? <command>` naming no
-  command is now the `error: no help on '<word>'` line the prompt's other
-  refusals read like, in place of `*** No help on <word>`.
-  [#874](https://github.com/SqueakyFloors/ubertooth/issues/874)
-- **Script-visible change:** `ubertooth-btbr` refuses a word its prompt does
-  not know, `error: no such command '<word>'` on standard error with the
-  prompt still up, where such a word used to be taken silently. `x` and `q`
-  with a word after them leave, as `exit <word>` already did.
-  [#908](https://github.com/SqueakyFloors/ubertooth/issues/908)
+- **Send chosen packet types.** With a connection up, the `ubertooth-btbr`
+  command `tx <format> [<length>] [<count>] [<hex>]` sends one packet of a
+  chosen type (AUX1, DV, HV, EV, or DM and DH at any length), for testing a
+  Classic decoder against packets real stacks rarely send. See
+  ubertooth-btbr(1), TRANSMITTING CHOSEN PACKET TYPES.
+- **Choose a board.** `ubertooth-btbr -U <index|serial>` picks one of several
+  boards. With several attached and no `-U`, it lists them and opens none
+  (before, it opened whichever came first). `ubertooth-btbr -h` prints usage.
+- **More of a session is visible.** `ubertooth-btbr` prints the LMP packets a
+  connection decodes, says why a peer hung up (`Peer detached: reason 0x13,
+  the peer's user ended the connection`), and names the LMP power-control
+  packets correctly.
+- **Script-visible change.** A session's output is a clean packet log:
+  packets and inquiry responses go to standard output, one line each with the
+  time in front (`13:54:02 RX LMP ...`). The prompt, help, progress, and
+  plain `warning:` and `error:` lines go to standard error, with no color
+  codes when redirected.
+- **Script-visible change.** `ubertooth-btbr -h` exits 0, and unknown prompt
+  words, short addresses, and out-of-range `-f` (0-63) and `-b` (0-3) values
+  are refused. A session exits 1 when it loses the board, leaves it held, or
+  loses its standard output.
+
+([#736](https://github.com/SqueakyFloors/ubertooth/issues/736), [#642](https://github.com/SqueakyFloors/ubertooth/issues/642), [#410](https://github.com/SqueakyFloors/ubertooth/issues/410), [#735](https://github.com/SqueakyFloors/ubertooth/issues/735), [#951](https://github.com/SqueakyFloors/ubertooth/issues/951), [#950](https://github.com/SqueakyFloors/ubertooth/issues/950), [#800](https://github.com/SqueakyFloors/ubertooth/issues/800), [#874](https://github.com/SqueakyFloors/ubertooth/issues/874), [#943](https://github.com/SqueakyFloors/ubertooth/issues/943), [#908](https://github.com/SqueakyFloors/ubertooth/issues/908), [#1075](https://github.com/SqueakyFloors/ubertooth/issues/1075), [#1142](https://github.com/SqueakyFloors/ubertooth/issues/1142), [#737](https://github.com/SqueakyFloors/ubertooth/issues/737), [#920](https://github.com/SqueakyFloors/ubertooth/issues/920), [#959](https://github.com/SqueakyFloors/ubertooth/issues/959))
 
 #### Fixes
 
-- `ubertooth-btbr` no longer reports standard output gone when the reader
-  left before any packet was printed: nothing had been written to that
-  stream, so nothing asked for was lost and the session ends as it otherwise
-  would. The prompt used to be written there, which is what noticed.
-  [#800](https://github.com/SqueakyFloors/ubertooth/issues/800)
-- Fixed: `ubertooth-btbr`'s `page_scan` reported a connection it never made.
-  Where the board could not put its answer to the page on the air, it still
-  printed the pager's address and `Peripheral started` and told the host it
-  was connected, while the pager had heard nothing and was still paging. The
-  board now says the answer was not sent and goes on scanning, so it is
-  listening for the pager's next attempt. `inquiry_scan` had a smaller
-  version of it: it sent the extended inquiry response after an inquiry
-  response that never went out, and now goes back to scanning.
-  [#1156](https://github.com/SqueakyFloors/ubertooth/issues/1156)
-- Fixed: `ubertooth-btbr` took any `-f` or `-b` value up to 65535 and the
-  board then used the low bits of it, so `-f 64` set the same offset as
-  `-f 0` and `-b 4` allowed no access-code bit errors at all, the opposite of
-  raising the tolerance. Each is now refused with its real range,
-  `error: -f must be 0-63 (got 64)` and `error: -b must be 0-3 (got 4)`,
-  before a board is opened.
-  [#1142](https://github.com/SqueakyFloors/ubertooth/issues/1142)
-- Fixed: `ubertooth-btbr`'s `page` and `l2ping` held a connection the peer had
-  already declined, until link supervision ended it a second later. A peer
-  that refuses the connection request now gets a detach, and the command says
-  so and ends straight away.
-  [#1074](https://github.com/SqueakyFloors/ubertooth/issues/1074)
-- `ubertooth-btbr` carries on when a device name cannot be written in the
-  session's character encoding. A name arrives as whatever bytes the air
-  carried, and one that is not ASCII ended the command in
-  `BTCtlInquiryCmd stopped: UnicodeEncodeError` on a session not running under
-  UTF-8. That line is dropped now, with one warning saying why and naming
-  `PYTHONIOENCODING=utf-8`, and the packets after it are printed as usual. A
-  diagnostic the encoding could not take used to silence standard error for
-  the rest of the session.
-- Fixed: `ubertooth-btbr`'s `l2ping` never reached its L2CAP packet when the
-  device it paged was another Ubertooth. The two boards connected and then sat
-  there, because each side sent `LMP_setup_complete` only on receiving one, so
-  neither sent the first and the link setup never finished. The central now
-  sends its own as soon as its connection request is accepted, and a board in
-  `page_scan`, which `discoverable` also runs, answers an L2CAP echo request
-  small enough to reply to in the packets this link sends, so `l2ping` between
-  two boards sees a reply. A request larger than that is not
-  answered; ubertooth-btbr(1), LIMITATIONS says how large it may be.
-  [#807](https://github.com/SqueakyFloors/ubertooth/issues/807)
-- `ubertooth-btbr`'s `page`, `l2ping`, `monitor`, and `bdaddr` refuse an
-  address that is not six bytes, where a short one used to be acted on as a
-  different one: `bdaddr 11:22:33` gave the board `00:00:11:22:33` and `page
-  11:22:33` paged that device, with nothing said. An inquiry's `bdaddr=` keeps
-  its leading zeros too, so the address it prints is one the prompt takes.
-  [#1075](https://github.com/SqueakyFloors/ubertooth/issues/1075)
-- Fixed: a `ubertooth-btbr` `page`, `l2ping`, or `page_scan` session gave up
-  one second after a connection that came to nothing, with most of the time
-  the user asked for unused. A pager cannot tell the ID packet that
-  acknowledges its page response from the one that answers a page message --
-  both are a bare access code -- so anything else answering a page nearby puts
-  it in a connection with no peer on it; and a board that has answered a page
-  response the pager did not hear sits in a connection the pager has already
-  left. Either way link supervision ended that connection a second later and
-  the command stopped, 44 seconds into a 45-second page attempt or a few
-  seconds into a minute of scanning. Both sides now go back to the page train
-  or the page scan they came from and keep the deadline of the attempt that
-  was running, so a page that is answered by the wrong board, or a page
-  response whose acknowledgment is lost, costs a second rather than the whole
-  attempt. The board says which it did, as `Paging resumed` or `Page scan
-  resumed`.
-  [#807](https://github.com/SqueakyFloors/ubertooth/issues/807)
-- `ubertooth-btbr` writes plain text when its standard error is redirected,
-  where it used to send ANSI color escapes whichever way the stream went, so a
-  saved session was full of `^[[32;1m`. Its finer-grained progress lines
-  (`Send idle`, `send bb ...`) no longer appear in a normal session, which
-  leaves standard error carrying progress only, and the LMP packet lines space
-  their bytes (`02 00 00`) like the ACL and inquiry lines beside them.
-- `ubertooth-btbr` no longer reports a packet whose header came from a piconet
-  with a different UAP. All eight bits of a header's error check now have to
-  match, where seven did, and the dropped bit cost real coverage: the check is
-  computed from the UAP, so every header of one particular other UAP that got
-  past the access-code match was accepted, and a header read out of noise
-  passed one time in 128 instead of one in 256. Either was printed as a packet
-  with whatever type, logical transport address and flags it carried.
-  [#1036](https://github.com/SqueakyFloors/ubertooth/issues/1036)
-- A `ubertooth-btbr` connection to a real Classic device is no longer cut
-  short after exactly 30 seconds. The peer asks how many slots its packets
-  may use, and a request like that has to be answered; getting nothing back,
-  it waited out its 30-second LMP response timeout and detached the link with
-  `LMP_DETACH | 0f22`. The answer holds the link to single-slot packets,
-  which is where a connection starts anyway, and the feature mask the tool
-  sends no longer offers 3-slot and 5-slot packets it goes on to refuse.
-  [#942](https://github.com/SqueakyFloors/ubertooth/issues/942)
-- A `ubertooth-btbr` connection says why a peer hung up -- `Peer detached:
-  reason 0x13, the peer's user ended the connection` -- and ends the link
-  there. As the central it used to call the detach an unhandled opcode and
-  hold the connection open until link supervision ended it.
-  [#951](https://github.com/SqueakyFloors/ubertooth/issues/951)
-- A `ubertooth-btbr` connection answers an LMP request it has no handler for,
-  rather than leaving the peer to wait out a 30-second response timeout and
-  drop the link. A PDU that expects no reply is ignored instead, so the
-  answers go only where one is due: against a peer that asked for less
-  transmit power five times a second, that was 302 refusals in a connection
-  carrying 18987 packets, and the link was no shorter for them. The
-  `warning: LMP opcode ... is not handled` line is now said once per opcode
-  for the life of a connection, not once per PDU.
-  [#949](https://github.com/SqueakyFloors/ubertooth/issues/949)
-- A `ubertooth-btbr` capture names LMP opcodes 31 and 32 as the current
-  specification does, `LMP_INCR_POWER_REQ` and `LMP_DECR_POWER_REQ`; the
-  extended pair 127/31 and 127/32 carries `LMP_POWER_CONTROL_REQ` and
-  `LMP_POWER_CONTROL_RES`. Each table held the other's names, so a peer asking
-  for less transmit power read as a response to something else. An opcode no
-  table names is now its number rather than `None`.
-  [#950](https://github.com/SqueakyFloors/ubertooth/issues/950)
-- A `ubertooth-btbr` session carries on through an LMP PDU too short to carry
-  an opcode, reporting it in a `warning:` line. One used to end the session in
-  `error: BTCtlPagingCmd stopped: IndexError: index out of range` and take the
-  capture with it.
-  [#960](https://github.com/SqueakyFloors/ubertooth/issues/960)
-- A `ubertooth-btbr` session answers an LMP PDU that holds its opcode but ends
-  before its parameters: the name request, the extended features request, and
-  the AFH set are refused with invalid LMP parameters, and a short slot offset
-  is traced and let go. `monitor` now says it is keeping the channel map it
-  has rather than hopping over one the central never sent. The shortest of
-  these PDUs used to end the session in `error: BTCtlPagingCmd stopped:
-  IndexError: index out of range`, and the rest were read as though the
-  missing bytes were there.
-  [#971](https://github.com/SqueakyFloors/ubertooth/issues/971)
-- Fixed: a message from the board that `ubertooth-btbr` could not read, or an
-  inquiry response the air cut short, ended the thread reading the board or
-  the running command in `IndexError: index out of range`, and with it the
-  rest of the session. Such a message is now dropped with a `warning:` line
-  naming what arrived, said once per reason, and the session keeps capturing.
-  [#978](https://github.com/SqueakyFloors/ubertooth/issues/978)
-- Fixed: an inquiry response whose extended inquiry response was padded with
-  zeros after its last field was reported as a malformed EIR. A zero length
-  byte is where the significant part ends, so `ubertooth-btbr` now takes the
-  padding for the end of the response and says nothing.
-  [#988](https://github.com/SqueakyFloors/ubertooth/issues/988)
-- A `ubertooth-btbr` connection goes on when the peer refuses one of the five
-  requests it opens with: the refusal is reported with the reason the peer
-  gave, and the next request goes out. A refusal used to leave the session
-  asking nothing further, so the link sat there until link supervision ended
-  it with no line saying why.
-  [#957](https://github.com/SqueakyFloors/ubertooth/issues/957)
-- `ubertooth-btbr` refuses a session, and `-V`, whose standard output was not
-  opened to be written: one line, no board opened, exit 1. On some builds of
-  Python a whole session used to run with its capture going into a descriptor
-  that was not its standard output.
-  [#959](https://github.com/SqueakyFloors/ubertooth/issues/959)
-- A `ubertooth-btbr` session is text. It used to print one NUL per progress
-  line, the C string terminator the board's console puts on the end of each
-  one, which `grep` on a saved session answers with `Binary file matches`
-  instead of the lines asked for.
-  [#943](https://github.com/SqueakyFloors/ubertooth/issues/943)
-- A `ubertooth-btbr` session whose standard output is a descriptor that
-  cannot be written, which is what `ubertooth-btbr 1<&0` leaves, reports the
-  lost capture in the one `error: standard output has gone away` line. The
-  first packet used to end the command with a second line naming the errno,
-  as though the command itself had failed.
-  [#920](https://github.com/SqueakyFloors/ubertooth/issues/920)
-- A board running `ubertooth-btbr`'s `page_scan` completes the connection for
-  a page it hears in either half of the pager's transmit slot. A pager sends
-  two page messages per slot and its answering FHS packet comes a fixed time
-  after the first of them, so a board that answered the second one waited for
-  that packet 312.5 us too late and the page went nowhere: about half of all
-  pages were answered and then led to nothing, in runs lasting a whole
-  1.28-second page interval. An empty window is now re-read as a page heard
-  second, and the board waits for the pager's next FHS 1.25 ms later. This is
-  what `page`, `page_scan` and `l2ping` between two boards needed.
-  [#807](https://github.com/SqueakyFloors/ubertooth/issues/807)
-- A board in `ubertooth-btbr`'s `page_scan` gave up on the pager's page
-  response after two windows, so one lost packet ended the page and no
-  connection was made. It now waits through pagerespTO, which gives a page
-  response that goes missing once a second chance instead of none.
-  [#807](https://github.com/SqueakyFloors/ubertooth/issues/807)
-- `ubertooth-btbr -V` and `-h` answer on a host where the Python `libusb1`
-  package is not installed, instead of ending in a `ModuleNotFoundError`
-  traceback: the command line is now read before the `usb1` module is
-  imported. `-V` is how a user says which tools they have, so it is the call
-  that has to work when something is missing. A call that opens a board still
-  needs the package and says so in one line.
-  [#898](https://github.com/SqueakyFloors/ubertooth/issues/898)
-- **Script-visible change:** `ubertooth-btbr` exits 1 when the thread reading
-  the board stopped on a failure, for example because the board's hub port was
-  power-cycled during an `inquiry`. Nothing restarts that thread, so no
-  message arrives for the rest of the session; it reported every step
-  correctly and then exited 0, so a script could not tell such a run from one
-  where every command worked. A single command the board refused still leaves
-  the prompt up and does not change the status.
-  [#737](https://github.com/SqueakyFloors/ubertooth/issues/737)
-- `ubertooth-btbr` reports a board another program is using as that, in the
-  words every other tool uses: `error: Ubertooth <serial> is in use by another
-  program`, with the libusb code the system gives. It used to report it as a
-  board that took none of the session's requests, with a note about firmware
-  that had nothing to do with it.
-  [#701](https://github.com/SqueakyFloors/ubertooth/issues/701)
-- `ubertooth-btbr` receives a long Classic payload whole. Past the first 256
-  bytes of the air buffer it decoded from 256 bytes earlier instead, so a DH5
-  payload of 247 bytes or more, the largest a Classic packet carries, always
-  failed its checksum.
-  [#667](https://github.com/SqueakyFloors/ubertooth/issues/667)
-- `ubertooth-btbr` no longer corrupts every Classic transmit of 77 bytes or
-  more. The 2/3 FEC encoder ran half again as many groups as the payload had,
-  writing the surplus over the air buffer, so everything after the first
-  chunk went out corrupt. Some payload sizes are still corrupted by an older,
-  narrower fault in the same encoder's last group.
-  [#668](https://github.com/SqueakyFloors/ubertooth/issues/668)
-  [#706](https://github.com/SqueakyFloors/ubertooth/issues/706)
-- `ubertooth-btbr` no longer starts a session on an arbitrary board. With
-  several attached it used to open whichever one enumerated first, so a
-  session could reach a board still carrying `bluetooth_rxtx` and report its
-  write timeout as a failure of the board the user had just flashed with
-  `btbr`. It now lists the attached boards and opens none until `-U` names
-  one, and a failed setup names the board it was talking to.
-  [#642](https://github.com/SqueakyFloors/ubertooth/issues/642)
-- `ubertooth-btbr` can be interrupted: Ctrl-C ends the running command and
-  returns to the `bt>` prompt, `q` exits, and a board that will not answer is
-  reported instead of hanging or ending in a traceback. The hang shortly after
-  start was a board carrying `bluetooth_rxtx`, which never reads the endpoint
-  this tool writes to; the tool now names that firmware and the image to flash.
-  [#1](https://github.com/SqueakyFloors/ubertooth/issues/1)
-  [#418](https://github.com/SqueakyFloors/ubertooth/issues/418)
-- A Ctrl-C in the instant an `ubertooth-btbr` command starts returns to the
-  prompt with the board free, instead of ending the tool in a traceback with
-  the board still claimed.
-  [#552](https://github.com/SqueakyFloors/ubertooth/issues/552)
-- **Script-visible change:** `ubertooth-btbr` exits 1 when a session ends with
-  the board still held by a command that would not stop, refuses a `-f` or
-  `-b` value outside 0-65535 before opening a board, and reports a bad
-  `bdaddr` and a malformed EIR on standard error rather than standard output.
-  [#1](https://github.com/SqueakyFloors/ubertooth/issues/1)
+- **Connections to real devices dropped.** A connection was cut after exactly
+  30 seconds, a request `ubertooth-btbr` did not handle or a refused opening
+  request left the link to time out, and a declined connection was held until
+  link supervision ended it.
+- **Two Ubertooths could not connect to each other.** A board in `page_scan` missed about
+  half of all pages and gave up after one lost page response, `page` and
+  `page_scan` reported connections that were never made, and a dropped
+  transmit slot cost the link a repeat or put its hopping out of step. Two
+  boards now page each other, and `l2ping` between them gets a reply.
+- **Corrupt packets.** Received payloads of 247 bytes or more failed their
+  checksum, transmits of 77 bytes or more went out corrupt, and headers from
+  other piconets were accepted.
+- **Crashes and hangs.** Short or malformed LMP packets, unreadable board
+  messages, cut-off inquiry responses, and non-ASCII device names ended the
+  session. Ctrl-C now returns to the `bt>` prompt, a board still running
+  `bluetooth_rxtx` is named instead of hanging, a board in use by another
+  program is reported as such, and `-V` and `-h` work without the Python
+  `libusb1` package.
 
-- Fixed: `ubertooth-btbr`'s `page` reported a connection when its own page
-  response never went on the air. The packet that acknowledges a page response
-  is a bare access code with nothing in it to say who sent it, so the only
-  thing that makes one an answer to this board is that the page response went
-  out. Where the board could not put it there, any other board answering a
-  page nearby was taken for the paged device, and `page` printed `ID(3)`,
-  `Central started`, and told the host it was connected to a device that had
-  heard nothing, until link supervision ended the connection a second later.
-  The board now repeats the page response instead, for as long as the page
-  response timeout allows, and then goes back to paging. This is the pager's
-  half of the `page_scan` fix above.
-  [#1168](https://github.com/SqueakyFloors/ubertooth/issues/1168)
-
-- Fixed: a `btbr` transmit slot that put nothing on the air cost the link a
-  repeat and an acknowledgment. The slot is composed before the radio is asked
-  for it, so a `tx` asked for with a count of N went out N-1 times when one of
-  its slots was dropped, and the peer, left unacknowledged for the packet it
-  had just sent, repeated that packet and cost the link another slot. The
-  transmit task now reports whether the slot reached the air, and both the
-  repeat and the acknowledgment go back to the link for the next transmit slot
-  to carry.
-  [#1166](https://github.com/SqueakyFloors/ubertooth/issues/1166)
-
-- Fixed: a `btbr` `page` could run on with nothing to show for it. A transmit
-  slot the board had no room left to compose at all did not move its hopping
-  on, while the device being paged moved its own on for the window it had
-  opened. The two stayed one frequency apart for the rest of the attempt, so
-  every packet after that went out where the paged device had just stopped
-  listening, and the page found nothing until the train started again. A
-  dropped slot now moves the hopping on as a slot that went out does, in an
-  `inquiry` sweep as well as in a page.
-  [#1191](https://github.com/SqueakyFloors/ubertooth/issues/1191)
-
-- A `page` the board has to give up on because it has no slot left to listen
-  for the acknowledgment now says so once its page response has gone out,
-  rather than while the radio still holds it. A new `page` asked for in that
-  gap, up to a couple of slots of it, would have stopped the board.
-  [#1168](https://github.com/SqueakyFloors/ubertooth/issues/1168)
-
+([#942](https://github.com/SqueakyFloors/ubertooth/issues/942), [#949](https://github.com/SqueakyFloors/ubertooth/issues/949), [#957](https://github.com/SqueakyFloors/ubertooth/issues/957), [#1074](https://github.com/SqueakyFloors/ubertooth/issues/1074), [#807](https://github.com/SqueakyFloors/ubertooth/issues/807), [#1156](https://github.com/SqueakyFloors/ubertooth/issues/1156), [#1168](https://github.com/SqueakyFloors/ubertooth/issues/1168), [#1166](https://github.com/SqueakyFloors/ubertooth/issues/1166), [#1191](https://github.com/SqueakyFloors/ubertooth/issues/1191), [#667](https://github.com/SqueakyFloors/ubertooth/issues/667), [#668](https://github.com/SqueakyFloors/ubertooth/issues/668), [#706](https://github.com/SqueakyFloors/ubertooth/issues/706), [#1036](https://github.com/SqueakyFloors/ubertooth/issues/1036), [#960](https://github.com/SqueakyFloors/ubertooth/issues/960), [#971](https://github.com/SqueakyFloors/ubertooth/issues/971), [#978](https://github.com/SqueakyFloors/ubertooth/issues/978), [#988](https://github.com/SqueakyFloors/ubertooth/issues/988), [#1](https://github.com/SqueakyFloors/ubertooth/issues/1), [#418](https://github.com/SqueakyFloors/ubertooth/issues/418), [#552](https://github.com/SqueakyFloors/ubertooth/issues/552), [#898](https://github.com/SqueakyFloors/ubertooth/issues/898), [#701](https://github.com/SqueakyFloors/ubertooth/issues/701))
 
 ### ubertooth-specan
 
