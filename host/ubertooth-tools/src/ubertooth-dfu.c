@@ -487,18 +487,12 @@ static void close_dfu_device(libusb_device_handle *devh, int claimed)
 #define DETACH_REOPEN_INTERVAL_MS 100
 
 /* How long the detach waits for the DFU device to go away before it calls the
- * board still stuck in the bootloader. A board that reset left the bus within
- * 180 ms of the request failing on the macOS host this was measured on, so
- * this budget is about five times what it takes; the wait is only ever spent
- * in full when the detach really did fail. Too short a budget would bring
- * back the failure this is here to fix, so it is generous on purpose.
- *
- * A request the bootloader completes before resetting rides the same budget,
- * and its window starts later than the measured one: the board is still
- * answering when the transfer returns, where a failed transfer was already
- * racing the reset. The measurement has not been repeated there, because the
- * macOS host it was taken on never completes the request. Five times the
- * measured departure is meant to cover that too. */
+ * board still stuck in the bootloader. A board that resets leaves the bus
+ * within a couple of hundred milliseconds, so this budget is several times
+ * what it takes, and generous on purpose: too short a budget brings back the
+ * failure it is here to fix, while the wait is only ever spent in full when
+ * the detach really did fail. A request the bootloader completes before
+ * resetting rides the same budget, and its window starts later. */
 #define DETACH_GONE_POLLS 20
 #define DETACH_GONE_INTERVAL_MS 50
 
@@ -605,11 +599,12 @@ struct dfu_runtime_context {
  * here, where the image and the part are both known, rather than reporting
  * whatever comes back from the board.
  *
- * It is the same cause as the read-back bound, asking for flash the part has
- * not got, but not the same outcome on an older bootloader: a read past the
- * end is a bus fault that takes the bootloader down until the board is
- * power-cycled, while a write past the end stops part-way through the
- * application.
+ * It is the same cause as the read-back bound: asking for flash the part has
+ * not got. On a bootloader from this tree both paths end the same way, with
+ * ERRADDRESS before the part is touched, so this bound exists for the older
+ * ones -- where a read past the end is a bus fault that takes the bootloader
+ * down until the board is power-cycled, and a write past the end stops
+ * part-way through the application.
  *
  * The part identification number says how much flash there is, and it is
  * readable only while the board still runs its application, which is where
@@ -1532,11 +1527,11 @@ static int send_image_block(libusb_device_handle* devh, FILE* downfile,
  *
  * The region's first block holds the vector table: the initial stack pointer
  * and the reset vector that decide where a board goes when it is powered up.
- * Written first, it is in place for the whole of the transfer, so a download
- * that stops -- a cable pulled, a board that leaves the bus, a host that dies
- * -- leaves a board that starts an application missing the rest of itself. It
- * faults on every power-up from then on, and only bridging the bootloader
- * entry pin at the bench brings it back.
+ * Were it written first, it would be in place for the whole of the transfer,
+ * so a download that stops -- a cable pulled, a board that leaves the bus, a
+ * host that dies -- would leave a board that starts an application missing
+ * the rest of itself. It faults on every power-up from then on, and only
+ * bridging the bootloader entry pin at the bench brings it back.
  *
  * So the vector table goes away first and is written last:
  *
@@ -1561,8 +1556,8 @@ static int send_image_block(libusb_device_handle* devh, FILE* downfile,
  * sector leaves a startable vector table in front of a half-written sector,
  * and the checksum over the table says nothing about it. The image check
  * block closes that: it goes into the flash in the same program as the vector
- * table, and its length and checksum cover every byte of the image.
- * Everything else -- all of a download bar its last few blocks -- leaves a
+ * table, and its length and checksum cover every byte of the image, so a
+ * board can tell whether the rest of that sector arrived. Everything else -- all of a download bar its last few blocks -- leaves a
  * board whose bootloader finds nothing to start and waits in DFU.
  *
  * All of this needs a bootloader from this tree on the board; an earlier one
@@ -1886,9 +1881,9 @@ static FILE* open_output_temp(const char* target, char** temp_name) {
 		free(name);
 		return NULL;
 	}
-	/* mkstemp() creates the file private to this user. Overwriting a file
-	 * used to keep its permissions and creating one used to take the umask,
-	 * so do the same here before it is renamed into place. */
+	/* mkstemp() creates the file private to this user, so the permissions a
+	 * plain open would have given it -- the target's own when overwriting,
+	 * the umask when creating -- are applied here before the rename. */
 	if (stat(target, &target_state) == 0) {
 		mode = target_state.st_mode & 07777;
 	} else {
@@ -2466,11 +2461,11 @@ int main(int argc, char **argv) {
 		}
 		switch(opt) {
 		/* -d, -u and -s are named here and acted on once the whole
-		 * command line has been accepted: the signed file used to be
-		 * created, and the temporary upload file opened, inside this
-		 * loop, so a stray word later on left one behind or reported
-		 * a missing file instead of the stray word. A repeated option
-		 * takes the last name. */
+		 * command line has been accepted. Creating the signed file or
+		 * opening the temporary upload file inside this loop would let a
+		 * stray word later on leave one behind, or report a missing file
+		 * instead of the stray word. A repeated option takes the last
+		 * name. */
 		case 'd':
 			downfile_name = optarg;
 			functions |= FUNC_DOWNLOAD;
@@ -2575,8 +2570,8 @@ int main(int argc, char **argv) {
 		goto end_without_device;
 	}
 
-	/* No function is no work: the tool used to exit 0 having touched
-	 * nothing and said nothing, so a mistyped command looked like a
+	/* No function is no work, and it is an error: exiting 0 having touched
+	 * nothing and said nothing would make a mistyped command look like a
 	 * firmware update that had worked. */
 	if (functions == 0) {
 		fputs("error: nothing to do: give -d to write an image, -u to read"
@@ -3020,9 +3015,9 @@ int main(int argc, char **argv) {
 			goto cleanup;
 		}
 		/* The result, so standard output: what the board now holds, where
-		 * that was read, and what the user has to do next. A run that could
-		 * not read the region says neither more nor less than it used to,
-		 * and sends the reader to `ubertooth-util -B` for the answer. */
+		 * that was read, and what the user has to do next. A run that
+		 * could not read the region sends the reader to
+		 * `ubertooth-util -B` for the answer. */
 		if (r == BL_INSTALL_HELD)
 			/* The board has what was asked for, which is the result, but
 			 * this run is not shown to have put it there. */

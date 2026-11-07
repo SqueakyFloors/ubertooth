@@ -127,8 +127,9 @@ int opt_check_stdout_not_tty(const char *what);
  * spell it out again. NULL, a tool given no such option, is not standard
  * output.
  *
- * The documented value is the lone "-". The fixed names of descriptor 1 count
- * too -- /dev/stdout and /dev/fd/1, plus /proc/self/fd/1 on Linux, with any
+ * The documented value is the lone "-". The fixed names of descriptor 1 on
+ * the descriptor filesystem count too -- /dev/stdout and /dev/fd/1, plus
+ * /proc/self/fd/1 on Linux, with any
  * redundant separators or "." elements -- because a capture sharing that
  * stream with the tool's own report would have report lines in the middle of
  * the capture data. So does any other spelling the platform's descriptor
@@ -205,11 +206,14 @@ typedef struct {
  * able to hold such a value would fall between the two gates.
  *
  * A destination reached through a descriptor the calling shell opened
- * ("/dev/fd/3") is asked which file it holds rather than having its path
- * looked up, because that path answers differently on Linux and the BSDs.
+ * ("/dev/fd/3") is caught on every platform, because the descriptor is
+ * already open here and is asked which file it holds rather than having its
+ * path looked up, which answers differently on Linux and the BSDs.
  *
  * Some pairs that are one file cannot be told apart from the names alone and
- * are not refused; ubertooth(7), OPTION VALUES lists them for the user.
+ * are not refused; ubertooth(7), OPTION VALUES lists them for the user. They
+ * all wait on the destination being identified after it is open and before it
+ * is truncated, which reaches into how every writer opens its file.
  */
 int opt_check_destinations_differ(const opt_capture_dest *destinations,
                                  size_t count);

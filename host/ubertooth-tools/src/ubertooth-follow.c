@@ -433,9 +433,9 @@ int main(int argc, char *argv[])
 	 * the missing half is named. The same refusal ubertooth-rx gives a -u
 	 * without its -l.
 	 *
-	 * Half a pair used to fall into the no-target path further down, which
-	 * says "No address given" -- untrue, one was given -- and follows the
-	 * local adapter's own address instead of the piconet the user named. */
+	 * Refused here rather than left to the no-target path further down,
+	 * which says "No address given" -- untrue, one was given -- and follows
+	 * the local adapter's own address instead of the piconet named. */
 	if (have_lap > 0 && have_uap == 0) {
 		fputs("error: -l <LAP> requires -u <UAP>\n", stderr);
 		return 1;
@@ -503,8 +503,9 @@ int main(int argc, char *argv[])
 	if (ut == NULL)
 		return 1;
 
-	/* A named adapter that does not exist, or one that cannot be opened,
-	 * used to go unnoticed until a later HCI call worked on fd -1.
+	/* A named adapter that does not exist, or one that cannot be opened, is
+	 * caught here; unchecked it goes unnoticed until a later HCI call works
+	 * on fd -1.
 	 *
 	 * Each call clears errno first and names a reason only if there is one,
 	 * the way ubertooth-scan reports the same two failures: see
@@ -754,8 +755,8 @@ int main(int argc, char *argv[])
 	}
 
 	/* The board is open and usable, so the files this run writes can be
-	 * opened. Not before: a run refused for its firmware used to leave an
-	 * empty capture behind, which a user then had to tell apart from a
+	 * opened. Not before: a run refused for its firmware would otherwise
+	 * leave an empty capture behind, which a user has to tell apart from a
 	 * capture that caught nothing. Every failure from here to the capture
 	 * loop removes them again, through follow_discard_files(), for the same
 	 * reason.
@@ -868,9 +869,10 @@ int main(int argc, char *argv[])
 
 	// init USB transfer
 	/* Each of the three steps that set the capture up exits 1, like every
-	 * other failure here: the failing call's own return value used to go out
-	 * as the exit status, and a shell wraps that into a byte a script cannot
-	 * read. libubertooth has already said what failed in each case. */
+	 * other failure here, rather than passing the failing call's own return
+	 * value out as the exit status: a shell wraps that into a byte a script
+	 * cannot read. libubertooth has already said what failed in each
+	 * case. */
 	r = ubertooth_bulk_init(ut);
 	if (r < 0) {
 		/* nothing is in flight, but the board is still open and in
@@ -886,8 +888,8 @@ int main(int argc, char *argv[])
 	r = ubertooth_bulk_thread_start();
 	if (r != 0) {
 		/* Not "< 0": this is pthread_create()'s errno, which is positive,
-		 * so a failure used to slip through and leave the capture with
-		 * nobody to complete its transfers. */
+		 * so a "< 0" test lets a failure through and leaves the capture
+		 * with nobody to complete its transfers. */
 		report_capture_thread_failure(r);
 		/* The receive transfer is in flight and the board is about to be
 		 * left in its mode: give both back. Not follow_cleanup(), which

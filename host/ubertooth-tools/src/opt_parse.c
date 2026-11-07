@@ -436,8 +436,11 @@ static int descriptor_entry(const char *path, const char *directory, int fd)
  * One spelling is not settled by any of this: macOS answers a ".." element
  * above the number only most of the time, the same path resolving in one run
  * and not the next. A run that cannot resolve it hands the name to the
- * writer. Nothing short of opening the destination closes that, and opening
- * one to look at it is what costs a named pipe its reader. */
+ * writer, which is right where the writer cannot open it either and puts the
+ * capture on standard output beside the tool's report where it can -- the
+ * hazard this check exists to prevent. Nothing short of opening the
+ * destination closes that, and opening one to look at it is what costs a
+ * named pipe its reader. */
 static int descriptor_in(const char *path, const char *directory)
 {
 	char holding[PATH_MAX];
@@ -752,9 +755,9 @@ static int path_file(const char *path, struct stat *where)
  * descriptor is what to ask -- the calling shell may have pointed the stream
  * at a file another capture option also names. Everywhere else a "-" is the
  * ordinary file of that name: "./-" is how that file is written, and a
- * symbolic link whose target happens to read "-" points at it. Two review
- * rounds found a bug on each side of this line, so keep the two callers
- * apart: a value the user wrote comes here, a path comes to path_file(). */
+ * symbolic link whose target happens to read "-" points at it. So keep the
+ * two callers apart: a value the user wrote comes here, a path comes to
+ * path_file(). */
 static int destination_file(const char *name, struct stat *where)
 {
 	if (name != NULL && strcmp(name, "-") == 0)

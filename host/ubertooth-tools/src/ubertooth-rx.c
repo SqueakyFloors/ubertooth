@@ -324,17 +324,17 @@ static void rx_read_own_uaps(struct rx_board* boards, int n_boards)
  * boards, which matters because an incomplete map narrows the candidates
  * against hops the piconet never made and makes a wrong clock look right.
  *
- * The upper address part (UAP) is a scalar, and it is passed on only once two
+ * The upper address part (UAP) is a scalar, and it is passed on once two
  * boards have worked out the same one from their own packets. Not the first
- * board's: the library settles a UAP on as few as two packets and is
- * sometimes wrong, and a wrong one handed over is not something the receiving
- * board can get out of -- the library restores the UAP it was filtering on
- * whenever the clock search runs out of candidates, so that board filters on
- * the wrong value for the rest of the run. Two boards settling on the same
- * value from different packets is the cross-check that makes passing it on
- * worth doing, so a board whose UAP was handed to it is not evidence for it:
- * the value goes only to a board that has worked out none of its own, once,
- * and no board is ever taken off its own answer.
+ * board's: the library's header discovery can settle a UAP on as few as two
+ * packets, and a wrong one handed over is not something the receiving board
+ * can get out of -- the library restores the UAP it was filtering on whenever
+ * the clock search runs out of candidates, so that board filters on the wrong
+ * value for the rest of the run. Two boards settling on the same value from
+ * different packets is the cross-check that makes passing it on worth doing,
+ * so a board whose UAP was handed to it is not evidence for it. The value
+ * goes only to a board that has worked out none of its own, and a board is
+ * never taken off its own answer, for the reason the loop below gives.
  *
  * The clock is not shared and does not need to be: it is the piconet's own,
  * so each board recovers it from its own packets once it has the address.
@@ -969,7 +969,7 @@ int main(int argc, char* argv[])
 
 	/* A UAP is only usable with the LAP it belongs to. This is an argument
 	 * error like the survey check above, so it is refused here rather than
-	 * after a device has been opened, where it used to depend on whether a
+	 * after a device has been opened, where it would depend on whether a
 	 * board happened to be free. (Survey mode has already returned for any
 	 * address, so it cannot reach this.) */
 	if (have_uap && !have_lap) {
@@ -978,9 +978,9 @@ int main(int argc, char* argv[])
 	}
 
 	/* A replay has no board to tune and nothing to wait for, so these two
-	 * ask for something it cannot do. They used to be accepted and dropped
-	 * without a word: the file was read on no channel and with no timeout,
-	 * and the user had no way to tell. */
+	 * ask for something it cannot do, and are refused rather than accepted
+	 * and dropped: the file would be read on no channel and with no timeout,
+	 * with nothing to tell the user. */
 	if (infile_name != NULL && have_channel) {
 		fprintf(stderr, "error: -c cannot be combined with -i; a replay"
 		        " reads a saved capture rather than tuning a board\n");
@@ -1137,9 +1137,9 @@ int main(int argc, char* argv[])
 
 	/* libbtbb refuses only a -e out of its own range, which the check on -e
 	 * above has already caught, and it says so itself. The status is 1, as
-	 * every failure here is: the failing call's own return value used to go
-	 * out as the exit status, which a shell wraps into a byte (-9 read as
-	 * 247), so a script could not tell a failure from anything else. */
+	 * every failure here is, rather than the failing call's own return
+	 * value, which a shell wraps into a byte (-9 read as 247) that a script
+	 * cannot tell from anything else. */
 	r = btbb_init(max_ac_errors);
 	if (r < 0) {
 		/* A capture has a board open, in whatever mode an earlier
@@ -1221,8 +1221,8 @@ int main(int argc, char* argv[])
 	/* The board is open and usable, or this is a replay, and every step of
 	 * the setup that can fail is behind us, so the files this run writes
 	 * can be opened. Not before: a run refused for its firmware, or one
-	 * libbtbb or the board would not set up, used to leave an empty capture
-	 * behind, which a user then had to tell apart from a capture that
+	 * libbtbb or the board would not set up, would otherwise leave an empty
+	 * capture behind, which a user has to tell apart from a capture that
 	 * caught nothing.
 	 *
 	 * A lone "-" redirects this process's standard output, which is why
@@ -1326,9 +1326,9 @@ int main(int argc, char* argv[])
 		r = ubertooth_bulk_thread_start();
 		if (r != 0) {
 			/* Not "< 0": this is pthread_create()'s errno, which is
-			 * positive, so a failure used to slip through and leave the
-			 * capture with nobody to complete its transfers -- it then
-			 * waited forever with nothing arriving. */
+			 * positive, so a "< 0" test lets a failure through and
+			 * leaves the capture with nobody to complete its transfers,
+			 * waiting forever with nothing arriving. */
 			report_capture_thread_failure(r);
 			/* The receive transfer is in flight and the board is about to
 			 * be left in its mode: give both back before returning. */
@@ -1370,10 +1370,10 @@ int main(int argc, char* argv[])
 			 * asked for the whole band, and nothing said so.
 			 *
 			 * The board keeps what arrives after the request for the mode it
-			 * is starting, whatever it was doing before. A board left in a
-			 * mode that captures nothing -- a killed ubertooth-specan say --
-			 * used to lose this request, because it runs the reset a moment
-			 * after this one has been answered, on the way out of that mode.
+			 * is starting, whatever it was doing before -- which is what
+			 * keeps a board left in a mode that captures nothing, a
+			 * killed ubertooth-specan say, from losing this request as it
+			 * runs its reset on the way out of that mode.
 			 *
 			 * The board stays on whatever it was tuned to until this
 			 * request arrives and the next hop acts on it, which takes up
