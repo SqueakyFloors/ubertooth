@@ -32,26 +32,19 @@
  *
  * Both run-time images report it: bluetooth_rxtx and btbr ship from the same
  * commit and answer the same shared requests, so they carry the same number.
- * btbr used to report a literal 1.06 instead, which nothing bumped and which
- * made every tool refuse a board running that image, whatever revision it was
- * built from, except for the version reports, which read any firmware.
  *
  * During development it does not move. The host tools and the firmware are
  * built, installed and flashed together, and a development build only warns
- * when the two disagree, so an ordinary firmware change -- a new request, a
- * new mode, a fix -- leaves the number where it is. It moves only for a
- * change that really does break an older host tool: a request removed or
- * renumbered, or a reply or record layout an older host would misread. Such a
- * bump also updates CHANGELOG.md, COMPATIBILITY.md, validation/TEST_PLAN.md
- * and the pinned strings in the tests.
+ * when the two disagree, so an ordinary firmware change leaves the number
+ * where it is. It moves only for a change that really does break an older
+ * host tool: a request removed or renumbered, or a reply or record layout an
+ * older host would misread. Such a bump also updates CHANGELOG.md,
+ * COMPATIBILITY.md, validation/TEST_PLAN.md, and the pinned test strings.
  *
- * So a board carrying firmware from an earlier commit is normally accepted,
- * which is why this number is not the revision the `Firmware version:` line
- * shows beside it: that line carries the build's own revision, and this
- * number only says which host tools will work with the board at all.
- *
- * A request the firmware on a board has not got is reported where it is
- * asked for, as a refused request, rather than by this number.
+ * So this number is not the revision the `Firmware version:` line shows
+ * beside it: that line carries the build's own revision, and this only says
+ * which host tools will work with the board at all. A request the firmware
+ * has not got is reported where it is asked for, as a refused request.
  *
  * A release moves it to the next major version, to mark that its host tools
  * and firmware only work with each other; the first fork release takes 0x0200
@@ -286,35 +279,28 @@ static inline const char *ubertooth_fw_info_result_string(int result)
  *
  *   - whether the first block was programmed whole. The checksum word at
  *     offset 0x1c answers that, and the bootloader accepts a zero word as
- *     "no checksum" so that every image built before the word was filled in
- *     still starts. An image whose word is zero therefore gets no
- *     protection.
+ *     "no checksum" so that an image built before the word was filled in
+ *     still starts, which leaves such an image unprotected.
  *   - whether the fifteen blocks after the vector table arrived. Writing the
  *     region's first block erases the sector it starts
  *     (firmware/bootloader/flash.h, Flash::write), so the vector table has to
- *     be written before the rest of its own sector, and an interruption in
- *     between leaves a startable table in front of a sector that is only
- *     partly written.
+ *     go in before the rest of its own sector, and an interruption in between
+ *     leaves a startable table in front of a half-written sector.
  *
- * This block closes both. ubertooth-dfu fills it in as it writes, with flags
+ * This block closes both: ubertooth-dfu fills it in as it writes, with flags
  * saying which of the two checks it filled in, how many bytes it wrote, and a
  * checksum over them. firmware/common/image_check.c reserves the 32 bytes and
- * firmware/common/sections.ld puts them at UBERTOOTH_IMAGE_CHECK_OFFSET, just
- * below the firmware info block.
+ * firmware/common/sections.ld puts them at this offset -- on the literal, so
+ * changing the value here without changing that script desynchronizes host
+ * from firmware with nothing failing to build.
  *
  * The offset is inside the image's first 256 bytes on purpose, so the block
  * reaches the flash in the same program as the vector table it describes:
  * anything written later could be the part an interruption leaves out, and a
- * check the board cannot find is a check it does not make. The host's
- * _Static_assert in ubertooth-dfu.c holds the two together.
+ * check the board cannot find is a check it does not make.
  *
- * Backward compatibility, both ways round. An image from an earlier build
- * carries no block, and a bootloader that finds no magic makes neither check,
- * so it starts what it always started. An image built from this tree but
- * written by an earlier ubertooth-dfu carries the block with its flags left
- * at zero, which reads the same way. And a bootloader from an earlier release
- * ignores these 32 bytes, so an image written by this tool still starts on the
- * board it is already on.
+ * Compatible both ways round, because a bootloader that finds no magic makes
+ * neither check and an earlier bootloader ignores these 32 bytes.
  */
 #define UBERTOOTH_IMAGE_CHECK_OFFSET 0xe0
 /* The 8 bytes a block starts with, no terminator. */

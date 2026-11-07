@@ -787,26 +787,19 @@ void ubertooth_count_capture_losses(ubertooth_t* ut, const usb_pkt_rx* rx);
  * being driven harder than it can measure, and on this radio that is also
  * where it stops demodulating reliably: the Basic Rate and low-energy
  * receives turn the board's amplifier and high-gain mode both on, so two
- * boards on one bench reach it at any transmit power.
+ * receives turn the board's amplifier and high-gain mode both on.
  *
  * Judged a block of records at a time rather than record by record, because
  * ordinary air reaches the ceiling now and then -- a Wi-Fi burst on the
- * channel does -- while a receiver that is genuinely pinned there stays there.
- * See the comment on the counters in ubertooth_t.
- *
- * Called by the callbacks whose records are samples of the air -- the Basic
- * Rate stream's, which the board sends one of per block of symbols whether or
- * not a packet was in it -- beside ubertooth_count_capture_losses(). NOT by
- * the low-energy callback, nor by the spectrum analyzer or E-GO ones, each for
- * a reason given where the call would have been: a record that exists only
- * because a packet decoded cannot show a receiver that is decoding nothing,
- * and the other two state no signal figure at all.
+ * channel does -- while a receiver genuinely pinned there stays there.
  *
  * What it judges is decided here and not by the callers: a Basic Rate record
  * that states a signal figure, and nothing else. That is the one kind of
- * record that is a sample of the air rather than the trace of a packet that
- * decoded, and checking it here is what makes a replay safe -- ubertooth-rx
- * -i will replay a dump written by any tool, whatever records are in it.
+ * record that samples the air rather than tracing a packet that decoded: the
+ * board sends one per block of symbols whether or not a packet was in it, and
+ * a record which exists only because a packet decoded cannot show a receiver
+ * that is decoding nothing. Deciding it here is also what makes a replay
+ * safe, since ubertooth-rx -i will replay a dump written by any tool.
  */
 void ubertooth_watch_signal_level(ubertooth_t* ut, const usb_pkt_rx* rx);
 

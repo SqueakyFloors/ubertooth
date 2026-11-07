@@ -36,14 +36,14 @@
  * thread's pointer is an acquire load:
  *
  *   - publishing (write_ptr) releases the record and its arrival reading, so
- *     a consumer that sees the new value sees the whole record. Without that
- *     pairing nothing but the processor's own ordering stops the consumer
- *     reading a record the producer had not finished writing.
+ *     a consumer that sees the new value sees the whole record. Without the
+ *     pairing, only the processor's own ordering would stop it reading a
+ *     record the producer had not finished writing.
  *   - releasing a slot (read_ptr) releases the consumer's reads of it, so a
  *     producer that sees the new value will not write that slot until the
  *     copy out of it is done. fifo_pop() therefore copies the record and its
- *     reading before it advances read_ptr, and not after: a transfer handed
- *     a slot the consumer was still copying gave one corrupted packet.
+ *     reading before advancing read_ptr, or a transfer could be handed a
+ *     slot the consumer was still copying.
  *
  * The ring always leaves one slot empty, which is what keeps the slot a
  * transfer is reading into out of the consumer's range: a publish that would
