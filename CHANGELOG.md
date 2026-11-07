@@ -750,142 +750,36 @@ Behavior the tools share.
 
 ### Documentation
 
-- `ubertooth-btle(1)`, the tool's `-h` text, and the capture guide say that
-  promiscuous mode, `-p`, recovers connections that hop with channel selection
-  algorithm 1: on an algorithm-2 connection, which is what Bluetooth 5.0
-  devices normally use, it reports an access address and a CRC init value and
-  goes no further, and such a connection is captured from its setup with `-f`.
-  The man page also says which channels `-p` listens on as it works a
-  connection out, where it used to name only the one the board was tuned to,
-  and the capture guide and
-  the concepts chapter no longer say Ubertooth implements algorithm 1 only,
-  which stopped being true of follow mode when it learned algorithm 2.
-  [#1025](https://github.com/SqueakyFloors/ubertooth/issues/1025)
-- `ubertooth-rx(1)` explains the clock search: what it needs, and why a run
-  can end without a clock.
-  [#968](https://github.com/SqueakyFloors/ubertooth/issues/968)
-- `ubertooth-follow(1)` and the sniffing guide walk a follow through from not
-  knowing the target to a capture file in Wireshark, including what a follow
-  that has not locked on looks like and why. Both now say plainly what a
-  capture cannot hold: enhanced data rate payloads, which the radio cannot
-  demodulate, and the contents of an encrypted link.
-  [#518](https://github.com/SqueakyFloors/ubertooth/issues/518)
-- The usage text of `ubertooth-util`, `ubertooth-tx` and `ubertooth-dfu` lists
-  `-h`, which all three accept and every other tool's usage text lists, and
-  `ubertooth-util`'s `-t` line spells "initiate".
-- Renamed the Bluetooth connection roles from master/slave to
-  Central/Peripheral, and SPI slave-select to chip-select. `ubertooth-btle
-  -s` is now faux peripheral mode, its errors read `error: faux peripheral
-  address must be xx:xx:xx:xx:xx:xx`, and `ubertooth-util -w` reports the mode
-  as `BLE peripheral`. The option letters, the request numbers, and the mode
-  numbers are unchanged, so no host tool and board pairing is affected.
-- The sniffing guide, `ubertooth-rx(1)`, `ubertooth-follow(1)`, and
-  `ubertooth-scan(1)` agree about the placeholder `00:00` these tools page a
-  sniffed piconet on, where one claimed it works and the others called it
-  unverified. A page does not carry the paged device's NAP, so the placeholder
-  is not what decides whether a page reaches the target; a wrong UAP still
-  does, the specification sections are cited, and what a real controller makes
-  of the guess is still unmeasured here.
-  [#699](https://github.com/SqueakyFloors/ubertooth/issues/699)
-- `ubertooth-debug(1)` is titled "read CC2400 radio registers", and
-  `ubertooth(7)` lists it as "Peeking at registers on the CC2400". Both used
-  to offer writing as well, which no option of any tool does, so a reader went
-  looking for one that is not there.
-  [#945](https://github.com/SqueakyFloors/ubertooth/issues/945)
-- `ubertooth-dump(1)` says what a dump holds, which it did not say at all:
-  68-byte records of the host arrival time, as Unix epoch seconds, and the
-  whole USB receive packet, or with `-b` one 401-byte line of ASCII `0` and
-  `1` per block. Its `-h` text names `-d`'s value and says what `-` means, and
-  both it and the man page stop giving the dump's binary-ness as the reason a
-  terminal on standard output is refused: `-b` is text, and is refused too.
-  [#945](https://github.com/SqueakyFloors/ubertooth/issues/945)
-- `ubertooth-util(1)` says when the firmware API version moves: during
-  development only for a change that breaks older host tools, not for every
-  firmware change the host sees. It is what `COMPATIBILITY.md` already
-  describes.
-  [#905](https://github.com/SqueakyFloors/ubertooth/issues/905)
-- The README and the release procedure say what a release tag means:
-  `yyyy-mm-DEVn` is a development pre-release, `yyyy-mm-RCn` a release
-  candidate and `yyyy-mm-Rn` the release, the first two published as GitHub
-  pre-releases, and host tools and firmware from one tag belong together.
-- The README opens with a short Hardware section: what an Ubertooth One is,
-  the board photo, and links on to the detail. The hardware page it links to
-  is current, and says which LPC part a board carries and how much flash and
-  RAM it has, what the radio can and cannot do, the connectors and the LEDs as
-  the firmware drives them today, and the KiCad design files the board is
-  built from. The Ubertooth Zero page is gone: the fork's documentation covers
-  Ubertooth One.
-- A one-page guide, "Using Ubertooth with Wireshark", covers the
-  `btle-extcap.py` plugin end to end: what it gives you over a named pipe,
-  the three install steps, the options dialog, why a capture filter is
-  refused, and running it from `tshark`.
-- `btle-extcap.py` has a man page of its own, `btle-extcap(1)`, installed with
-  the others: where to put the script so Wireshark finds it, every call
-  Wireshark makes, what it answers a capture filter with, its two exit
-  statuses and its diagnostics. It was the one tool in the README catalog with
-  no page.
-- Every man page lists `-h` in its OPTIONS section, where a reader looks for
-  it: eleven of them only mentioned it elsewhere. ubertooth-specan(1) no
-  longer promises the usage text after a bad option, which no tool prints.
-  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
-- `CONTRIBUTING.md` says what a change to this fork needs: the tests to run,
-  the CI checks a pull request has to pass and what each is for, and that
-  nothing in the repository enforces them, so a reviewer has to read a change
-  to `.github/workflows/` as carefully as the code.
-  [#700](https://github.com/SqueakyFloors/ubertooth/issues/700)
-- `ubertooth-follow`'s man page describes what a board that refuses one of the
-  follow's requests prints, including the note that says what to try, as
-  ubertooth-rx(1) and ubertooth-scan(1) already did.
-  [#617](https://github.com/SqueakyFloors/ubertooth/issues/617)
-- `ubertooth-ego -h` and its man page no longer call `630f9ffe` the default
-  access code. A run without `-a` sends none, so it uses whichever one the
-  board was last given; `630f9ffe` is only the firmware's value after a reset.
-  [#397](https://github.com/SqueakyFloors/ubertooth/issues/397)
-- `ubertooth-ego -h` and its man page now say that `-r` without `-c` receives
-  on 2418 MHz.
-  [#413](https://github.com/SqueakyFloors/ubertooth/issues/413)
-- `ubertooth-btle -h` no longer says what happens when no input file is given.
-  The tool has no option that reads a capture back, so there was nothing to
-  choose: it always captures from a board.
-  [#534](https://github.com/SqueakyFloors/ubertooth/issues/534)
-- Help text, man pages and examples write option values as separate words
-  (`-c 2440`), following the POSIX Utility Syntax Guidelines; the attached form
-  (`-c2440`) still works. ubertooth(7), OPTION VALUES, explains the forms once.
-  [#195](https://github.com/SqueakyFloors/ubertooth/issues/195)
-- Every tool now describes its device selector as `-U <index|serial>`, in its
-  help text and its man page, and points at ubertooth(7), SELECTING A DEVICE,
-  for the rules. The earlier `-U<0-7>` described neither half: the index is a
-  position in the list of attached boards and is not capped at 7, and `-U`
-  also takes a serial number.
-  [#206](https://github.com/SqueakyFloors/ubertooth/issues/206)
-- Added practical Classic Bluetooth Basic Rate/Enhanced Data Rate (BR/EDR)
-  sniffing and Non-significant Address Part (NAP) / Frequency Hop
-  Synchronization (FHS) recovery guidance.
-  [#9](https://github.com/SqueakyFloors/ubertooth/issues/9)
-  [#42](https://github.com/SqueakyFloors/ubertooth/issues/42)
-- Expanded BLE connection-capture modes, targeting,
-  and limitations.
-  [#8](https://github.com/SqueakyFloors/ubertooth/issues/8)
-- Updated macOS/Homebrew dependencies and CMake 4 build flags.
-  [#10](https://github.com/SqueakyFloors/ubertooth/issues/10)
-- Added spectrum-analyzer user interface installation and import-error
-  troubleshooting, replacing its obsolete README.
-  [#11](https://github.com/SqueakyFloors/ubertooth/issues/11)
-- Expanded the tool catalog, device-selection guidance, and man pages,
-  including previously undocumented flags and corrected command descriptions.
-  [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
-- Added the supported platform/toolchain matrix, missing per-tool pages, and
-  an archived 2020-12-R1 release guide.
-  [#12](https://github.com/SqueakyFloors/ubertooth/issues/12)
-- `ubertooth-btbr` has a man page, a row in the README tool catalog, and a
-  note saying which firmware image each tool needs and how to switch a board
-  between `bluetooth_rxtx` and `btbr`.
-  [#530](https://github.com/SqueakyFloors/ubertooth/issues/530)
-- ubertooth-afh(1) says what `-m` trades off. It counts packets rather than
-  time, so what a threshold means depends on how many channels the piconet is
-  using: a small one notices a dropped channel quickly and prunes channels
-  still in use, a large one settles and is slow to notice.
-  [#194](https://github.com/SqueakyFloors/ubertooth/issues/194)
+- **A man page for every tool,** `btle-extcap(1)` and `ubertooth-btbr(1)`
+  included. Every page and help text lists `-h`, writes option values as
+  separate words (`-c 2440`; the attached form still works), and describes the
+  board selector as `-U <index|serial>`; ubertooth(7) explains both once.
+- **Guides.** "Using Ubertooth with Wireshark" covers `btle-extcap.py` end to
+  end, the sniffing guide walks a Classic follow from an unknown target to a
+  capture in Wireshark, and there is guidance for BLE connection capture, the
+  spectrum analyzer UI, and the supported platforms (`COMPATIBILITY.md`). The
+  README opens with a Hardware section, and the hardware page describes the
+  Ubertooth One as it is today.
+- **What the tools can and cannot do.** The man pages explain the
+  `ubertooth-rx` clock search and why a run can end without a clock, the
+  `ubertooth-afh -m` trade-off, which channels `ubertooth-btle -p` listens on,
+  what an `ubertooth-dump` record holds, what a board's refusals print, and
+  that a capture cannot hold EDR payloads or an encrypted link's contents.
+- **Releases and contributing.** The README says what a release tag means
+  (`yyyy-mm-DEVn` development, `yyyy-mm-RCn` candidate, `yyyy-mm-Rn` release)
+  and that host tools and firmware from one tag belong together.
+  `ubertooth-util(1)` says when the firmware API version moves, and
+  `CONTRIBUTING.md` lists the tests and CI checks a change needs.
+- **Inclusive terms.** Bluetooth connection roles are now called Central and
+  Peripheral, the Bluetooth SIG's current names, replacing the older terms in
+  every tool's output, help text, and man page; the SPI select line is now
+  called chip select. For example, `ubertooth-btle -s` is now faux Peripheral
+  mode, its error reads `error: faux peripheral address must be
+  xx:xx:xx:xx:xx:xx`, and `ubertooth-util -w` reports the mode as `BLE
+  peripheral`. Option letters, request numbers, and mode numbers are
+  unchanged, so every host tool works with every board as before.
+
+([#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#195](https://github.com/SqueakyFloors/ubertooth/issues/195), [#206](https://github.com/SqueakyFloors/ubertooth/issues/206), [#530](https://github.com/SqueakyFloors/ubertooth/issues/530), [#21](https://github.com/SqueakyFloors/ubertooth/issues/21), [#12](https://github.com/SqueakyFloors/ubertooth/issues/12), [#518](https://github.com/SqueakyFloors/ubertooth/issues/518), [#9](https://github.com/SqueakyFloors/ubertooth/issues/9), [#42](https://github.com/SqueakyFloors/ubertooth/issues/42), [#8](https://github.com/SqueakyFloors/ubertooth/issues/8), [#11](https://github.com/SqueakyFloors/ubertooth/issues/11), [#10](https://github.com/SqueakyFloors/ubertooth/issues/10), [#968](https://github.com/SqueakyFloors/ubertooth/issues/968), [#194](https://github.com/SqueakyFloors/ubertooth/issues/194), [#1025](https://github.com/SqueakyFloors/ubertooth/issues/1025), [#945](https://github.com/SqueakyFloors/ubertooth/issues/945), [#699](https://github.com/SqueakyFloors/ubertooth/issues/699), [#617](https://github.com/SqueakyFloors/ubertooth/issues/617), [#413](https://github.com/SqueakyFloors/ubertooth/issues/413), [#397](https://github.com/SqueakyFloors/ubertooth/issues/397), [#534](https://github.com/SqueakyFloors/ubertooth/issues/534), [#905](https://github.com/SqueakyFloors/ubertooth/issues/905), [#700](https://github.com/SqueakyFloors/ubertooth/issues/700))
 
 ### Under the hood
 
