@@ -401,56 +401,25 @@ Behavior the tools share.
 
 ### ubertooth-specan
 
-#### New features
+- **Script-visible change.** `ubertooth-specan -d` chooses only where the
+  samples go, and `-g` or `-G` how they are written, so `ubertooth-specan -g
+  -d out.dat` writes gnuplot text to the file (before, the file stayed empty).
+  `-d -` streams to standard output but refuses a terminal, and any other
+  value, even one starting with `-`, is a file name.
+- **`ubertooth-specan -v` works.** It prints the board, the sweep, where the
+  samples go, and a summary once a second, on standard error (before, it did
+  nothing).
+- **Fixed: sweeps measured through the wrong settings.** A sweep after
+  another mode used that mode's radio front-end settings and could include
+  samples left over from an earlier run; it now starts from a clean board.
+  `ubertooth-specan -l` and `-u` must be valid, ordered frequencies in the
+  band.
+- **Fixed: unclear errors.** A `-d` file that cannot be written stops the
+  sweep and names the failure (for example, no space left on device), and a
+  bad option gets the same error wording as every other tool. Every tool also
+  stops the board cleanly on SIGHUP and SIGALRM.
 
-- **Script-visible change:** `ubertooth-specan -d` now only chooses where the
-  samples go, and `-g`/`-G` how they are written, so `-g -d out.dat` writes
-  the gnuplot text into the file the man page always promised. `-d` used to
-  create the file and leave it empty while a later `-g` took the samples to
-  the screen.
-  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
-- `ubertooth-specan -v` now prints what its page says it does, on standard
-  error: the board, the sweep, where the samples go, and a summary once a
-  second. It used to do nothing. A second `-v` is refused.
-  [#510](https://github.com/SqueakyFloors/ubertooth/issues/510)
-- `ubertooth-specan` reports a bad option itself, as the other tools do:
-  `error: unrecognized option '-Z'` and `error: option '-l' requires a value`,
-  instead of the option parser's own lines naming the whole path of the binary.
-  [#338](https://github.com/SqueakyFloors/ubertooth/issues/338)
-
-#### Fixes
-
-- `ubertooth-specan` checks every write of its text formats, so a sweep into
-  a `-d` file that cannot be written ends where the writing failed and names
-  it: `error: writing samples failed: could not write the sample (No space
-  left on device)`. Only the raw records were checked, so a text sweep ran to
-  the end and reported the vaguer `could not flush the samples`.
-  [#655](https://github.com/SqueakyFloors/ubertooth/issues/655)
-- A spectrum analyzer run measures through the radio front end a freshly
-  booted board has, whichever mode ran before it. `ubertooth-specan` and
-  `ubertooth-util -q` do not set the radio's manual signal overrides
-  themselves, and nothing put them back when a mode ended, so a sweep after a
-  low-energy capture was taken through that capture's front end and a sweep
-  after a reset was not. The write that was meant to set them at boot is gone
-  as well: the radio reset a few microseconds later undid it, so it never
-  reached a mode.
-  [#471](https://github.com/SqueakyFloors/ubertooth/issues/471)
-- `ubertooth-specan -d` takes a bare `-` as standard output and every other
-  value as a file name, including one starting with `-`, so `-d -x` writes the
-  file `-x` instead of streaming binary samples to the terminal.
-  [#231](https://github.com/SqueakyFloors/ubertooth/issues/231)
-- `ubertooth-specan -d -` refuses a terminal, as `ubertooth-btle -q -` already
-  did: `error: stdout is a tty, refusing to write binary samples to it`, exit
-  status 1. A pipe or a redirect is unaffected, and btle's own refusal now
-  reads the same way.
-  [#259](https://github.com/SqueakyFloors/ubertooth/issues/259)
-- `ubertooth-specan -l`/`-u` now require valid, ordered in-band frequencies
-  before opening the device.
-  [#37](https://github.com/SqueakyFloors/ubertooth/issues/37)
-- `ubertooth-specan` stops any mode left running before it starts and drops
-  samples outside `-l`/`-u` left over from an earlier run; tools also stop the
-  board cleanly on SIGHUP and SIGALRM (and exit 0, as for SIGINT/SIGTERM).
-  [#173](https://github.com/SqueakyFloors/ubertooth/issues/173)
+([#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#231](https://github.com/SqueakyFloors/ubertooth/issues/231), [#259](https://github.com/SqueakyFloors/ubertooth/issues/259), [#510](https://github.com/SqueakyFloors/ubertooth/issues/510), [#471](https://github.com/SqueakyFloors/ubertooth/issues/471), [#173](https://github.com/SqueakyFloors/ubertooth/issues/173), [#37](https://github.com/SqueakyFloors/ubertooth/issues/37), [#655](https://github.com/SqueakyFloors/ubertooth/issues/655), [#338](https://github.com/SqueakyFloors/ubertooth/issues/338))
 
 ### ubertooth-specan-ui
 
