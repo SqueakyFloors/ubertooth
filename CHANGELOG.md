@@ -186,32 +186,32 @@ Behavior the tools share.
 
 #### Fixes
 
-- **Fixed: follow mode lost connections.** `ubertooth-btle -f` hopped only
+- **Follow mode lost connections.** `ubertooth-btle -f` hopped only
   with channel selection algorithm 1, so it caught about one event in ten of a
   Bluetooth 5 connection. It also mistimed connection updates and transmit
   windows, parked on one channel after a missed first event or an empty
   channel map, jumped to another pair's connection, and stayed on a closed
   connection until its timeout. It now captures about 2.5 times as many
   packets.
-- **Fixed: promiscuous mode stopped short or reported wrong figures.**
+- **Promiscuous mode stopped short or reported wrong figures.**
   `ubertooth-btle -p` often stalled at the access address on a busy
   connection, never reported the access address it found, reported
   connection intervals that were wrong (it now reports none rather than a
   wrong one), locked onto the advertising address after an earlier `-t`, sent
   its findings into a capture on standard output, and stopped capturing when a
   packet was cut off part-way.
-- **Fixed: missing packets.** Packets over 50 bytes were cut short (payloads
+- **Missing packets.** Packets over 50 bytes were cut short (payloads
   up to 251 bytes now arrive whole), the first two packets of a session were
   lost, `ubertooth-btle -f -k 1` dropped every data packet, a single failed
   transfer or late USB poll ended a capture, dropped packets went unreported,
   some advertising packets were recorded under a connection's address, and
   `ubertooth-btle -a` or `-t none` left a filter set for later runs.
-- **Fixed: wrong signal and timing figures.** The `rssi=` figure is now the
+- **Wrong signal and timing figures.** The `rssi=` figure is now the
   packet's own level and matches the capture file (before, it could be off by 90 dB),
   and reads `rssi=none` when the packet is too strong to measure. The PCAP
   average RSSI, packet timestamps (before, 8 microseconds late), and `delta_t`
   (before, short by whole clock periods) are now correct.
-- **Fixed: misleading messages.** A good Wireshark capture no longer ends in
+- **Misleading messages.** A good Wireshark capture no longer ends in
   `Error from extcap pipe`: undecodable packets are counted in one note, with
   detail under `-v`, and no longer flood the terminal. `ubertooth-btle` warns
   that `-i`, `-I`, `-j`, and `-J` do nothing yet, warns when a long PcapNG
@@ -233,13 +233,13 @@ Behavior the tools share.
 
 #### Fixes
 
-- **Fixed: Ubertooth missing from Wireshark.** `btle-extcap.py` refused the
+- **Ubertooth missing from Wireshark.** `btle-extcap.py` refused the
   options Wireshark adds to its calls, so no Ubertooth appeared in the capture
   list. `btle-extcap.py -h` also lists the options the script really takes.
-- **Fixed: failures reported as success.** A failing `ubertooth-util`, a
+- **Failures reported as success.** A failing `ubertooth-util`, a
   missing tool, or a closed standard output used to give an empty interface
   list, exit 0, or a traceback. Each is now one `error:` line and exit 1.
-- **Fixed: capture filters silently ignored.** A capture filter typed for an
+- **Capture filters silently ignored.** A capture filter typed for an
   Ubertooth interface now turns Wireshark's filter box red and says to use a
   display filter (before, the capture ran unfiltered).
 - **Script-visible change.** `btle-extcap.py --capture` exits only 0 or 1, and
@@ -255,167 +255,46 @@ Behavior the tools share.
 
 #### New features
 
-- `ubertooth-rx` reads several boards in one run. A board hears one 1 MHz
-  channel at a time, so parked on one it sees about one packet in 79 of a
-  Classic connection, and finding the piconet's address part and the channels
-  it is using waits on those sightings. `-U` now takes a comma-separated list
-  of up to eight boards and `-c` a channel for each of them, so
-  `ubertooth-rx -U 0,1,2,3 -c 10,30,50,70 -l e9c5ba` hears four channels at
-  once. The boards share what they find: the channels the piconet has been
-  heard on join into one map that goes back to every board, and the address
-  part is passed on once two boards have worked out the same one from their
-  own packets. Each board recovers the clock from its own packets, because a
-  clock is recovered against that board's own counter. ubertooth-rx(1),
-  SEVERAL BOARDS AT ONCE says what is shared and what is not.
-  [#783](https://github.com/SqueakyFloors/ubertooth/issues/783)
-- `ubertooth-rx -i` refuses `-c` and `-t` instead of accepting them and
-  dropping them: a replay has no board to tune and nothing to wait for, so
-  `ubertooth-rx -i capture.bin -c 39` now says `error: -c cannot be combined
-  with -i; a replay reads a saved capture rather than tuning a board` and exits
-  1. The file used to be read on no channel and with no timeout, with nothing
-  said about either.
-- `ubertooth-rx` lists `-s` in `-h` as the explicit form of its default channel
-  sweep, and no longer calls it deprecated; the `-z` line no longer claims to
-  imply it.
-  [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
-- **Script-visible change:** `ubertooth-rx -z` prints its `Survey Results`
-  heading on standard error, so a survey collected in a file or piped into
-  another program holds the addresses alone. The heading was on standard
-  output above them, as `ubertooth-scan`'s `Scan results:` also used to be.
-  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
+- **Several boards at once.** `ubertooth-rx` reads up to eight boards in one
+  run, optionally each on its own channel (for example `ubertooth-rx -U
+  0,1,2,3 -c 10,30,50,70 -l e9c5ba`), so it hears as many packets as it has
+  boards. The boards pool the channels the piconet is heard on, and pass on
+  its UAP once two of them agree; each recovers the clock itself.
+- **Script-visible change.** `ubertooth-rx -z` prints its `Survey Results`
+  heading on standard error, so a saved survey holds only addresses. A replay
+  (`ubertooth-rx -i`) refuses `-c` and `-t` instead of ignoring them, and
+  `ubertooth-rx -h` lists `-s` as the default channel sweep rather than as
+  deprecated.
+
+([#783](https://github.com/SqueakyFloors/ubertooth/issues/783), [#21](https://github.com/SqueakyFloors/ubertooth/issues/21), [#745](https://github.com/SqueakyFloors/ubertooth/issues/745))
 
 #### Fixes
 
-- Fixed: the per-packet times in a capture written while following a piconet
-  did not measure the run. A 15-second follow wrote records spanning 191.3 s,
-  and a record's time could come out before that of the record ahead of it, so
-  a reader of the file saw time run backwards. Following puts the board's clock
-  on the piconet's, which moves it by however far the two were apart, and the
-  move was read as time passing. It is now taken out, so the records track the
-  run. A move of a couple of seconds or less is left in them: the host's own
-  measure of the time between two packets is only that good, so looking for a
-  move that small would as often land on the wrong packet.
-  [#1182](https://github.com/SqueakyFloors/ubertooth/issues/1182)
-- Fixed: a per-packet line reported `s=0`, and a `snr=` worked out from it, for
-  a packet whose level the board could not measure. The dBm scale stops rising
-  at the top of the radio's range, so that one figure stood for every signal
-  from about -26 dBm upward, which a Classic peer a few tens of centimeters
-  away reaches. Such a packet now reads `s=none snr=none`, the convention the
-  noise field already uses for a figure the board does not have.
-  [#1162](https://github.com/SqueakyFloors/ubertooth/issues/1162)
-- Fixed: `ubertooth-rx -l <lap> -u <uap>` never locked onto the clock of a
-  piconet that adapts its hopping, which current controllers do, so its follow
-  never started. It now finds the clock and follows.
-  [#968](https://github.com/SqueakyFloors/ubertooth/issues/968)
-- Fixed: `ubertooth-rx -l <lap> -u <uap>` threw the UAP you gave it away with
-  every clock it stopped following, and worked the UAP out from the air again
-  -- which takes packets, can settle on a wrong value, and leaves the records
-  with no reference UAP until it does. A UAP you name is now put back, and the
-  line says so:
-  `warning: the clock being followed was not this piconet's; searching for its
-  clock again, and putting UAP 0d back`. A capture that worked the UAP out
-  itself still gives it up, and its line reads `searching for its clock and UAP
-  again`.
-- Fixed: a clock search on a piconet that hops adaptively made no headway.
-  `ubertooth-rx -l <lap> -u <uap>` heard the piconet, started a CLK1-27
-  search, ruled out every candidate within a few packets, and began the
-  search again, for as long as the capture ran: the candidates came from the
-  basic hopping sequence, which that piconet is not using. That came with
-  libbtbb
-  ([`4b7f8d7`](https://github.com/SqueakyFloors/libbtbb/commit/4b7f8d737ba7d24d4e1f24e9eaf4693fea9fe66d)),
-  which reads the evidence of adapted hopping before the candidate list it
-  arrives with is emptied, so the search follows the sequence the piconet is
-  really using and narrows toward a clock instead of starting over.
-  Confirming a clock on such a piconet still takes more agreeing hops than
-  the captures tried so far have offered. The same library also removes a
-  PcapNG capture file it could not write, so a capture that failed to start
-  leaves no part-written file to be mistaken for an empty one. `install.sh`
-  and the build guides check out the new commit.
-  [#968](https://github.com/SqueakyFloors/ubertooth/issues/968)
-- A `ubertooth-rx` run that is refused before it captures anything leaves no
-  empty capture file behind. The decoder, the piconet `-l` names, and the
-  address request that `-l` with `-u` sends now all come before the `-q`, `-r`
-  and `-d` files are created, so there is nothing on disk to tell apart from a
-  capture that caught nothing. A command that would hit two of these reports
-  them in that new order: one naming both a file it cannot create and a board
-  that refuses the address now names the address. The requests that start the
-  capture cannot come first, and a board that refuses one of those now has the
-  capture files removed again, so a header-only capture is no longer left
-  behind there either. A capture that ran keeps its file, however little
-  arrived, and a name the user had set up as something else -- `/dev/null`, a
-  pipe, or a symbolic link -- is left where it is. A replay (`-i`) that could
-  not read one whole record from its input no longer leaves a header-only
-  capture behind either.
-  [#993](https://github.com/SqueakyFloors/ubertooth/issues/993)
-  [#1013](https://github.com/SqueakyFloors/ubertooth/issues/1013)
-- `ubertooth-rx` recovers from following the wrong clock. A clock recovered
-  from a handful of packets can be a guess, and a wrong one showed up as a
-  follow that decoded nothing and stayed that way for the rest of the run.
-  The tool now reports `warning: the clock being followed was not this
-  piconet's; searching for its clock and UAP again`, takes the board off that
-  clock and recovers one again, keeping the lower address part it has already
-  found.
-  [#771](https://github.com/SqueakyFloors/ubertooth/issues/771)
-- `ubertooth-rx` also gives up a clock its follow has gone quiet on. A clock
-  that is wrong only in the high bits checks out every header it receives and
-  gets the channel to listen on wrong instead, so it is heard from about one
-  packet in eighteen and no header ever fails: such a follow decoded next to
-  nothing and kept the clock forever. A follow that hears no packet of its
-  piconet for a minute now reports `warning: nothing of this piconet has been
-  heard on the clock being followed; searching for its clock and UAP again`
-  and recovers a clock again, as it does for a clock the decoder gives up. A
-  minute is long enough that no working link reaches it, and giving a clock up
-  rules it out, so a wrong clock is given up only on a link slow enough for
-  its one packet in eighteen to leave a gap that long.
-  [#903](https://github.com/SqueakyFloors/ubertooth/issues/903)
-- A survey's capture records carry the UAP it recovered. `ubertooth-rx -z`
-  works out a UAP for each LAP it hears, but every record it wrote carried the
-  decoder's `ff` for "none", leaving a reader nothing to check a recorded
-  header or payload against. From the packet that settles a LAP's UAP onwards,
-  that LAP's records carry it.
-  [#842](https://github.com/SqueakyFloors/ubertooth/issues/842)
-- A Classic packet longer than one 400 us bank is reported as what was
-  captured, and a piconet follow runs to the end instead of dying partway.
-  `ubertooth-rx` told the decoder it had 4000 symbols where 400 had
-  arrived, so a DH5's payload and its CRC verdict were decoded out of about
-  2700 bytes of zeros, on screen and in the payload written to a capture file,
-  with nothing marking it as incomplete. Reading past the symbols also walked
-  off the end of the buffer they sit in: `ubertooth-rx -l` aborted with
-  `double free or corruption` on about the thirty-sixth packet of a piconet,
-  live or replayed from a capture. Its search for an access code now stops
-  where the other capture paths do, at the last position whose whole access
-  code was captured, so a capture run at a high `-e` reports somewhat fewer
-  packets: the positions that are gone could only ever have matched symbols
-  that never arrived.
-  [#666](https://github.com/SqueakyFloors/ubertooth/issues/666)
-  [#792](https://github.com/SqueakyFloors/ubertooth/issues/792)
-- The clock a Classic packet is placed at is the clock its access code
-  arrived on. `ubertooth-rx` put a packet captured in the first 400 us of a
-  mode, or in the 400 us after the clock starts over every 327.68 s, about
-  seven minutes ahead of the clock, and `ubertooth-scan` placed every packet a
-  whole 625 us slot late, which is what its survey mode builds its clock
-  candidates out of.
-  [#664](https://github.com/SqueakyFloors/ubertooth/issues/664)
-- `ubertooth-rx -i` now reports the host time stored with each record instead
-  of the time of the replay: the `systime` of every packet line, and the
-  timestamps of a PCAP or PcapNG written while replaying, come from the
-  capture. [#202](https://github.com/SqueakyFloors/ubertooth/issues/202)
-- `ubertooth-rx -i` reports a file it cannot read, such as a directory
-  (`error: reading <file> failed: Is a directory`), and a last record cut
-  short, and exits 1. Both used to end the replay silently with exit 0.
-  [#203](https://github.com/SqueakyFloors/ubertooth/issues/203)
-- A Classic capture records the reference UAP on the packet that settles it.
-  `ubertooth-rx` read the piconet's UAP before handing the packet to the
-  decoder, so the one packet whose CRC settled that UAP went into the capture
-  as if nothing were known, and a reader could not check that packet's CRC -
-  the packet the UAP was derived from being the one record that most needs it.
-  [#767](https://github.com/SqueakyFloors/ubertooth/issues/767)
-- A Classic capture record carries the packet's own header once the followed
-  piconet's clock bits are known. It went in as 18 zero bits until the follow
-  began, which a reader cannot tell from a NULL packet that was never sent.
-  Records written before that still carry none. See WHAT A CAPTURE RECORD
-  HOLDS in ubertooth-rx(1).
-  [#778](https://github.com/SqueakyFloors/ubertooth/issues/778)
+- **Piconets that adapt their hopping could not be followed.**
+  `ubertooth-rx -l <lap> -u <uap>` never locked onto the clock of such a
+  piconet, which is what current controllers do. With the updated libbtbb it
+  finds the clock and follows.
+- **Stuck on a wrong clock.** A follow on a wrong clock used to decode
+  nothing for the rest of the run. `ubertooth-rx` now warns and searches
+  again when the clock proves wrong or nothing is heard for a minute, keeping
+  the address part it found and any UAP given with `-u`.
+- **Long packets crashed or decoded garbage.** A packet longer than
+  one 400-microsecond bank was decoded from zeros, and `ubertooth-rx -l` crashed with
+  `double free or corruption` after about 36 packets. A capture at a high `-e`
+  now reports somewhat fewer packets, all of them real.
+- **Wrong data in capture records.** Records now carry the packet's
+  real header (before, 18 zero bits until the follow began), the recovered
+  UAP (including on the packet that settled it and in `ubertooth-rx -z`
+  surveys), and the right clock (before, some packets were placed about seven
+  minutes ahead). Per-packet times track the run (before, a 15-second follow
+  could span 191 seconds), and a packet too strong to measure reads `s=none
+  snr=none`. `ubertooth-scan` no longer places packets a slot late.
+- **Replays and empty files.** `ubertooth-rx -i` reports the host time
+  stored in the capture rather than the replay's, and exits 1 with an error
+  for an unreadable file or a cut-off last record (before, exit 0). A run
+  refused before it captures anything leaves no empty capture file behind.
+
+([#968](https://github.com/SqueakyFloors/ubertooth/issues/968), [#771](https://github.com/SqueakyFloors/ubertooth/issues/771), [#903](https://github.com/SqueakyFloors/ubertooth/issues/903), [#666](https://github.com/SqueakyFloors/ubertooth/issues/666), [#792](https://github.com/SqueakyFloors/ubertooth/issues/792), [#778](https://github.com/SqueakyFloors/ubertooth/issues/778), [#767](https://github.com/SqueakyFloors/ubertooth/issues/767), [#842](https://github.com/SqueakyFloors/ubertooth/issues/842), [#664](https://github.com/SqueakyFloors/ubertooth/issues/664), [#1182](https://github.com/SqueakyFloors/ubertooth/issues/1182), [#1162](https://github.com/SqueakyFloors/ubertooth/issues/1162), [#202](https://github.com/SqueakyFloors/ubertooth/issues/202), [#203](https://github.com/SqueakyFloors/ubertooth/issues/203), [#993](https://github.com/SqueakyFloors/ubertooth/issues/993), [#1013](https://github.com/SqueakyFloors/ubertooth/issues/1013))
 
 ### ubertooth-afh
 
