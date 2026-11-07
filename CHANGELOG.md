@@ -28,8 +28,10 @@ knowing about.
   ([#649](https://github.com/SqueakyFloors/ubertooth/issues/649), [#510](https://github.com/SqueakyFloors/ubertooth/issues/510), [#872](https://github.com/SqueakyFloors/ubertooth/issues/872))
 - **A board keeps answering, and recovers itself when it does not.** Opening by serial no longer kills about one capture in twenty, radio and USB waits are bounded, a stuck board usually resets within about three seconds (or `ubertooth-util -r` recovers it from the host), and the firmware now has room for its stack.
   ([#505](https://github.com/SqueakyFloors/ubertooth/issues/505), [#509](https://github.com/SqueakyFloors/ubertooth/issues/509), [#1073](https://github.com/SqueakyFloors/ubertooth/pull/1073))
-- **Firmware you can install, identify, and get back from.** Images carry an info block, so `ubertooth-dfu` names what it will write and refuses a bad file, an interrupted download leaves the board recoverable in DFU, and a new bootloader installs over USB with `--update-bootloader`.
-  ([#242](https://github.com/SqueakyFloors/ubertooth/issues/242), [#1064](https://github.com/SqueakyFloors/ubertooth/issues/1064), [#1062](https://github.com/SqueakyFloors/ubertooth/issues/1062))
+- **Firmware you can install, identify, and get back from.** Images carry an info block, so `ubertooth-dfu` names what it will write and refuses a bad file before the board leaves its firmware.
+  ([#1064](https://github.com/SqueakyFloors/ubertooth/issues/1064), [#1062](https://github.com/SqueakyFloors/ubertooth/issues/1062))
+- **The bootloader updates over USB, no programmer needed.** `ubertooth-dfu --update-bootloader` (or `install.sh --update-bootloader`) installs this release's bootloader, which recovers a board from an interrupted firmware download, refuses to start a half-written image, and reports its own version to `ubertooth-util -B`. A board that keeps its old bootloader runs everything else in this release.
+  ([#1056](https://github.com/SqueakyFloors/ubertooth/issues/1056), [#1123](https://github.com/SqueakyFloors/ubertooth/issues/1123), [#242](https://github.com/SqueakyFloors/ubertooth/issues/242))
 - **One command line across every tool.** Results go to standard output and everything else to standard error, a failure is one `error:` line and a non-zero exit, a lone `-` streams the capture (PcapNG excepted, with advice), and `-V` answers the same everywhere.
   ([#782](https://github.com/SqueakyFloors/ubertooth/issues/782), [#813](https://github.com/SqueakyFloors/ubertooth/issues/813), [#636](https://github.com/SqueakyFloors/ubertooth/issues/636))
 - **Documentation that matches the code, including what does not work.** Every tool has a man page, there is a README catalog and a "how sniffing works" guide, a Wireshark walkthrough, and `COMPATIBILITY.md`; an option nothing acts on says so and is listed as known-broken.
@@ -211,170 +213,46 @@ Behavior the tools share.
 
 #### New features
 
-- The note about a board in the DFU bootloader now names what reaches it,
-  `ubertooth-dfu` with no `-U`: `-d <image> -r` writes an image and asks the
-  board to start it, and `-r` alone asks without writing. The note no longer
-  says that no tool can open such a board, since that one can.
-  [#242](https://github.com/SqueakyFloors/ubertooth/issues/242)
-- **Script-visible change:** the rest of `ubertooth-dfu`'s progress moved to
-  standard error too: the DFU entry, the flash an image or a read-back covers,
-  the dot per block, and `Detached`. Standard output now carries one line, the
-  revision `-d <image> -r` verified after the reset, which moved the other way
-  (it was on standard error), and every failure the tool reports itself begins
-  `error: `.
-  [#502](https://github.com/SqueakyFloors/ubertooth/issues/502)
-- **Script-visible change:** `ubertooth-dfu` prints its `Checking firmware
-  signature` progress line on standard error; it was on standard output. It
-  also reports an image it will not write as one `error:` line, where it was
-  two, so `Signature check failed, firmware will not be updated` and `Image
-  too large for the attached part, firmware will not be updated` are gone.
-  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
-- `ubertooth-dfu --update-bootloader` now leaves a board that already has the
-  bootloader the image carries alone. It asks the running firmware for the hash
-  `ubertooth-util -B` reports and writes nothing when it matches the image's,
-  so the board keeps the firmware the updater image would have replaced.
-  `--force` writes without asking.
-  [#1123](https://github.com/SqueakyFloors/ubertooth/issues/1123)
+- **Install the bootloader over USB.** `ubertooth-dfu --update-bootloader -d
+  bl_update.dfu` installs this release's bootloader with no serial programmer.
+  It writes nothing when the board already has that bootloader (`--force`
+  writes anyway), then reads it back and reports what the board holds. Keep a
+  serial adapter to hand: an interrupted bootloader write needs one.
+- **Script-visible change.** All of `ubertooth-dfu`'s progress goes to
+  standard error. Standard output carries only the revision `ubertooth-dfu -d
+  <image> -r` verified after the reset, and every failure is one `error:`
+  line.
+
+([#1123](https://github.com/SqueakyFloors/ubertooth/issues/1123), [#1128](https://github.com/SqueakyFloors/ubertooth/issues/1128), [#502](https://github.com/SqueakyFloors/ubertooth/issues/502), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481))
 
 #### Fixes
 
-- Fixed: `ubertooth-dfu -u /dev/stdout` answered with an errno about a file,
-  `error: /dev/stdout: Operation not permitted`, because only the lone `-`
-  counted as standard output. The names of that stream are now refused while
-  the command line is read, with the line the lone `-` already got, which says
-  to give a file name instead.
-  [#1170](https://github.com/SqueakyFloors/ubertooth/issues/1170)
-- Fixed: `ubertooth-dfu --update-bootloader` reported success whenever the
-  board came back in DFU, which is also what a board whose bootloader entry
-  pin is bridged does without ever starting the updater, so a run that
-  installed nothing read like one that worked. The command now reads the
-  bootloader region before the write and again afterwards, and says what the
-  board holds: an installed bootloader is reported with the hash
-  `ubertooth-util -B` will give, a region that already held it says nothing was
-  written, and a region that provably is not the one asked for is an error and
-  exit 1, whether it did not change at all or changed into neither bootloader.
-  Where the reads cannot settle it, the run says so and claims nothing either
-  way.
-  [#1128](https://github.com/SqueakyFloors/ubertooth/issues/1128)
-- Fixed: when `ubertooth-dfu -r` left a board in the bootloader, the notes
-  saying why named two of the three reasons the bootloader runs. All three are
-  now named, and a run that wrote no image is told to write a whole one, which
-  is what a board left half-written by an interrupted download needs.
-  [#1133](https://github.com/SqueakyFloors/ubertooth/issues/1133)
-- Fixed: a board carrying a bootloader built from this tree could not be
-  flashed over USB at all. `ubertooth-dfu` failed on the first firmware block
-  and left the board in the bootloader with no firmware. The boot ROM routine
-  that copies RAM into flash refuses a source address off a word boundary, and
-  the buffer each download block is programmed out of had moved off one; it is
-  now aligned, and such a board flashes and verifies. A board carrying the
-  original bootloader was never affected. Installing this bootloader still
-  needs an ISP session, since the bootloader cannot replace itself over USB.
-  [#491](https://github.com/SqueakyFloors/ubertooth/issues/491)
-- A firmware download that stops part way through -- a cable pulled, a board
-  that leaves the bus, a host that dies -- no longer leaves an image a board
-  will start. `ubertooth-dfu -d` writes the vector table last, leaving erased
-  flash in its place until then, and the bootloader refuses to start an
-  application that is not there: it waits in DFU instead, so the next
-  `ubertooth-dfu -d` recovers the board rather than someone at the bench with
-  the entry pin bridged. The tool fills in the checksum the part reserves over
-  that vector table and the bootloader checks it, so a board that lost power
-  part way through programming that one block is not started either. It also
-  records how many bytes it wrote and a checksum over all of them, in 32 bytes
-  of the image reserved for it, and the bootloader adds the whole image up
-  before it starts any of it: a download interrupted in its last 4 KiB, which
-  used to leave a board for the bench, now leaves one waiting in DFU as well.
-  The four bytes of the vector checksum and fourteen of that record are the
-  only differences between an image file and the flash written from it. The
-  bootloader half takes effect only on a board carrying a bootloader built
-  from this tree, which is installed with ISP or JTAG. A read of the image
-  file that fails part way through now fails the download as well, where it
-  used to end the transfer and report success.
-  [#242](https://github.com/SqueakyFloors/ubertooth/issues/242),
-  [#1039](https://github.com/SqueakyFloors/ubertooth/issues/1039),
-  [#1041](https://github.com/SqueakyFloors/ubertooth/issues/1041)
-- `ubertooth-dfu -d <image> -r` says which of the post-reset outcomes it hit
-  instead of one numeric line for all of them, so a board that took the whole
-  image and then did not come back on USB is no longer reported as a failed
-  flash and flashed again for nothing.
-  [#579](https://github.com/SqueakyFloors/ubertooth/issues/579)
-- **Script-visible change:** `ubertooth-dfu -r` no longer reports a board that
-  reset straight back into the bootloader as detached: the DFU device has to
-  be gone on two checks in a row, the second 1.5 s later, and a board that is
-  back exits 1 saying why. Flashing with the expansion-header bridge still
-  fitted now exits 1 where it could exit 0, and every reset that works spends
-  about 1.5 s more.
-  [#304](https://github.com/SqueakyFloors/ubertooth/issues/304)
-- `ubertooth-dfu -d <image> -r` also checks which image came back, not only
-  its revision, so a write of `btbr` over `bluetooth_rxtx` that did not take
-  no longer verifies clean: both images of one tree carry the same revision.
-  An image whose firmware info block reports a firmware API version other than
-  these tools' own is written with a warning first.
-  [#557](https://github.com/SqueakyFloors/ubertooth/issues/557)
-- A board running `btbr` can be reflashed with `-U <serial>`. It used to answer
-  `ubertooth-dfu` with a stalled transfer and exit 1, because the image reset
-  before the request asking it to enter DFU had been answered; it did enter the
-  bootloader, which carries no serial number, so no `-U` could reach it again.
-  [#475](https://github.com/SqueakyFloors/ubertooth/issues/475)
-- `ubertooth-dfu -d` and `-s` check the file before they read it into memory:
-  a directory, a FIFO or a device node is refused, and so is a file too large
-  to be an image (507920 bytes for `-d`, 16 fewer for `-s`, which adds the
-  suffix), instead of allocating from a size nothing had checked.
-  [#246](https://github.com/SqueakyFloors/ubertooth/issues/246)
-- `ubertooth-dfu -s` refuses a binary that already carries a DFU suffix
-  instead of adding a second one, and names the output
-  file when it cannot create it. `-s` and `-d` now only read their input, so a
-  firmware image in a read-only location can be signed or flashed. A `-u`
-  read-back that fails part-way no longer empties an earlier file of the same
-  name: it is written to a temporary file and renamed once complete. The
-  documentation now says what `-u` writes (a raw dump of the application flash
-  region, not a DFU file).
-  [#200](https://github.com/SqueakyFloors/ubertooth/issues/200)
-- `ubertooth-dfu -d` checks the whole image before the board leaves its
-  application, so a corrupt, truncated, unsigned or empty file is refused with
-  exit 1 and leaves the board running its firmware instead of stranded in the
-  DFU bootloader. A failure once the board is already
-  in DFU now detaches it anyway when `-r` was given, finding the DFU device
-  again if the failure closed the handle. The image's DFU suffix must also name
-  this device (`1d50:6003`, or the `0xffff` wildcard): firmware for another
-  vendor or product used to be written.
-  [#198](https://github.com/SqueakyFloors/ubertooth/issues/198)
-  [#199](https://github.com/SqueakyFloors/ubertooth/issues/199)
-- `ubertooth-dfu -d <image> -r` no longer exits 1 after a flash that worked:
-  the bootloader resets while the detach request is in flight, so the request
-  fails on every macOS flash. The board is reported as still in DFU only when
-  its DFU device really is still there.
-  [#267](https://github.com/SqueakyFloors/ubertooth/issues/267)
-- `ubertooth-dfu -r` no longer exits 0 with the board still in the bootloader
-  when the bootloader acknowledges the reset request and then ignores it: the
-  board is reported as detached only once its DFU device has left the bus and
-  stayed off it, whatever the request returned.
-  [#283](https://github.com/SqueakyFloors/ubertooth/issues/283)
-- `ubertooth-dfu -s` writes `<file>.dfu` only once the whole signed image is
-  ready, and checks a `-d` image given in the same command first, so a signing
-  run that fails leaves an earlier `<file>.dfu` untouched and creates none. It
-  now needs to be able to create a file in the output's directory, as `-u`
-  does.
-  [#305](https://github.com/SqueakyFloors/ubertooth/issues/305)
-  [#286](https://github.com/SqueakyFloors/ubertooth/issues/286)
-- `ubertooth-dfu -u <dump> -d <image>` no longer leaves a temporary dump file
-  beside the target when the image is refused.
-  [#241](https://github.com/SqueakyFloors/ubertooth/issues/241)
-- The `btbr` image now carries the build string `ubertooth-dfu -r` reads the
-  expected revision from, so flashing it no longer stops with "Unable to
-  determine expected firmware revision from image" and then needs a power
-  cycle; `ubertooth-util -V` reports that string from a board running `btbr`
-  too. Flashing back off `btbr` still takes a second `ubertooth-dfu` run
-  without `-U`, because a board in the bootloader reports no serial
-  ([#475](https://github.com/SqueakyFloors/ubertooth/issues/475)).
-  [#433](https://github.com/SqueakyFloors/ubertooth/issues/433)
-- `ubertooth-dfu -u` reads back only the flash the part has, instead of a
-  fixed 240 KiB that faulted the bootloader on a 128 KiB part, and says how
-  many bytes it is reading and where that figure came from.
-  [#233](https://github.com/SqueakyFloors/ubertooth/issues/233)
-- `ubertooth-dfu -d` refuses an image too large for the attached part, naming
-  the part and the flash it has, while the board is still running its
-  application; a part it cannot identify is reported as unchecked.
-  [#281](https://github.com/SqueakyFloors/ubertooth/issues/281)
+- **Interrupted downloads are recoverable.** If a download stops part way (a
+  cable pulled, the board drops off the bus, the host dies), the board waits
+  in DFU for the next `ubertooth-dfu -d` instead of needing a bench repair.
+  This needs this release's bootloader (see `--update-bootloader` above).
+- **Bad images refused before flashing.** `ubertooth-dfu -d` checks the whole
+  image while the board is still running its firmware. A corrupt, truncated,
+  unsigned, empty, or oversized image, one for another device, or a path that
+  is not a file is refused with exit 1, and the board keeps running. An image
+  built for a different firmware API version gets a warning.
+- **Honest flash results.** `ubertooth-dfu -d <image> -r` checks that the
+  right image and revision came back and says which outcome it hit. A good
+  flash no longer fails on macOS, and a board that stayed in the bootloader
+  is no longer reported as detached (confirming a reset takes about 1.5
+  seconds longer).
+- **Boards that could not be flashed.** A board with a bootloader built from
+  this tree could not be flashed over USB, a board running `btbr` could not be
+  reached with `-U <serial>`, and flashing `btbr` stopped for want of a
+  revision. All three now work.
+- **Files and notes.** `ubertooth-dfu -s` refuses an already-signed file and
+  writes `<file>.dfu` only once it is complete, and `-s` and `-d` only read
+  their input. `ubertooth-dfu -u` reads back only the flash the part has,
+  writes to a file (not standard output), and never empties an earlier file
+  on failure. A board left in the bootloader gets a note naming why and what
+  to run.
+
+([#242](https://github.com/SqueakyFloors/ubertooth/issues/242), [#1039](https://github.com/SqueakyFloors/ubertooth/issues/1039), [#1041](https://github.com/SqueakyFloors/ubertooth/issues/1041), [#198](https://github.com/SqueakyFloors/ubertooth/issues/198), [#199](https://github.com/SqueakyFloors/ubertooth/issues/199), [#246](https://github.com/SqueakyFloors/ubertooth/issues/246), [#281](https://github.com/SqueakyFloors/ubertooth/issues/281), [#557](https://github.com/SqueakyFloors/ubertooth/issues/557), [#579](https://github.com/SqueakyFloors/ubertooth/issues/579), [#267](https://github.com/SqueakyFloors/ubertooth/issues/267), [#283](https://github.com/SqueakyFloors/ubertooth/issues/283), [#304](https://github.com/SqueakyFloors/ubertooth/issues/304), [#491](https://github.com/SqueakyFloors/ubertooth/issues/491), [#475](https://github.com/SqueakyFloors/ubertooth/issues/475), [#433](https://github.com/SqueakyFloors/ubertooth/issues/433), [#200](https://github.com/SqueakyFloors/ubertooth/issues/200), [#305](https://github.com/SqueakyFloors/ubertooth/issues/305), [#286](https://github.com/SqueakyFloors/ubertooth/issues/286), [#241](https://github.com/SqueakyFloors/ubertooth/issues/241), [#233](https://github.com/SqueakyFloors/ubertooth/issues/233), [#1170](https://github.com/SqueakyFloors/ubertooth/issues/1170), [#1133](https://github.com/SqueakyFloors/ubertooth/issues/1133))
 
 ### ubertooth-btle
 
@@ -1855,8 +1733,8 @@ Fixes with no visible change in normal use.
   what it no longer does is write past the end of flash. A part its table
   cannot identify is bounded by the sectors it reports having, or by the old
   fixed bound if it reports nothing at all, and a block the part failed to
-  program is reported rather than answered as written. It is reached only
-  through ISP or JTAG, not `ubertooth-dfu`.
+  program is reported rather than answered as written. It takes effect once
+  the board carries this release's bootloader.
   [#256](https://github.com/SqueakyFloors/ubertooth/issues/256)
   [#423](https://github.com/SqueakyFloors/ubertooth/issues/423)
   [#424](https://github.com/SqueakyFloors/ubertooth/issues/424)
