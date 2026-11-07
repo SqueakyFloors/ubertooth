@@ -1,33 +1,28 @@
 #!/usr/bin/env python3
-"""Which stream the usage text and a bad option land on, and the exit status.
+"""The two stream rules the command-line matrix cannot generate.
 
 Run as: test_output_streams.py <path to one ubertooth-* binary>
 
-The rule:
+Everything else this file used to check -- -h and -V on standard output, an
+unknown option as one "error: " line, a bare command line, a command with
+nothing to do, a removed flag, and that none of them reaches device lookup --
+is generated for every tool from cli_spec.json by test_cli_matrix.py, as
+universal rules 1 to 5. What is left here is the two things that generator
+cannot reach:
 
-  * -h is what the user asked for: the usage text goes to standard output,
-    nothing goes to standard error, and the status is 0;
-  * so is -V, which every tool answers the same way: the same stream and
-    status, and each line says what it is;
-  * a bare command line -- no arguments at all -- gets one "error: " line and
-    then the usage text, both on standard error, nothing on standard output,
-    and the status is 1;
-  * every other command line the tool will not take gets that "error: " line
-    alone, with no usage text after it: the line describes the problem, and a
-    reader who wants the usage text runs -h.
+  * a refusal whose whole line is pinned, with standard output empty. The
+    matrix pins many refusals by a substring, and a line that moved to the
+    other stream would still pass a check that reads the two together;
+  * a capture sent to standard output while standard output is a terminal.
+    That needs a pty, and every matrix run gives the tool a pipe, so no
+    generated case can put a terminal there.
 
-No device is opened in any of those cases, so nothing here depends on what is
-attached; UBERTOOTH_TEST_NO_DEVICES=1 hides any board that is, and a run that
-reached device selection is caught by the message that reports it.
-
-Every check runs for every tool. A bad option used to be the exception, while
-the tools were converted one at a time to report one the shared way
-(opterr = 0, an option string starting with ':', opt_report_bad_option());
-they all do now, so there is no longer a list of the ones that do.
+No device is opened in any case here; UBERTOOTH_TEST_NO_DEVICES=1 hides any
+board that is attached, and a run that reached device selection is caught by
+the message that reports it.
 """
 
 import os
-import re
 import subprocess
 import sys
 
@@ -40,65 +35,11 @@ except ImportError:  # no pty module on this platform
 BINARY = sys.argv[1]
 TOOL = os.path.basename(BINARY)
 ENVIRONMENT = dict(os.environ, UBERTOOTH_TEST_NO_DEVICES="1")
-# How long one run of the tool is given. The whole test takes about 0.2 s per
-# tool on an idle machine and 0.3 s on one busy with parallel builds, so twenty
-# seconds is many times what any single run needs.
+# How long one run of the tool is given. A handful of short runs per tool, so
+# twenty seconds is many times what any single run needs.
 RUN_TIMEOUT_S = 20
 
-# One option per tool that takes a required value, for the missing-value case.
-# ubertooth-ducky is left out because test_ducky_options.py already covers its
-# missing -U value, in the middle of the rest of its selector parsing.
-OPTION_NEEDING_A_VALUE = {
-    "ubertooth-afh": "l",
-    "ubertooth-btle": "A",
-    "ubertooth-debug": "r",
-    "ubertooth-dfu": "d",
-    "ubertooth-dump": "d",
-    "ubertooth-ego": "c",
-    "ubertooth-follow": "l",
-    "ubertooth-rx": "l",
-    "ubertooth-scan": "t",
-    "ubertooth-specan": "d",
-    "ubertooth-tx": "l",
-    "ubertooth-util": "U",
-}
-
-# One combination per tool that cannot be carried out, and the whole line it
-# is refused with: the "error: " line alone, with no usage text after it.
-REFUSED_COMBINATION = {
-    "ubertooth-rx": (["-l", "446688", "-z"],
-                     "error: survey mode (-z) discovers addresses, so it "
-                     "cannot be given -l or -u"),
-}
-
-# The tools whose empty command line has nothing to do, and the "error: " line
-# each one refuses it with. The rest have work to do with no options at all
-# (ubertooth-dump captures, for example), so they are left out of that check.
-NOTHING_TO_DO = {
-    "ubertooth-afh": "error: -l <LAP> and -u <UAP> are both required: "
-                     "the map is detected for one piconet",
-    "ubertooth-btle": "error: nothing to do: choose a major mode "
-                      "(-f, -n or -p), or -a, -k, -s or -t",
-    "ubertooth-debug": "error: nothing to do: give -r to read registers, "
-                       "or -w to write them",
-    "ubertooth-dfu": "error: nothing to do: give -d to write an image, -u to "
-                     "read one back, -s to sign one, or -r to reset",
-    "ubertooth-ducky": "error: nothing to do: give -q to quack, or -b to "
-                       "signal the bootloader",
-    "ubertooth-ego": "error: nothing to do: choose a major mode (-f, -r or -i)",
-    "ubertooth-tx": "error: nothing to do: give -g to transmit a generic "
-                    "packet, or -l and -u to retransmit to a piconet",
-    "ubertooth-util": "error: nothing to do: give an option that reads or sets "
-                      "something, or -N to count the attached boards",
-}
-
-# The same nothing to do from a command line that did say something. -U is a
-# selector and never work of its own, so it is what every tool is given;
-# ubertooth-util names the selector in its answer, so it has a line of its own.
-SAID_SOMETHING = {
-    "ubertooth-util": "error: nothing to do: -U '%s' selects a device but no "
-                      "option asks anything of it",
-}
+checked = []
 
 # Anything libubertooth prints once a tool starts looking for a device: a
 # command with nothing to do must be refused before that happens.
@@ -115,167 +56,6 @@ def run(arguments):
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           universal_newlines=True, timeout=RUN_TIMEOUT_S)
 
-
-def usage_text(text):
-    """The usage text names the tool and lists at least the -U line."""
-    return TOOL in text and "-U <index|serial>" in text
-
-
-# A serial no board has, for a refusal that has to be the command line's and
-# not the fault of whichever boards are attached.
-NO_SUCH_SERIAL = "ffffffffffffffffffffffffffffffff"
-
-
-# ---- a bad command line ----------------------------------------------------
-
-# Flags that are gone: dead, a documented no-op, a developer scratch hook, or
-# superseded by another tool. A removed flag is an option the tool does not
-# know, so a script still passing one must fail loudly instead of having it
-# taken as something else.
-REMOVED_OPTIONS = {
-    "ubertooth-afh": ["-a"],
-    "ubertooth-util": ["-9", "-f"],
-}
-
-# ---- -h, for every tool ----------------------------------------------------
-
-# What the user asked for: the usage text on stdout, nothing on stderr, and
-# the status of a command that did what was asked.
-result = run(["-h"])
-assert result.returncode == 0, result
-assert usage_text(result.stdout), result
-assert result.stderr == "", result
-
-# an option the tool does not know: the one "error: " line, and no usage
-# text after it
-result = run(["-Z"])
-assert result.returncode == 1, result
-# Nothing on stdout: a script reading the tool's output sees no usage text.
-assert result.stdout == "", result
-assert result.stderr == "error: unrecognized option '-Z'\n", result
-
-# A word starting with -- is quoted as the user wrote it: getopt rejects
-# its second '-', which would otherwise be reported as the option "--".
-result = run(["--bogus"])
-assert result.returncode == 1, result
-assert result.stdout == "", result
-assert result.stderr.startswith("error: unrecognized option '--bogus':"), result
-assert not usage_text(result.stderr), result
-
-# every option the tool used to have, refused the same way
-for removed in REMOVED_OPTIONS.get(TOOL, []):
-    result = run([removed])
-    assert result.returncode == 1, (removed, result)
-    assert result.stdout == "", (removed, result)
-    assert result.stderr == "error: unrecognized option '%s'\n" % removed, (
-        removed, result)
-
-# an option whose value is missing. With ':' leading the option string getopt
-# reports that as ':' rather than '?', so a tool that handles only '?' would
-# fall through silently: this is the check that catches it.
-option = OPTION_NEEDING_A_VALUE.get(TOOL)
-if option is not None:
-    result = run(["-" + option])
-    assert result.returncode == 1, result
-    assert result.stdout == "", result
-    assert result.stderr == "error: option '-%s' requires a value\n" % option, \
-        result
-
-# a combination the tool cannot carry out: that one line and nothing else,
-# before any device is opened
-combination = REFUSED_COMBINATION.get(TOOL)
-if combination is not None:
-    arguments, refusal = combination
-    result = run(arguments)
-    assert result.returncode == 1, result
-    assert result.stdout == "", result
-    assert result.stderr == refusal + "\n", result
-    for message in DEVICE_ACCESS:
-        assert message not in result.stderr.lower(), (message, result)
-
-# ---- the version answer ----------------------------------------------------
-
-# Every tool answers -V, and answers it in the same words. Like -h it is what
-# the user asked for, so it goes to standard output with nothing on standard
-# error. No board is attached here, which the answer says on its own line and
-# still exits 0: the host half of it needs no board.
-#
-# Each line names what it is, so neither can be read as the other. The host
-# line carries the release these tools are and libbtbb's beside it.
-HOST_VERSION_PREFIX = "Host tools version: "
-NO_BOARD_LINE = "Firmware version: no Ubertooth attached"
-# A release name, as a build that can name one reports it, or "unknown" from
-# one that cannot: a checkout whose history reaches no release tag, which is
-# what a shallow clone and one fetched without tags are, and which is what the
-# checkout this test runs in usually is. Either way it is a word a reader can
-# use, and never a commit hash and never an empty label, which is what the
-# line is checked for below. The forms themselves are pinned on checkouts
-# built for the purpose, in test_release_version.py.
-RELEASE = r"\d{4}-\d{2}-(?:R|RC|DEV)\d+(?:\+\d+)?\*?|unknown"
-# The one line -V may write to standard error: this machine has a second
-# libbtbb install, and which one decodes packets is the thing to say.
-BTBB_ELSEWHERE = "warning: libbtbb was loaded from "
-
-result = run(["-V"])
-assert result.returncode == 0, result
-# Nothing on standard error, unless this machine loads a libbtbb from
-# somewhere other than the one these tools were built against, which is one
-# line and nothing else. One run loads one libbtbb, so there is never more
-# than one of them.
-stderr_lines = result.stderr.splitlines()
-assert len(stderr_lines) <= 1, result
-for line in stderr_lines:
-    assert line.startswith(BTBB_ELSEWHERE), result
-lines = result.stdout.splitlines()
-# Two lines with no board attached: the versions, and what the firmware half
-# has to say. Each is labelled, so either can be grepped for on its own.
-assert len(lines) == 2, result
-assert lines[0].startswith(HOST_VERSION_PREFIX), result
-# A release, not an empty label, and not a commit: naming the release a build
-# came from is what this line is for, and a hash sends a user looking it up.
-# libbtbb's own half is whatever libbtbb reports, which a build against a
-# distribution package does not decide here, so it is only required to be
-# there and to say something.
-assert re.fullmatch(r"%s(?:%s) \(libbtbb \S.*\)" % (HOST_VERSION_PREFIX,
-                                                    RELEASE),
-                    lines[0]), result
-# The libraries' interface versions moved out of this line: they say nothing
-# about which release a user has.
-assert "libubertooth " not in lines[0], result
-assert lines[1] == NO_BOARD_LINE, result
-
-# ---- a command line with nothing to do -------------------------------------
-
-checked = ["-h", "-V", "a bad option"]
-
-refusal = NOTHING_TO_DO.get(TOOL)
-if refusal is not None:
-    checked.append("a bare command line")
-    # A bare command line: the "error: " line, then the usage text, since the
-    # user has not said anything for the line alone to answer.
-    result = run([])
-    assert result.returncode == 1, result
-    assert result.stdout == "", result
-    first, _, rest = result.stderr.partition("\n")
-    assert first == refusal, result
-    assert usage_text(rest), result
-    # refused before any device was looked for
-    for message in DEVICE_ACCESS:
-        assert message not in result.stderr.lower(), (message, result)
-
-    # The same nothing to do, but the command line did say something: that one
-    # line is the whole answer, with no usage text after it.
-    said_something = SAID_SOMETHING.get(TOOL, refusal)
-    if "%s" in said_something:
-        said_something = said_something % NO_SUCH_SERIAL
-    result = run(["-U", NO_SUCH_SERIAL])
-    assert result.returncode == 1, result
-    assert result.stdout == "", result
-    assert result.stderr == said_something + "\n", result
-    for message in DEVICE_ACCESS:
-        assert message not in result.stderr.lower(), (message, result)
-
-# ---- refusals pinned to the exact line and stream --------------------------
 
 # Per tool: command lines whose whole answer is one named line on standard
 # error. test_cli_arguments.py checks the wording of many more, but reads the
@@ -372,4 +152,7 @@ else:
     if CAPTURE_TO_STDOUT.get(TOOL):
         checked.append("a capture on standard output refusing a tty")
 
-print("%s: the rule holds for %s" % (TOOL, " and ".join(checked)))
+if checked:
+    print("%s: the rule holds for %s" % (TOOL, " and ".join(checked)))
+else:
+    print("%s: no named refusal and no capture on standard output" % TOOL)
