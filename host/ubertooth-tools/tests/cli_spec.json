@@ -404,6 +404,12 @@
     },
 
     "ubertooth-ducky": {
+    "_selector_valid_why": [
+      "A whole 32-digit serial is a valid selector as well as an index, so",
+      "it is listed here: the parser has to take the long form, glued or",
+      "spaced, and the matrix then checks that such a command line reaches",
+      "device lookup rather than being refused while it is read."
+    ],
       "man": "ubertooth-ducky.md",
       "report_marker": "Host tools version",
       "optstring": ":q::bA:a:hVsU:",
@@ -423,7 +429,9 @@
                "invalid": [["11:22:33:44:55", "error: Bluetooth address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)"]]},
         "-s": {"value": "none", "role": "undocumented",
                "doc": "an easter egg this fork keeps as it is; not in the man page or the usage text"},
-        "-U": {"value": "required", "role": "selector", "valid": ["0"]}
+        "-U": {"value": "required", "role": "selector", "valid": ["0",
+          "cc3300112233445566778899aabbccdd"
+        ]}
       }
     },
 

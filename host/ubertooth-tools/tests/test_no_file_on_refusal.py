@@ -91,8 +91,8 @@ def refused(arguments, directory):
     output = (result.stdout + result.stderr).lower()
     # -h ends the command with the tool's own status, 0 for every tool
     # converted to the output-stream rule. Either status passes here, because
-    # what this test is about is the file, not the status: test_output_streams
-    # pins -h to 0. The other cases are errors.
+    # what this test is about is the file, not the status: the command-line
+    # matrix pins -h to 0. The other cases are errors.
     expected = (0, 1) if "-h" in arguments else (1,)
     assert result.returncode in expected, (arguments, result)
     assert "no ubertooth" not in output, (arguments, result)

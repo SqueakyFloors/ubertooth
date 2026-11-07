@@ -118,12 +118,6 @@ add_test(
 # per-run deadline room to fire first and name the run that timed out.
 set_tests_properties(dfu-files PROPERTIES TIMEOUT 60)
 
-add_test(
-	NAME ducky-options
-	COMMAND ${Python3_EXECUTABLE}
-		${CMAKE_CURRENT_SOURCE_DIR}/test_ducky_options.py
-		$<TARGET_FILE:ubertooth-ducky>)
-
 # The shared option parsing, built once for the tests that need it, with the
 # same getopt the tools use (opt_parse.c reads getopt's optind).
 add_library(opt-parse-for-tests STATIC ../src/opt_parse.c)
@@ -246,17 +240,6 @@ foreach(tool ${UBERTOOTH_TOOLS})
 			${CMAKE_CURRENT_SOURCE_DIR}/test_no_file_on_refusal.py
 			$<TARGET_FILE:${tool}>)
 	set_tests_properties(no-file-on-refusal-${tool} PROPERTIES TIMEOUT 30)
-	# Which stream the usage text lands on, and the exit status, for -h and
-	# for a command line the tool will not take. One entry per built tool.
-	add_test(
-		NAME output-streams-${tool}
-		COMMAND ${Python3_EXECUTABLE}
-			${CMAKE_CURRENT_SOURCE_DIR}/test_output_streams.py
-			$<TARGET_FILE:${tool}>)
-	# About 0.2 s per tool idle, 0.3 s loaded. A minute leaves the test's
-	# own twenty-second per-run deadline room to fire first and name the
-	# run that timed out.
-	set_tests_properties(output-streams-${tool} PROPERTIES TIMEOUT 60)
 	# The whole command-line contract of the tool, generated from
 	# cli_spec.json: every option alone, every bad value, every pair, and
 	# the stream and status rules for each. One entry per built tool so a
