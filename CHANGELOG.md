@@ -571,70 +571,28 @@ Behavior the tools share.
 
 ### ubertooth-ducky
 
-#### Fixes
+- `ubertooth-ducky -U` selects a board by index or serial number.
+- **Fixed: refused requests reported as success.** `ubertooth-ducky -q` and
+  `-b` now name a request the board refused and exit 1 (before, exit 0).
 
-- `ubertooth-ducky -q` and `-b` name a request the board refused and exit 1,
-  instead of waiting their two seconds and exiting 0 on a request the board
-  refused.
-  [#328](https://github.com/SqueakyFloors/ubertooth/issues/328)
-- `ubertooth-ducky -U` now selects devices by index or serial number.
-  [#36](https://github.com/SqueakyFloors/ubertooth/issues/36)
+([#36](https://github.com/SqueakyFloors/ubertooth/issues/36), [#328](https://github.com/SqueakyFloors/ubertooth/issues/328))
 
 ### ubertooth-ego
 
-#### New features
+- **Script-visible change.** `ubertooth-ego` refuses options that do nothing
+  in the chosen mode: `-l` with `-i` or `-j`, and `-c` with `-f`, `-i`, or
+  `-j`. Malformed or out-of-range lengths are refused before a board is
+  opened.
+- **Fixed: settings carried over from an earlier run.** After an interrupted
+  run, `ubertooth-ego` could capture in the previous mode, on the previous
+  channel, or with the previous access code. Each run now starts in the mode
+  and settings it asks for, a short `-a` code is zero-filled, and a setting
+  the board refuses stops the run with exit 1.
+- **Fixed: damaged records and gaps.** Every record ended with two bytes of
+  its own timestamp, and `delta_t` could be short by whole clock periods
+  after a quiet spell.
 
-- **Script-visible change:** `ubertooth-ego -l` with interference (`-i`, `-j`)
-  is refused, naming the mode as it was spelled: only the modes that read a
-  packet read a capture length, so it used to set a firmware value the mode
-  never looks at and said nothing.
-  [#411](https://github.com/SqueakyFloors/ubertooth/issues/411)
-
-#### Fixes
-
-- `ubertooth-ego`'s mode clash lists `-j`, so a user who typed it is not given
-  a list without it: `error: -j cannot be combined with -i; choose one of -f,
-  -r, -i, or -j`.
-- `ubertooth-ego` no longer prints a `delta_t` short by whole 327.68 s periods
-  of the clock after a quiet spell. The gap now comes from the same capture
-  times the other tools use, which count every wrap, so the figure holds the
-  whole of the gap. The first packet of a capture reports no gap rather than
-  its own clock reading.
-  [#981](https://github.com/SqueakyFloors/ubertooth/issues/981)
-- `ubertooth-ego` captures in the mode its command line asks for, on a board
-  left in another E-GO mode by a run that was interrupted without stopping it:
-  `ubertooth-ego -r -c 2418` after a killed `-f` used to go on hopping across
-  the E-GO channel list, and its capture looked like a continuous receive that
-  found nothing. A second run of the same mode starts over too, so it receives
-  on the channel it was given rather than the one before it. `ubertooth-ego
-  -r` and `-i` after any other interrupted capture, such as a killed
-  `ubertooth-specan`, also used to start in follow mode.
-  [#757](https://github.com/SqueakyFloors/ubertooth/issues/757)
-- Every e-go record carried two bytes of its own timestamp at the end of its
-  data, because the receive buffer was two bytes shorter than the record it
-  goes out in. The buffer is now the record's whole data field, and the
-  receive loop stays inside it whatever capture length the board was given.
-  [#749](https://github.com/SqueakyFloors/ubertooth/issues/749)
-- `ubertooth-ego` captures with the access code the run asked for.
-  `-a <code>` used to stay on the board until it was reset or reflashed, so the
-  next run captured with the previous run's code while `-h` and the man page
-  called `630f9ffe` the default. A mode start now puts the documented default
-  back, and `-a` is stated for the run that asks for it.
-  [#397](https://github.com/SqueakyFloors/ubertooth/issues/397)
-- `ubertooth-ego` names a request the board refused while setting a capture up
-  (channel, access code, capture length) and exits 1, instead of capturing with
-  whatever settings the board was left on.
-  [#379](https://github.com/SqueakyFloors/ubertooth/issues/379)
-- `ubertooth-ego` refuses `-c` combined with `-f`, `-i` or `-j`, where it
-  silently had no effect: those modes hop across the E-GO's own channel list.
-  [#394](https://github.com/SqueakyFloors/ubertooth/issues/394)
-- `ubertooth-ego -a` with an access code shorter than four bytes sets the code
-  the user asked for, zero-filled, instead of padding it with leftovers of the
-  previous request.
-  [#402](https://github.com/SqueakyFloors/ubertooth/issues/402)
-- `ubertooth-ego` rejects malformed and out-of-range packet lengths before
-  opening the device.
-  [#39](https://github.com/SqueakyFloors/ubertooth/issues/39)
+([#411](https://github.com/SqueakyFloors/ubertooth/issues/411), [#394](https://github.com/SqueakyFloors/ubertooth/issues/394), [#39](https://github.com/SqueakyFloors/ubertooth/issues/39), [#757](https://github.com/SqueakyFloors/ubertooth/issues/757), [#397](https://github.com/SqueakyFloors/ubertooth/issues/397), [#402](https://github.com/SqueakyFloors/ubertooth/issues/402), [#379](https://github.com/SqueakyFloors/ubertooth/issues/379), [#749](https://github.com/SqueakyFloors/ubertooth/issues/749), [#981](https://github.com/SqueakyFloors/ubertooth/issues/981))
 
 ### Firmware
 
