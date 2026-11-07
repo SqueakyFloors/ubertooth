@@ -785,494 +785,61 @@ Behavior the tools share.
 
 Fixes with no visible change in normal use.
 
-- `ubertooth-follow` no longer borrows an earlier call's error number when it
-  reports a failed adapter or clock read.
-  [#44](https://github.com/SqueakyFloors/ubertooth/issues/44)
-- The pinned library no longer races when more than one thread decodes at the
-  same time.
-  [#783](https://github.com/SqueakyFloors/ubertooth/issues/783)
-- The paged board's `LMP_setup_complete` carries the transaction ID the
-  specification gives a transaction the peripheral started, where it carried
-  the one for the central's. Two Ubertooths are lenient about it; a standard
-  controller may not be.
-  [#1074](https://github.com/SqueakyFloors/ubertooth/issues/1074)
-- `l2ping` sends nothing on the signaling channel before the link setup has
-  finished or after this end has hung up, which is what the board in
-  `page_scan` already did.
-  [#1074](https://github.com/SqueakyFloors/ubertooth/issues/1074)
-- `ubertooth-btle -p` times a connection's returns to the channel it is sitting
-  on more closely. It stamps each return at the moment the packet began to
-  arrive rather than after the whole packet had been read and checked, which on
-  a connection carrying full-length packets is 2 ms later; and it treats a run
-  of packets less than one connection interval apart as the single connection
-  event it is, however long that event runs. A busy event of full-length
-  packets is longer than the shortest interval, so part way through it used to
-  be taken for the start of the next one.
-- Giving up a followed low-energy connection takes one path rather than two.
-  The host's request to stop following and the end of the connection itself
-  did the same three things in blocks of their own, and a request that arrived
-  in the same connection event as the end of the connection was left set
-  behind the follow it had asked to stop.
-- The range test's repeater lets its last reply finish on the air before it
-  switches the radio off, as the sender already did, so the reply burst is
-  sixteen whole packets at the top amplifier level and not fifteen.
-- An E-GO capture length set by one run no longer stays on the board for the
-  next one, which the access code already did not. The tool states a length on
-  every run, so this shows only to another program talking to the board.
-- A low-energy capture's dump holds the four records promiscuous mode works a
-  connection's parameters out from -- the access address, CRC init, hop
-  interval, and hop increment -- which the low-energy callback used to return
-  on before it reached the write. They are the only record of which connection
-  a promiscuous capture belongs to, so a replay of such a dump had the packets
-  and no way to say what they belonged to. No tool pairs a dump with the
-  low-energy callback today, so nothing a user runs changes.
-- `ubertooth-dfu` reads a board that left the bus between being listed and
-  being opened as a board that is not in the bootloader, which is what it is,
-  rather than ending the command with the USB code for it. A board still
-  re-enumerating is looked for again, as the matching search for a board
-  running its application already did.
-- The search for an access code in a bank of captured symbols tells the library
-  how many symbols the bank holds, so the library checks the search bound
-  rather than taking the caller's word for it.
-- The clock a Classic capture is following, the trim it sends the board to hold
-  that clock, and how long its clock search has run belong to the board being
-  read rather than to the process, and go back to where a capture starts when
-  one ends. One board behaves as it did; a capture reading several would have
-  measured each board's correction against another board's history.
-  libubertooth's ubertooth_follow_quiet_ms() and ubertooth_clock_search_ms()
-  take the handle to ask about as a result, and
-  ubertooth_bredr_follow_reset() is new beside them.
-  [#783](https://github.com/SqueakyFloors/ubertooth/issues/783)
-- The LED demo mode (`ubertooth-util -x`) arms its blink timer from a clean
-  start and disarms it on the way out, so a second run of it cannot toggle an
-  LED before its own first blink is due.
-  [#884](https://github.com/SqueakyFloors/ubertooth/issues/884)
-- A capture started against a board a killed run had left streaming no longer
-  opens with that run's packets: the tools that read the stream endpoint stop
-  the board and wait for it to go idle first, and say on standard error that
-  they did.
-  [#438](https://github.com/SqueakyFloors/ubertooth/issues/438)
-- A low-energy connection request that names the advertising access address as
-  the connection's own, which the specification does not allow, is refused
-  rather than followed. Following one left the board tuned to the advertising
-  channels instead of the connection's data channels.
-  [#933](https://github.com/SqueakyFloors/ubertooth/issues/933)
-- `btbr` clears the radio's pending interrupt by writing the pin's bit, rather
-  than reading a register that clears whichever bits are written to it and
-  writing the answer back.
-  [#1011](https://github.com/SqueakyFloors/ubertooth/issues/1011)
-- A `ubertooth-btbr` session refuses a peer's role switch instead of passing
-  it over in silence, answers a request to pair under the extended opcode it
-  really arrives with, and sends each answer under the request's own
-  transaction number so the peer can match it.
-  [#942](https://github.com/SqueakyFloors/ubertooth/issues/942)
-- The LED that marks a packet in a low-energy capture is timed by a counter of
-  its own rather than by the timer the radio's own deadlines live on, so the
-  capture loop no longer writes that timer to light an LED. The blink is the
-  same length as before.
-  [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
-- A followed connection keeps its event grid when a packet arrives at the very
-  end of a connection event, which the specification allows. Such a packet was
-  counted into the event that followed it: that armed a 300 microsecond timeout
-  over the next event's own start, and left the connection's event counter one
-  ahead of the peer's, so every later connection update and channel map change
-  was applied an event early.
-  [#884](https://github.com/SqueakyFloors/ubertooth/issues/884)
-- A channel map or connection parameter change is marked as waiting for its
-  instant only once all of it has been read, so the event that applies it
-  cannot pick up a half-read map or a mixture of two updates. A map applied
-  half-read left the receiver tuned where the peer was not for the rest of the
-  connection.
-  [#884](https://github.com/SqueakyFloors/ubertooth/issues/884)
-- A request that carries more data to the board than the buffer its handler
-  registered is refused, instead of having the rest of it written over whatever
-  follows that buffer. The length a request may declare is sixteen bits and the
-  largest of those buffers holds 258 bytes, so the reach was about 65 KiB. It
-  covers every kind of request the firmware answers, vendor, standard, class
-  and the bootloader's; no shipped tool sends such a request.
-  [#391](https://github.com/SqueakyFloors/ubertooth/issues/391)
-- A generic transmit puts the radio registers it used back, so a receive
-  entered afterwards runs the mode the host asked for rather than the one the
-  transmit left set, on the channel the host chose. No shipped tool asks for
-  the mode.
-  [#352](https://github.com/SqueakyFloors/ubertooth/issues/352)
-- The generic receive lets the radio write the first byte of a packet before it
-  starts reading the packet out, so byte 0 of a record is the byte that
-  arrived. The same wait fixed the range test's wrong byte 0.
-  [#352](https://github.com/SqueakyFloors/ubertooth/issues/352)
-- The range test's wait for that first byte is no longer cut short by a clock
-  period the drift correction has lengthened. The wait measured itself against
-  a period of 312.5 us, the usual one, so a reading taken just after a
-  lengthened period reset was read as up to 167 us of waiting that had not
-  happened, which left byte 0 of that reply read before the radio had written
-  it.
-  [#870](https://github.com/SqueakyFloors/ubertooth/issues/870)
-- Both of those waits now take the time that has passed from the direction the
-  clock counter moved, so neither can be cut short by a clock period of any
-  length. Measuring against a period of 312.5 us covered the two lengths the
-  drift correction produces, but a period the host had set to a length of its
-  own could still be read as a whole lead of waiting that had not happened.
-  The host has to have moved the period, and the wait has to fall inside it.
-  [#887](https://github.com/SqueakyFloors/ubertooth/issues/887)
-- A capture keeps a packet whose transfer brought all 64 bytes and came back
-  with the timed-out status rather than the completed one. It used to be
-  dropped, and the warning about a transfer cut short passes over a full one,
-  so a packet the host already held was lost with nothing said.
-  [#638](https://github.com/SqueakyFloors/ubertooth/issues/638)
-- Low-energy capture dewhitens a captured packet four bytes at a time. The
-  first 48 bytes used to come from a table of whitening words and the rest a
-  bit at a time, so a Data Length Extension payload cost about 1700 lookups
-  between two packets on the air; it is now one path costing about sixty word
-  operations, and the image is 2.1 KB smaller.
-  [#600](https://github.com/SqueakyFloors/ubertooth/issues/600)
-- A connection update the promiscuous mode follows has to carry the fields it
-  is read for. A shorter control packet claiming to be one had them read from
-  whatever the receive buffer held before it, and the connection followed from
-  there.
-- The connection-follow callback reads its payload length as the whole byte a
-  low-energy header holds, and keeps the read of the packet's CRC inside the
-  bytes it decoded. Nothing reaches the callback today; it is the half of
-  `ubertooth-btle -p` that follows a connection, waiting for the work that
-  would call it again.
-  [#597](https://github.com/SqueakyFloors/ubertooth/issues/597)
-- The thread that completes a capture's transfers treats a wait a signal cut
-  short as a wait to take again. It used to end the thread, which left the
-  capture with nobody to complete its transfers and no line to say why; the
-  same wait during a capture's teardown now finishes as well, instead of
-  leaving the transfer behind for the next capture on that handle to refuse.
-  [#584](https://github.com/SqueakyFloors/ubertooth/issues/584)
-- The board refuses a raw request to set a modulation no capture mode
-  configures, and a raw request for a frequency the radio cannot tune. The
-  frequency used to be pulled up to the lowest the radio can reach and reported
-  as a success, so the capture came back from somewhere nobody had asked for.
-  The band sweep and the out-of-band frequencies the radio can reach still
-  work, and no host tool ever sent either refused value.
-  [#818](https://github.com/SqueakyFloors/ubertooth/issues/818)
-- The clock drift the board accumulates stays within what it can correct. A run
-  of drift requests used to walk past what the 16-bit figure holds and come
-  back with the other sign, which would run the clock the opposite way to the
-  one that was asked for.
-  [#768](https://github.com/SqueakyFloors/ubertooth/issues/768)
-- A followed connection's events keep their place in the count the connection
-  keeps, whatever the connection asked for: an event is never given longer to
-  run than the interval between events, so no two intervals are counted as one.
-  The count is what every later parameter change is timed against, and one
-  short step in it timed all of them a little early.
-  [#774](https://github.com/SqueakyFloors/ubertooth/issues/774)
-- A followed connection whose parameters change keeps its timing from the
-  window the change named, rather than carrying on from where the old
-  parameters had it.
-  [#774](https://github.com/SqueakyFloors/ubertooth/issues/774)
-- The board's record of why it last reset itself says which firmware wrote it,
-  so a firmware that keeps more there than the one before it starts the counts
-  again instead of reading its own fields out of what it finds. Flashing this
-  one over an earlier one therefore reports no unrequested resets, and this
-  boot as the board's first.
-  [#764](https://github.com/SqueakyFloors/ubertooth/issues/764)
-- The `*` on a version string, which says the checkout had uncommitted
-  changes, is about the checkout the tools were built from. It used to be
-  about whichever tree you happened to be standing in when you ran `cmake`.
-  [#743](https://github.com/SqueakyFloors/ubertooth/issues/743)
-- `ubertooth-debug` prints the radio's modulation offset as the signed number
-  of steps it is, so a negative offset no longer reads as a large positive
-  frequency. The firmware leaves that field at zero, so a board running this
-  tree always read it right.
-  [#732](https://github.com/SqueakyFloors/ubertooth/issues/732)
-- The ToorCon 13 badge's range test listens long enough to hear the reply.
-  Its window was about 90 ms of the second the Ubertooth repeater holds the
-  reply for, so the badge gave up before the reply was sent and the test could
-  not pass at all. The window is sized from that delay now. Untested: nobody
-  here has a badge.
-  [#691](https://github.com/SqueakyFloors/ubertooth/issues/691)
-- The ToorCon 13 badge's range test puts its packets in the radio and reads
-  them back, so it can pass. It reached the radio's buffer a byte at a time,
-  which the radio does not take as data at all: it transmitted empty packets
-  and read zeros back, so the reply never matched what was sent and the test
-  could not pass however close the two boards were. Untested: nobody here has
-  a badge, and no build makes this image.
-  [#705](https://github.com/SqueakyFloors/ubertooth/issues/705)
-- A board selection that ran out of memory exited 1 with no line at all,
-  whether it was asked for by index or by serial.
-- `ubertooth-rx -l` and `ubertooth-follow` crashed instead of saying anything
-  when the piconet they follow could not be allocated. Both now report
-  `error: out of memory` and exit 1, as `ubertooth-afh` already did, and
-  `ubertooth-follow` allocates the piconet once the command line has been
-  accepted, so `-h` and `-V` still answer.
-  [#987](https://github.com/SqueakyFloors/ubertooth/issues/987)
-- The `ubertooth-btle` that `btle-extcap.py` runs for a Wireshark capture no
-  longer writes its text decode of every packet, some 560 kB for 8 seconds of
-  advertising, onto the script's own output: the capture goes to Wireshark's
-  pipe, and the decode is dropped. Wireshark discarded it anyway, and keeping
-  it off the error output leaves room there for the reason a failed capture
-  gives.
-  [#343](https://github.com/SqueakyFloors/ubertooth/issues/343)
-- A channel set on a board that is following a low-energy connection is kept
-  instead of being accepted and thrown away. The board went on reporting its
-  old channel and tuned the next mode to it, so a tool that set a channel on a
-  board left in that mode by a capture that did not stop cleanly then received
-  on whichever channel was there before, with nothing to say so. The connection
-  being followed is unaffected either way: that mode hops on the connection's
-  own channel map.
-  [#440](https://github.com/SqueakyFloors/ubertooth/issues/440)
-- A USB packet the board's controller would not take, or would not release
-  once read, is reported to the firmware as such instead of as a packet that
-  went through. The firmware could act on a received packet the hardware still
-  held and might hand over again, which on a control request means running the
-  request twice.
-  [#358](https://github.com/SqueakyFloors/ubertooth/issues/358)
-- `ubertooth-dfu -d <image> -r` tells three things apart after the reset: a
-  board that did not come back, a board that is back and will not open, and a
-  host USB bus that could not be read at all. The last two both read as a
-  board that would not open, which named a fault the board may not have had.
-  [#676](https://github.com/SqueakyFloors/ubertooth/issues/676)
-- A firmware without transmit refuses a request to interfere with an E-GO
-  connection without storing the mode it refused, so the board is left as it
-  was. No shipped tool can reach it: `ubertooth-ego -i` stops on the refusal.
-  [#397](https://github.com/SqueakyFloors/ubertooth/issues/397)
-- A packet captured by `ubertooth-btle -p` is timestamped a fixed moment after
-  the board synchronized on it, rather than somewhere in the middle of the
-  packet, so its time no longer drifts later the longer the packet is. Times
-  in a `-p` capture move earlier by up to about a third of a millisecond.
-  [#546](https://github.com/SqueakyFloors/ubertooth/issues/546)
-- A connection update is checked against the ranges the specification allows,
-  the way a connection request already was, and one outside them is ignored
-  instead of being taken on trust: the capture keeps following the connection
-  on the parameters it has. A window size of 255 used to put 319 ms into the
-  wait for the first event under the new parameters, and a supervision timeout
-  of hours was then all that ended the chase.
-  [#624](https://github.com/SqueakyFloors/ubertooth/issues/624)
-- A capture's ring buffer hands records between its two threads properly: a
-  record and the time it arrived are both complete before the capture can see
-  either, and a slot goes back to the board only once the capture has copied
-  the record out of it. A capture far enough behind to fill the ring could
-  read one record while the next arrival wrote over it.
-  [#576](https://github.com/SqueakyFloors/ubertooth/issues/576)
-- Editing a firmware linker script relinks the image. Nothing told `make` that
-  the link depends on the script, so a change to a memory map or a section
-  layout used to leave the previous image in place until `make clean`.
-  [#568](https://github.com/SqueakyFloors/ubertooth/issues/568)
-- A `ubertooth-btle -t` capture no longer matches an advertising packet too
-  short to hold an address against the target. Such a packet used to be kept
-  or dropped on three payload bytes and three bytes of CRC read as if they
-  were an address.
-  [#593](https://github.com/SqueakyFloors/ubertooth/issues/593)
-- The BR/EDR image's per-slot waits on the radio's state machine give up at a
-  point in the slot rather than after a fixed number of tries. A radio that
-  was late used to hold the timer interrupt for about nine milliseconds, and
-  the piconet clock lost every slot it spent there, around 28 of them; now it
-  loses at most the slot it is in.
-  [#496](https://github.com/SqueakyFloors/ubertooth/issues/496)
-- The ToorCon badge's transfers to the radio give up rather than waiting
-  forever for the part's UART. Every read and write the badge makes goes
-  through that wait, so a UART left switched off froze the badge underneath all
-  of its bounded waits on the radio.
-  [#681](https://github.com/SqueakyFloors/ubertooth/issues/681)
-- The low-energy engine's three drains of its symbol buffer are bounded. All
-  three run in one of its interrupt handlers, and the loop that services USB
-  runs beneath both of those, so a drain that never saw the buffer empty
-  stopped the board answering anything.
-  [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
-- The low-energy engine's wait for the synthesizer to lock no longer holds most
-  of the processor while the synthesizer is silent: it backs off once the lock
-  is overdue, instead of looking again every three microseconds for as long as
-  it takes.
-  [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
-- A control reply the USB controller would not take is offered again on the
-  next service pass, instead of being dropped with nothing left to carry that
-  transfer on.
-  [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
-- `ubertooth-follow` closes the local Bluetooth adapter it opens, on every path
-  out, and once the clock reads are done rather than at the end of the run. It
-  used to hold a handle on an adapter it had finished with for the whole
-  capture, and never close it at all.
-  [#506](https://github.com/SqueakyFloors/ubertooth/issues/506)
-- `ubertooth-follow` gives the board back when it refuses the firmware version
-  or the decoder settings, instead of leaving it claimed until the process
-  exits.
-  [#577](https://github.com/SqueakyFloors/ubertooth/issues/577)
-  [#586](https://github.com/SqueakyFloors/ubertooth/issues/586)
-- A capture whose collecting thread could not be started says so and ends,
-  rather than waiting forever for packets nobody was there to deliver. The
-  failure is reported as a positive number and was tested for a negative one,
-  in every tool that starts a capture, in libubertooth, which is every
-  `ubertooth-dump` and `ubertooth-afh` capture, and in the Kismet plugins,
-  which did not check it. A teardown that follows such a failure no
-  longer waits on a thread that was never created.
-  [#431](https://github.com/SqueakyFloors/ubertooth/issues/431)
-  [#564](https://github.com/SqueakyFloors/ubertooth/issues/564)
-- An `ubertooth-btbr` command the interpreter will not give a thread to says
-  so on standard error and leaves the prompt up with the board free. The
-  board was left claimed by a command nothing held, so every later command
-  was refused as still running and the tool ended in a traceback.
-  [#567](https://github.com/SqueakyFloors/ubertooth/issues/567)
-- Every packet the firmware writes into the radio's 32-byte packet buffer used
-  to carry one stray byte on the end, from eight clock pulses sent after the
-  data. A receiver ignores the tail, so the modes that transmit with the
-  radio's checksum turned off still got their data across; the range test,
-  which has it on, did not get a result. The BLE transmit path fills the
-  buffer in chunks, and there the stray byte also cost it one byte of room per
-  chunk.
-  [#483](https://github.com/SqueakyFloors/ubertooth/issues/483)
-- A revision string too long for the one-byte length the firmware reports it
-  with is cut to 255 characters, rather than counted modulo 256. The revisions
-  this tree builds are twelve characters, so nothing reached that.
-  [#464](https://github.com/SqueakyFloors/ubertooth/issues/464)
-- Ctrl-C, SIGTERM, SIGHUP, SIGQUIT and the `-t` alarm now stop a capture
-  through a flag a signal handler is allowed to set, in the tools that use
-  libubertooth's handlers. The handler used to reach into the capture handle,
-  which a handler may not do and which left no guarantee that the receive loop
-  would see the stop.
-  [#499](https://github.com/SqueakyFloors/ubertooth/issues/499)
-- `ubertooth-btle`, `ubertooth-ego` and `ubertooth-ducky` stop through that
-  same flag, instead of each keeping one of its own that a signal handler was
-  not allowed to write. A replay of a saved capture can be stopped as well,
-  which no tool asks for today.
-  [#515](https://github.com/SqueakyFloors/ubertooth/issues/515)
-- A BLE packet whose length field claims more than the board captured reads
-  zeros past the capture, instead of whatever followed it in memory; the
-  Kismet plugins' access code search stays inside its bank too.
-  [#416](https://github.com/SqueakyFloors/ubertooth/issues/416)
-- The firmware refuses a generic transmit request whose payload does not fit
-  the packet, and no longer drops the last byte of one that does. No shipped
-  tool sends it.
-  [#384](https://github.com/SqueakyFloors/ubertooth/issues/384)
-- The firmware refuses a multi-register write asking for more registers than
-  the request can carry. Such a count used to be walked in a counter too
-  narrow to reach it, so the loop never ended and wrote radio registers until
-  the board was power-cycled. No shipped tool sends it.
-  [#409](https://github.com/SqueakyFloors/ubertooth/issues/409)
-- The reply to a read of every radio register claims all the bytes it carries,
-  so the last register no longer goes missing from it. No shipped tool sends
-  that request.
-  [#450](https://github.com/SqueakyFloors/ubertooth/issues/450)
-- A device status event the USB controller would not report is retried once
-  per event, so a transient failure cannot lose a bus reset and leave the board
-  answering on an address the host has taken away.
-  [#359](https://github.com/SqueakyFloors/ubertooth/issues/359)
-- The firmware stalls a vendor request that carries fewer bytes than it reads,
-  and a read-direction request that expects data, instead of acting on what
-  the previous request left in the shared buffer.
-  [#393](https://github.com/SqueakyFloors/ubertooth/issues/393)
-- The firmware's waits on the USB controller and on the radio are bounded, so
-  fewer ways are left for a board to stop answering until it is re-plugged.
-  [#239](https://github.com/SqueakyFloors/ubertooth/issues/239)
-- A BLE sniffing mode counts as running only once its first receive buffer and
-  the radio are ready, and starts with no timer match left pending from the
-  previous run.
-  [#248](https://github.com/SqueakyFloors/ubertooth/issues/248)
-- The firmware's generic receive mode picks between its packet-mode and
-  symbol-stream receives by the radio's packet-mode bit, so the symbol stream
-  is reachable at all.
-  [#252](https://github.com/SqueakyFloors/ubertooth/issues/252)
-- The bootloader refuses a read-back past the end of the flash the attached
-  part has, instead of faulting and answering nothing until the board is
-  power-cycled, and refuses a block of an image there rather than asking the
-  part to program memory it has not got. It cannot undo the blocks already
-  written, so an oversize image still leaves an application missing its tail;
-  what it no longer does is write past the end of flash. A part its table
-  cannot identify is bounded by the sectors it reports having, or by the old
-  fixed bound if it reports nothing at all, and a block the part failed to
-  program is reported rather than answered as written. It takes effect once
-  the board carries this release's bootloader.
-  [#256](https://github.com/SqueakyFloors/ubertooth/issues/256)
-  [#423](https://github.com/SqueakyFloors/ubertooth/issues/423)
-  [#424](https://github.com/SqueakyFloors/ubertooth/issues/424)
-- `ubertooth-dfu` bounds every wait on the bootloader and retries a read-back
-  that failed part-way, instead of waiting forever or reporting a truncated
-  error code.
-  [#208](https://github.com/SqueakyFloors/ubertooth/issues/208)
-  [#216](https://github.com/SqueakyFloors/ubertooth/issues/216)
-- `ubertooth-dfu` enters and recovers from DFU with bounded, device-specific
-  steps, retries an interrupted transfer, and checks that the board comes back
-  with the firmware revision it expects.
-  [#29](https://github.com/SqueakyFloors/ubertooth/issues/29)
-  [#31](https://github.com/SqueakyFloors/ubertooth/issues/31)
-  [#35](https://github.com/SqueakyFloors/ubertooth/issues/35)
-- Follow mode's asynchronous control commands give the USB layer a buffer that
-  outlives the submit, and release the transfer when a submit fails.
-  [#245](https://github.com/SqueakyFloors/ubertooth/issues/245)
-- A tool that cannot allocate its capture ring buffer says so and exits
-  instead of crashing.
-  [#247](https://github.com/SqueakyFloors/ubertooth/issues/247)
-- A capture gives its receive transfer back when it ends, and `ubertooth-rx`,
-  `ubertooth-scan` and `ubertooth-follow` give the board back when they cannot
-  start one.
-  [#307](https://github.com/SqueakyFloors/ubertooth/issues/307)
-  [#370](https://github.com/SqueakyFloors/ubertooth/issues/370)
-- Every tool gives back everything it allocates before it exits, and the ones
-  that capture no longer take a 72 MB buffer before they have read the command
-  line. Releasing a board twice is harmless now, so a tool no longer has to
-  work out whether the library has already done it.
-  [#366](https://github.com/SqueakyFloors/ubertooth/issues/366)
-  [#381](https://github.com/SqueakyFloors/ubertooth/issues/381)
-  [#387](https://github.com/SqueakyFloors/ubertooth/issues/387)
-  [#388](https://github.com/SqueakyFloors/ubertooth/issues/388)
-  [#399](https://github.com/SqueakyFloors/ubertooth/issues/399)
-  [#407](https://github.com/SqueakyFloors/ubertooth/issues/407)
-- The receive transfer the poll thread and the receive loop share is read and
-  written under a lock.
-  [#385](https://github.com/SqueakyFloors/ubertooth/issues/385)
-- `ubertooth-scan` no longer leaks connection information after failed probes.
-  [#3](https://github.com/SqueakyFloors/ubertooth/issues/3)
-  [upstream #542](https://github.com/greatscottgadgets/ubertooth/issues/542)
-- Host-library failures reach the caller and release the device, and a short
-  read of a firmware image or a ducky payload is refused.
-  [#2](https://github.com/SqueakyFloors/ubertooth/issues/2)
-- AFH hopping no longer divides by zero in either baseband hop implementation.
-  Credit: [@Kielukel](https://github.com/Kielukel) and Piotr Wasylów.
-  https://github.com/Kielukel/ubertooth
-- A record the board sends no longer ends in bytes of whatever was on its
-  stack: the generic radio receive built its record in a buffer shorter than
-  the fixed 50 bytes that are sent, and the spectrum analyzer left its last
-  two bytes unwritten.
-  [#661](https://github.com/SqueakyFloors/ubertooth/issues/661)
-- A board running `btbr` that hits a processor fault blinks a code that can be
-  read: the pause between blinks did not pause, two of the four faults shared
-  a count, and no code finished before the board reset itself. See the LEDs
-  doc for what each one means.
-  [#670](https://github.com/SqueakyFloors/ubertooth/issues/670)
-- Corrected firmware signal-strength channel bounds. Credit: Gabriele
-  Gristina ([@matrix](https://github.com/matrix)).
-  [upstream #481](https://github.com/greatscottgadgets/ubertooth/pull/481)
-- The radio's data FIFO is written and read with interrupts masked, as its
-  registers already were. A control request arriving from the host while the
-  board was writing a packet into the radio could take over the bus part-way
-  through and corrupt both transfers.
-  [#429](https://github.com/SqueakyFloors/ubertooth/issues/429)
-- A generic transmit packet longer than the radio's 32-byte FIFO goes in a
-  piece at a time, waiting for the radio to send each one. The whole packet
-  used to be written at once, so a packet of 33 to 50 bytes was pushed past
-  the end of the FIFO. How the radio frames a packet that long is a separate
-  question, still open.
-  [#395](https://github.com/SqueakyFloors/ubertooth/issues/395)
-- Sixteen buffers, bounds, timeouts and byte-order conversions that no shipped
-  tool can reach now hold on their own, so a later change cannot make one of
-  them bite. No shipped tool behaves differently; what moved
-  is what a board does with values no tool sends.
-  [#656](https://github.com/SqueakyFloors/ubertooth/issues/656)
-- Every field of the low-energy capture state is accounted for where a mode
-  start clears it. One of them was cleared twice over, which read as a line
-  meant for another field; none was in fact left behind, and a test now fails
-  if a field is added to the state and left out of the clear.
-  [#820](https://github.com/SqueakyFloors/ubertooth/issues/820)
-- A low-energy packet the board finished receiving as a capture transfer
-  faulted reaches the host with the fault marked on it, as the board's other
-  capture loops have always marked their own. The packet is kept either way,
-  and no shipped tool reads the mark yet, so nothing in a capture looks
-  different today.
-  [#849](https://github.com/SqueakyFloors/ubertooth/issues/849)
-- A promiscuous capture starts following the connection it has worked out
-  without a stray retune. The board set the follow up in two steps, and a
-  clock tick landing between them could ask for a hop before there was a
-  connection to time it, which cost the capture its place and left it waiting
-  for the search to run again.
-  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
-- A bootloader update whose read-back the part refuses erases the sector
-  holding the vector table again, so the board comes up in the part's serial
-  programmer, which a serial adapter recovers, instead of starting a
-  bootloader the part declined to confirm. A part that refuses that erase as
-  well is left as it was.
-  [#1127](https://github.com/SqueakyFloors/ubertooth/issues/1127)
+- **Firmware refuses what it cannot do safely.** Every wait on the radio, the
+  USB controller, and the low-energy symbol buffer is bounded, and the board
+  refuses a request that is too long, too short, or out of range (oversized
+  data, register counts or transmit payloads, unsupported modulations or
+  frequencies) instead of writing past a buffer or acting on stale data. A
+  USB packet the controller would not take or release is retried or reported.
+  No shipped tool sends those requests.
+- **Firmware races and leftovers.** The radio's FIFO and the low-energy
+  engine's state change with interrupts held off, records no longer carry
+  stray stack bytes, and the radio's packet buffer no longer gets a stray
+  byte. Generic transmit sends long packets in pieces and restores the
+  registers it used, generic receive reads byte 0 correctly and reaches its
+  symbol stream, clock drift stays in range, `btbr` slot waits end within the
+  slot, its fault blink codes are readable, and the reset record knows which
+  firmware wrote it.
+- **BLE follow and promiscuous details.** A followed connection keeps its
+  event count and timing through late packets and parameter changes, applies
+  an update only once it is fully read and within the specification's ranges,
+  and refuses a request naming the advertising address. `ubertooth-btle -p`
+  times returns and packets more precisely, starts its follow without a stray
+  retune, and saves its connection parameters in a dump; `-t` no longer
+  matches packets too short to hold an address. Dewhitening is faster and the
+  image 2.1 KB smaller.
+- **Host library and tools.** Captures hand records and transfers between
+  threads safely, stop on signals through a flag a handler may set, and
+  survive a thread that cannot start or a wait a signal cut short. Every tool
+  frees what it allocates, reports `error: out of memory` instead of
+  crashing, and gives back boards and adapters on every path. A board a
+  killed run left streaming is stopped first, several boards keep separate
+  clock state, and libbtbb no longer races across threads. `ubertooth-dfu`
+  bounds its bootloader waits and tells post-reset outcomes apart, a
+  version's `*` follows the source checkout, and editing a linker script
+  relinks.
+- **Classic link details.** `ubertooth-btbr` uses the specification's
+  transaction IDs, refuses a role switch, answers pairing under the right
+  opcode, sends nothing before link setup, and keeps the board free when a
+  command cannot get a thread. `ubertooth-debug` prints the modulation offset
+  as a signed number.
+- **Other boards and modes.** The ToorCon 13 badge's range test can pass and
+  its radio transfers are bounded (untested: no badge here). The range test's
+  repeater sends a full reply burst, the E-GO capture length and refusals no
+  longer linger, the LED demo arms its timer cleanly, `btle-extcap.py` no
+  longer floods its output with a text decode, and `ubertooth-scan` no longer
+  leaks after failed probes. AFH hopping no longer divides by zero. Credit:
+  [@Kielukel](https://github.com/Kielukel) and Piotr Wasylów
+  (https://github.com/Kielukel/ubertooth). Firmware signal-strength channel
+  bounds are corrected. Credit: Gabriele Gristina
+  ([@matrix](https://github.com/matrix))
+  ([upstream #481](https://github.com/greatscottgadgets/ubertooth/pull/481)).
+- **Bootloader update safety.** A bootloader update whose read-back the part
+  refuses leaves the board in its serial programmer, where a serial adapter
+  recovers it, and the bootloader keeps downloads and read-backs within the
+  flash the part has.
+
+([#44](https://github.com/SqueakyFloors/ubertooth/issues/44), [#783](https://github.com/SqueakyFloors/ubertooth/issues/783), [#1074](https://github.com/SqueakyFloors/ubertooth/issues/1074), [#884](https://github.com/SqueakyFloors/ubertooth/issues/884), [#438](https://github.com/SqueakyFloors/ubertooth/issues/438), [#933](https://github.com/SqueakyFloors/ubertooth/issues/933), [#1011](https://github.com/SqueakyFloors/ubertooth/issues/1011), [#942](https://github.com/SqueakyFloors/ubertooth/issues/942), [#505](https://github.com/SqueakyFloors/ubertooth/issues/505), [#391](https://github.com/SqueakyFloors/ubertooth/issues/391), [#352](https://github.com/SqueakyFloors/ubertooth/issues/352), [#870](https://github.com/SqueakyFloors/ubertooth/issues/870), [#887](https://github.com/SqueakyFloors/ubertooth/issues/887), [#638](https://github.com/SqueakyFloors/ubertooth/issues/638), [#600](https://github.com/SqueakyFloors/ubertooth/issues/600), [#597](https://github.com/SqueakyFloors/ubertooth/issues/597), [#584](https://github.com/SqueakyFloors/ubertooth/issues/584), [#818](https://github.com/SqueakyFloors/ubertooth/issues/818), [#768](https://github.com/SqueakyFloors/ubertooth/issues/768), [#774](https://github.com/SqueakyFloors/ubertooth/issues/774), [#764](https://github.com/SqueakyFloors/ubertooth/issues/764), [#743](https://github.com/SqueakyFloors/ubertooth/issues/743), [#732](https://github.com/SqueakyFloors/ubertooth/issues/732), [#691](https://github.com/SqueakyFloors/ubertooth/issues/691), [#705](https://github.com/SqueakyFloors/ubertooth/issues/705), [#987](https://github.com/SqueakyFloors/ubertooth/issues/987), [#343](https://github.com/SqueakyFloors/ubertooth/issues/343), [#440](https://github.com/SqueakyFloors/ubertooth/issues/440), [#358](https://github.com/SqueakyFloors/ubertooth/issues/358), [#676](https://github.com/SqueakyFloors/ubertooth/issues/676), [#397](https://github.com/SqueakyFloors/ubertooth/issues/397), [#546](https://github.com/SqueakyFloors/ubertooth/issues/546), [#624](https://github.com/SqueakyFloors/ubertooth/issues/624), [#576](https://github.com/SqueakyFloors/ubertooth/issues/576), [#568](https://github.com/SqueakyFloors/ubertooth/issues/568), [#593](https://github.com/SqueakyFloors/ubertooth/issues/593), [#496](https://github.com/SqueakyFloors/ubertooth/issues/496), [#681](https://github.com/SqueakyFloors/ubertooth/issues/681), [#506](https://github.com/SqueakyFloors/ubertooth/issues/506), [#577](https://github.com/SqueakyFloors/ubertooth/issues/577), [#586](https://github.com/SqueakyFloors/ubertooth/issues/586), [#431](https://github.com/SqueakyFloors/ubertooth/issues/431), [#564](https://github.com/SqueakyFloors/ubertooth/issues/564), [#567](https://github.com/SqueakyFloors/ubertooth/issues/567), [#483](https://github.com/SqueakyFloors/ubertooth/issues/483), [#464](https://github.com/SqueakyFloors/ubertooth/issues/464), [#499](https://github.com/SqueakyFloors/ubertooth/issues/499), [#515](https://github.com/SqueakyFloors/ubertooth/issues/515), [#416](https://github.com/SqueakyFloors/ubertooth/issues/416), [#384](https://github.com/SqueakyFloors/ubertooth/issues/384), [#409](https://github.com/SqueakyFloors/ubertooth/issues/409), [#450](https://github.com/SqueakyFloors/ubertooth/issues/450), [#359](https://github.com/SqueakyFloors/ubertooth/issues/359), [#393](https://github.com/SqueakyFloors/ubertooth/issues/393), [#239](https://github.com/SqueakyFloors/ubertooth/issues/239), [#248](https://github.com/SqueakyFloors/ubertooth/issues/248), [#252](https://github.com/SqueakyFloors/ubertooth/issues/252), [#256](https://github.com/SqueakyFloors/ubertooth/issues/256), [#423](https://github.com/SqueakyFloors/ubertooth/issues/423), [#424](https://github.com/SqueakyFloors/ubertooth/issues/424), [#208](https://github.com/SqueakyFloors/ubertooth/issues/208), [#216](https://github.com/SqueakyFloors/ubertooth/issues/216), [#29](https://github.com/SqueakyFloors/ubertooth/issues/29), [#31](https://github.com/SqueakyFloors/ubertooth/issues/31), [#35](https://github.com/SqueakyFloors/ubertooth/issues/35), [#245](https://github.com/SqueakyFloors/ubertooth/issues/245), [#247](https://github.com/SqueakyFloors/ubertooth/issues/247), [#307](https://github.com/SqueakyFloors/ubertooth/issues/307), [#370](https://github.com/SqueakyFloors/ubertooth/issues/370), [#366](https://github.com/SqueakyFloors/ubertooth/issues/366), [#381](https://github.com/SqueakyFloors/ubertooth/issues/381), [#387](https://github.com/SqueakyFloors/ubertooth/issues/387), [#388](https://github.com/SqueakyFloors/ubertooth/issues/388), [#399](https://github.com/SqueakyFloors/ubertooth/issues/399), [#407](https://github.com/SqueakyFloors/ubertooth/issues/407), [#385](https://github.com/SqueakyFloors/ubertooth/issues/385), [#3](https://github.com/SqueakyFloors/ubertooth/issues/3), [#2](https://github.com/SqueakyFloors/ubertooth/issues/2), [#661](https://github.com/SqueakyFloors/ubertooth/issues/661), [#670](https://github.com/SqueakyFloors/ubertooth/issues/670), [#429](https://github.com/SqueakyFloors/ubertooth/issues/429), [#395](https://github.com/SqueakyFloors/ubertooth/issues/395), [#656](https://github.com/SqueakyFloors/ubertooth/issues/656), [#820](https://github.com/SqueakyFloors/ubertooth/issues/820), [#849](https://github.com/SqueakyFloors/ubertooth/issues/849), [#745](https://github.com/SqueakyFloors/ubertooth/issues/745), [#1127](https://github.com/SqueakyFloors/ubertooth/issues/1127), [upstream #542](https://github.com/greatscottgadgets/ubertooth/issues/542))
 
 _community fork, Fri, 23 Oct 2026 01:38:18 -0700_
 
