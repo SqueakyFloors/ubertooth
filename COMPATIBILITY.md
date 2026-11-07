@@ -24,8 +24,7 @@ Legend:
 |---|---|---|---|---|
 | **Ubuntu** | 20.04 LTS | 20.04, 22.04, 24.04 (CI, host+fw); 24.04.4 x86_64 on hardware (host tools) | ≤ 18.04 (use 2020-12-R1) | ✅ 20.04 verified in CI (container) |
 | **Fedora** | none declared: whatever `fedora:latest` is ([note below](#fedora-is-the-unpinned-canary)) | `fedora:latest` (CI): the host tools and their tests, and all of `install.sh` | older than `latest`: untested | ✅ verified in CI only; no Fedora machine has run it, and `install.sh --with-firmware` there is unverified |
-| **macOS** | 15 (Sequoia) | 15, 26 / arm64 (CI, host+fw); 26.7.1 arm64 on hardware (host tools) | ≤ 13 | ✅ 15 verified in CI (oldest tested) |
-| **macOS 14 (Sonoma)** | below the minimum | — | — | 🎯 expected to build; untested ([note below](#macos-14-sonoma-expected-to-build-no-longer-tested)) |
+| **macOS** | 15 (Sequoia) | 15, 26 / arm64 (CI, host+fw); 26.7.1 arm64 on hardware (host tools) | ≤ 13 (14: [note below](#macos-14-sonoma-should-build-but-is-no-longer-tested)) | ✅ 15 verified in CI (oldest tested) |
 | **Windows** | — | — | all | ❌ Unsupported (libusb + udev; use Linux/VM) |
 | **CMake** | 3.5 | 3.5 … 3.27 (enforced range); 3.28.3 (Ubuntu 24.04) and 4.4.4 (macOS 26) build the host tools | < 3.5 (CMake 4 removed it) | ✅ floor enforced in CMakeLists |
 | **GNU make (firmware)** | 3.81 | 3.81 (macOS), 4.3 (Linux) | — | ✅ 3.81 verified; build avoids make ≥ 4.0 features |
@@ -79,11 +78,11 @@ present in the Fedora repositories, but nothing has built firmware with them.
 libusb on Windows and the absence of udev rules make this impractical. Run the
 host tools under Linux (native or VM). Documented as a hard non-goal.
 
-### macOS 14 (Sonoma): expected to build, no longer tested
-The supported minimum is macOS 15 because GitHub retired the `macos-14` runner
-image, leaving 15 the oldest version CI builds. Nothing in the build checks the
-macOS version, and macOS 14 is expected to build; it is no longer tested, so it
-is not advertised as supported.
+### macOS 14 (Sonoma): should build, but is no longer tested
+GitHub retired the `macos-14` runner image, so 15 is the oldest macOS version
+CI builds and the minimum this fork states. Nothing in the build checks the
+macOS version, and nothing in the tree has moved that would stop 14 building,
+but it is no longer tested and so is no longer advertised as supported.
 
 ### macOS: arm64 verified, Intel (x86_64) not CI-tested
 CI covers Apple-Silicon (arm64) macOS 15 and 26. Intel macOS is not tested in CI:
