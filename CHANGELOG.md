@@ -446,53 +446,30 @@ Behavior the tools share.
 
 ### ubertooth-dump
 
-#### New features
+- **Script-visible change.** `ubertooth-dump` refuses to write its symbol
+  stream to a terminal, with or without `-d -`, and the refusal names what it
+  would write (binary data, or the `-b` bitstream).
+- **Fixed: dumps in the wrong modulation.** When the board refused the
+  modulation `ubertooth-dump -c` or `-l` asked for, the dump ran anyway in
+  whatever modulation the board was left in and exited 0. It now stops with an
+  error and exit 1.
 
-- **Script-visible change:** `ubertooth-dump` refuses a terminal on standard
-  output, with or without `-d -`, instead of filling it with the binary symbol
-  stream: `error: stdout is a tty, refusing to write binary dump data to it`.
-  [#481](https://github.com/SqueakyFloors/ubertooth/issues/481)
-
-#### Fixes
-
-- `ubertooth-dump -b` refuses a terminal for what it really writes: `error:
-  stdout is a tty, refusing to write the bitstream dump to it`. That stream
-  is a `0` or a `1` per symbol, a line per captured block, and the refusal
-  it shares with the binary captures used to call it binary.
-- `ubertooth-dump` ends the run when the board will not take the modulation
-  `-c` or `-l` asked for: `error: modulation set failed` and exit 1, with no
-  capture started. The request's result used to be dropped, so a board left in
-  another modulation was dumped as it stood -- `-l` on a board still set to
-  Classic gave Classic symbols and exit 0, with nothing in the output to say
-  which modulation produced it.
-  [#945](https://github.com/SqueakyFloors/ubertooth/issues/945)
+([#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#945](https://github.com/SqueakyFloors/ubertooth/issues/945))
 
 ### ubertooth-debug
 
-#### Fixes
+- **Fixed: wrong register values.** `ubertooth-debug` read fourteen CC2400
+  fields with too narrow a mask and two from a neighbor's bits; every field
+  now shows its whole value, and register `0x15` answers to its own name,
+  `%MDMTST1`.
+- **Fixed: unclear failures.** `ubertooth-debug` names a board running the
+  `btbr` image instead of failing on the first read, names each register read
+  that fails, and exits 0 only when every read succeeds (before, it exited
+  with the last register's value). `ubertooth-debug -r` states the range it
+  accepts and quotes the item it refused, and a `%name` works anywhere in a
+  list or range.
 
-- `ubertooth-debug` checks the firmware image too, so a board carrying
-  `btbr` is refused by name before a register is read, with the same
-  `note:` line that flashes `bluetooth_rxtx`. That image answers no register
-  read, so the command used to fail on the read itself and report a refused
-  request instead of the firmware. The firmware version is still not checked:
-  reading CC2400 registers is debugging work on whatever revision a board
-  carries.
-  [#808](https://github.com/SqueakyFloors/ubertooth/issues/808)
-- `ubertooth-debug` prints each CC2400 field's whole value. Fourteen fields
-  were read with a mask narrower than the field the dump draws beside them, so
-  a field holding 64 read as 0, and two more took their value from a
-  neighbour's bits: `FSMTC`'s `TC_TXEND2PAOFF` drew the field above it, and
-  `FSTST3`'s `PD_DELAY` reported `CHP_DISABLE`. Register `0x15` also answers to
-  `%MDMTST1` now; it carried `0x14`'s name, so no name of its own reached it.
-  [#671](https://github.com/SqueakyFloors/ubertooth/issues/671)
-- `ubertooth-debug -r` states the register range it accepts and quotes the
-  item it refused, `error: register address must be 0x00-0xff (got 300 in
-  0x02,300)`. A `%name` works anywhere in a list or range, not only last.
-  [#235](https://github.com/SqueakyFloors/ubertooth/issues/235)
-- `ubertooth-debug` exits 0 only when every register read succeeds (it used to
-  exit with the last register's value) and names each register that fails.
-  [#164](https://github.com/SqueakyFloors/ubertooth/issues/164)
+([#671](https://github.com/SqueakyFloors/ubertooth/issues/671), [#808](https://github.com/SqueakyFloors/ubertooth/issues/808), [#164](https://github.com/SqueakyFloors/ubertooth/issues/164), [#235](https://github.com/SqueakyFloors/ubertooth/issues/235))
 
 ### ubertooth-util
 
