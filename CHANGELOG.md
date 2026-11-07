@@ -83,7 +83,7 @@ Contents:
 
       $ ubertooth-util -V
       Host tools version: 2026-11-R1+22 (libbtbb 2026-11-R1+22)
-      Firmware version: bluetooth_rxtx 2026-11-R1+22 (API:1.58)
+      Firmware version: bluetooth_rxtx 2026-11-R1+22 (API:<version>)
 
 ([#21](https://github.com/SqueakyFloors/ubertooth/issues/21), [#275](https://github.com/SqueakyFloors/ubertooth/issues/275), [#323](https://github.com/SqueakyFloors/ubertooth/issues/323), [#337](https://github.com/SqueakyFloors/ubertooth/issues/337), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#542](https://github.com/SqueakyFloors/ubertooth/issues/542), [#610](https://github.com/SqueakyFloors/ubertooth/issues/610), [#636](https://github.com/SqueakyFloors/ubertooth/issues/636), [#745](https://github.com/SqueakyFloors/ubertooth/issues/745), [#812](https://github.com/SqueakyFloors/ubertooth/issues/812), [#911](https://github.com/SqueakyFloors/ubertooth/issues/911), [#920](https://github.com/SqueakyFloors/ubertooth/issues/920), [#930](https://github.com/SqueakyFloors/ubertooth/issues/930), [#1230](https://github.com/SqueakyFloors/ubertooth/issues/1230))
 
