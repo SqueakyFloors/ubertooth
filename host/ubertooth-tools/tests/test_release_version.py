@@ -19,6 +19,14 @@ out of RELEASE-VERSION instead, which git archive fills in as it makes the
 archive. The cases for that write the file themselves, and one of them makes
 a real archive of a tag and builds the answer from it.
 
+These sources may be a source archive themselves, which is how two of the
+continuous integration jobs are built: their container starts without git, so
+the checkout arrives as a tarball. RELEASE-VERSION then holds the release the
+archive was made from rather than the placeholder a checkout has, and the
+cases that need a placeholder write one from the patterns the build asks git
+to match. What such a checkout can be asked, and a git checkout cannot, is
+the release it reports for itself.
+
 firmware/version.mk works the same string out the same way for the firmware
 images, and the two are checked against each other at the end: a board and
 the tools that talk to it have to report one version between them.
@@ -94,6 +102,66 @@ def put_version_file(tree, contents):
     """The file a source archive carries the release in, with <contents>."""
     with open(os.path.join(tree, VERSION_FILE), "w") as handle:
         handle.write(contents)
+
+
+def filled_in(version_file):
+    """Whether git has already filled the release into <version_file>.
+
+    git archive rewrites the placeholder as it makes an archive, so the
+    "$Format:" the placeholder is wrapped in is there in a git checkout and
+    gone in an archive. git takes the wrapper off even where it could not
+    expand what was inside, and that is an archive too.
+    """
+    return "$Format:" not in version_file
+
+
+def missing_patterns(version_file, patterns):
+    """Which of <patterns> the version file does not ask git archive to match.
+
+    Only a checkout's version file can be asked: an archive's placeholder is
+    already spent, so it asks for nothing and every pattern reads as missing.
+    """
+    return sorted(p for p in patterns if ("match=" + p) not in version_file)
+
+
+def put_placeholder(repo_root, tree, archive, patterns):
+    """The version file as a git checkout has it, with nothing filled in.
+
+    These sources carry such a file, unless they are a source archive
+    themselves: git filled their placeholder in as the archive was made, so
+    there is none left to copy and one is written from the patterns the build
+    asks git to match, which is what the file in a checkout asks for.
+    """
+    if not archive:
+        shutil.copy(os.path.join(repo_root, VERSION_FILE),
+                    os.path.join(tree, VERSION_FILE))
+        return
+    put_version_file(tree, "$Format:%%(describe:tags,%s)$\n"
+                     % ",".join("match=" + p for p in sorted(patterns)))
+
+
+def release_from(version_file):
+    """The release <version_file> names, in the form a build reports it.
+
+    The first line that is neither blank nor a comment is what git filled in:
+    a release tag, that tag with how far past it the archive was made
+    appended, or nothing where no release tag was in reach. Anything that is
+    not a release name, an unspent placeholder among them, names no release.
+    """
+    for line in version_file.splitlines():
+        line = line.strip()
+        if line == "" or line.startswith("#"):
+            continue
+        ahead = ""
+        found = re.match(r"^(.+)-([0-9]+)-g[0-9a-f]+$", line)
+        if found:
+            line, ahead = found.group(1), "+" + found.group(2)
+        # The same form as RELEASE_TAG_FORM in the module: a glob cannot say
+        # "digits and then nothing".
+        if re.match(r"^[0-9]{4}-[0-9]{2}-(R|RC|DEV)[0-9]+$", line):
+            return line + ahead
+        return "unknown"
+    return "unknown"
 
 
 def git_version():
@@ -200,7 +268,8 @@ def main():
     # archives their release with nothing failing, so they are counted
     # against each other.
     with open(os.path.join(repo_root, VERSION_FILE)) as handle:
-        placeholder = handle.read()
+        version_file = handle.read()
+    archive = filled_in(version_file)
     patterns = set()
     for path in (MODULE, FIRMWARE_MK):
         with open(os.path.join(repo_root, path)) as handle:
@@ -214,18 +283,35 @@ def main():
                   "patterns" % (MODULE, FIRMWARE_MK))
             sys.exit(1)
         patterns = set(found)
-    if placeholder.count("match=") != len(patterns):
-        print("FAIL: %s asks git to match %d release tag patterns and the "
-              "build asks for %d" % (VERSION_FILE,
-                                     placeholder.count("match="),
-                                     len(patterns)))
-        sys.exit(1)
-    for pattern in sorted(patterns):
-        if ("match=" + pattern) not in placeholder:
-            print("FAIL: %s does not ask git to match %r, so an archive made "
+    # The count has to run on a checkout's file, the only one that still
+    # carries the placeholder. A source archive's was spent making it, and
+    # the patterns go unchecked there rather than read as none.
+    if archive:
+        print("these sources are a source archive, where git has already "
+              "filled the release in, so the release tag patterns in %s go "
+              "unchecked; a git checkout checks them" % VERSION_FILE)
+    else:
+        missing = missing_patterns(version_file, patterns)
+        if missing:
+            print("FAIL: %s does not ask git to match %s, so an archive made "
                   "at such a tag would report no release"
-                  % (VERSION_FILE, pattern))
+                  % (VERSION_FILE, ", ".join(repr(p) for p in missing)))
             sys.exit(1)
+        if version_file.count("match=") != len(patterns):
+            print("FAIL: %s asks git to match %d release tag patterns and the "
+                  "build asks for %d" % (VERSION_FILE,
+                                         version_file.count("match="),
+                                         len(patterns)))
+            sys.exit(1)
+    # The count above is skipped on an archive, so the check itself is asked
+    # about a file that leaves a pattern out: a kind of release tag added to
+    # the module and the makefile and not to the version file has to go on
+    # failing on a git checkout.
+    one_left_out = ",".join("match=" + p for p in sorted(patterns)[1:])
+    if missing_patterns(one_left_out, patterns) != sorted(patterns)[:1]:
+        print("FAIL: a release tag pattern the build asks git for that %s "
+              "does not goes unnoticed" % VERSION_FILE)
+        sys.exit(1)
 
     with tempfile.TemporaryDirectory() as work:
         # HEAD is the release tag itself: that release, and a release build,
@@ -321,8 +407,7 @@ def main():
         # The file as a git checkout has it, with nothing filled in, and the
         # cases that name no release: a history with no release tag leaves the
         # line empty, and a tag the globs let through is not a release.
-        shutil.copy(os.path.join(repo_root, VERSION_FILE),
-                    os.path.join(plain, VERSION_FILE))
+        put_placeholder(repo_root, plain, archive, patterns)
         expect(cmake, plain, "the placeholder, untouched", "unknown", "ON")
         put_version_file(plain, "# a comment\n\n")
         expect(cmake, plain, "an archive with no release tag in its history",
@@ -330,6 +415,15 @@ def main():
         put_version_file(plain, "2026-11-R1-local\n")
         expect(cmake, plain, "an archive of a tag that is not a release",
                "unknown", "ON")
+
+        # And where these sources are a source archive, the release they
+        # themselves carry, which is the one a build of them reports. Only
+        # such a checkout can be asked this: a git checkout's file has
+        # nothing filled in to read.
+        if archive:
+            put_version_file(plain, version_file)
+            expect(cmake, plain, "the release these sources carry",
+                   release_from(version_file), "ON")
         os.remove(os.path.join(plain, VERSION_FILE))
 
         # And the real thing: a git archive of a tag, which is what a release
@@ -344,9 +438,9 @@ def main():
                   "unchecked")
         else:
             source = new_tree(work, repo_root, "to-archive")
-            for name in (VERSION_FILE, ATTRIBUTES):
-                shutil.copy(os.path.join(repo_root, name),
-                            os.path.join(source, name))
+            shutil.copy(os.path.join(repo_root, ATTRIBUTES),
+                        os.path.join(source, ATTRIBUTES))
+            put_placeholder(repo_root, source, archive, patterns)
             git(source, "add", VERSION_FILE, ATTRIBUTES)
             git(source, "commit", "-q", "-m", "the version file")
             git(source, "tag", "2026-11-R3")
