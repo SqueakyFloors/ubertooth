@@ -123,6 +123,7 @@
   "tools": {
     "ubertooth-afh": {
       "man": "ubertooth-afh.md",
+      "removed_options": ["-a"],
       "optstring": ":rhVl:u:U:e:t:m:",
       "report_marker": "Host tools version",
       "requires_all": ["-l", "-u"],
@@ -404,12 +405,6 @@
     },
 
     "ubertooth-ducky": {
-    "_selector_valid_why": [
-      "A whole 32-digit serial is a valid selector as well as an index, so",
-      "it is listed here: the parser has to take the long form, glued or",
-      "spaced, and the matrix then checks that such a command line reaches",
-      "device lookup rather than being refused while it is read."
-    ],
       "man": "ubertooth-ducky.md",
       "report_marker": "Host tools version",
       "optstring": ":q::bA:a:hVsU:",
@@ -429,10 +424,20 @@
                "invalid": [["11:22:33:44:55", "error: Bluetooth address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)"]]},
         "-s": {"value": "none", "role": "undocumented",
                "doc": "an easter egg this fork keeps as it is; not in the man page or the usage text"},
-        "-U": {"value": "required", "role": "selector", "valid": ["0",
-          "cc3300112233445566778899aabbccdd"
-        ]}
-      }
+        "-U": {"value": "required", "role": "selector", "valid": ["0"]}
+      },
+      "_combinations_why": [
+        "A selector takes a whole 32-digit serial as well as an index. The",
+        "generator only ever uses the first of an option's valid values, so",
+        "the long form is stated outright here, glued and spaced: the two",
+        "command lines the parser has to accept before -h ends the command."
+      ],
+      "combinations": [
+        {"args": ["-U", "cc3300112233445566778899aabbccdd", "-h"],
+         "verdict": "help", "source": "ubertooth.md OPTION VALUES, -U"},
+        {"args": ["-Ucc3300112233445566778899aabbccdd", "-h"],
+         "verdict": "help", "source": "ubertooth.md OPTION VALUES, -U"}
+      ]
     },
 
     "ubertooth-dump": {
@@ -594,7 +599,7 @@
       ],
       "pair_rules": [
         {"a": "-z", "b": "role:target", "verdict": "refused",
-         "error_contains": "survey mode",
+         "error": "error: survey mode (-z) discovers addresses, so it cannot be given -l or -u",
          "why": "a survey discovers addresses, so it cannot be given one; this check runs before the one below"},
         {"a": "-u", "b": "-l", "verdict": "device"},
         {"a": "-u", "b": "any", "verdict": "refused",
@@ -833,7 +838,8 @@
         "-h": {"value": "none", "role": "help"},
         "-t": {"value": "required", "role": "target", "valid": ["11:22:33:44:55:66", "AA:bb:CC:dd:EE:ff"],
                "invalid": [["11:22:33:44:55", "error: target address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55)"],
-                           ["112233445566", "error: target address must be xx:xx:xx:xx:xx:xx (got 112233445566)"]],
+                           ["112233445566", "error: target address must be xx:xx:xx:xx:xx:xx (got 112233445566)"],
+                           ["11:22:33:44:55:GG", "error: target address must be xx:xx:xx:xx:xx:xx (got 11:22:33:44:55:GG)"]],
                "doc": "the whole target address, which gives the LAP and UAP to follow as well as the address to connect to"},
         "-l": {"value": "required", "role": "target", "valid": ["446688"],
                "requires": ["-u"],

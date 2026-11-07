@@ -237,7 +237,7 @@ NOT_PINNED = [
     # The line -V writes where another libbtbb is loaded. Both directories
     # in it are the machine's own, so no test prints this line; the tests pin
     # the decision behind it (libbtbb-origin) and that the line is the only
-    # thing -V may write to standard error (the command-line matrix).
+    # thing -V may write to standard error (libbtbb-elsewhere).
     ("ubertooth-util.md",
      "warning: libbtbb was loaded from /opt/homebrew/lib, not the "
      "/usr/local/lib these tools were built against; packets may decode "
