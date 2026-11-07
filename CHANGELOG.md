@@ -660,118 +660,46 @@ Behavior the tools share.
 
 #### libubertooth
 
-- libubertooth lets the calling program say where a capture's results go,
-  instead of writing them to standard output itself: the `result_stream`
-  field of `ubertooth_t`, read with the new
-  `ubertooth_result_stream()`. A handle that sets none writes to standard
-  output as before, so every tool here, and a program of your own, behaves
-  exactly as it did. `ubertooth_print_afh_map()` writes an AFH channel map on
-  a stream you choose, in the line libbtbb's `btbb_print_afh_map()` prints on
-  standard output.
-  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
-- libubertooth's `register_cleanup_handler()` is deprecated in favor of
-  `ubertooth_catch_stop_signals()`, which installs the same stop handlers
-  without needing a device handle. It is still exported, so a program of your
-  own that calls it builds and links against this release; GCC and Clang now
-  name the replacement in a warning, which a build with `-Werror` will stop
-  on. It is removed in the release after this one.
-  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
-- libubertooth's `cmd_get_access_address()` is deprecated in favor of
-  `cmd_read_access_address()`, which reports an error separately from the
-  address instead of returning both as one `u32`. The header said it was
-  deprecated already; GCC and Clang now name the replacement in a warning
-  too, which a build with `-Werror` will stop on. It is still exported and
-  still works as it did.
-  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
-- A program that sets more advertising data than the board can transmit is
-  told so, where it used to be taken and then dropped: `cmd_le_set_adv_data()`
-  and the board's `UBERTOOTH_LE_SET_ADV_DATA` both refuse anything longer than
-  the 31 bytes a legacy ADV_IND carries, with `error: LE advertising data too
-  long`. Up to 255 bytes used to be accepted, and the advertising mode asked
-  for afterwards then went back to idle without a word. `LE_ADV_MAX_LEN` is
-  gone from `ubertooth_interface.h` with it: a program that bounded a call by
-  it wants `ADV_IND_MAX_DATA`. No shipped tool sets more than 18 bytes.
-  [#752](https://github.com/SqueakyFloors/ubertooth/issues/752)
-- libubertooth reports a short reply to any fixed-size read as an error instead
-  of a value made from stale bytes (such as channel 0 right after hopping).
-  [#149](https://github.com/SqueakyFloors/ubertooth/issues/149)
+- **Choose where results go.** A program sets the `result_stream` field of
+  `ubertooth_t` (read with `ubertooth_result_stream()`) to say where a
+  capture's results are written; unset, they go to standard output as before.
+  `ubertooth_print_afh_map()` prints an AFH map to a chosen stream.
+- **Deprecated.** `register_cleanup_handler()` (use
+  `ubertooth_catch_stop_signals()`; it is removed in the next release) and
+  `cmd_get_access_address()` (use `cmd_read_access_address()`). Both still
+  work; GCC and Clang warn, which stops a `-Werror` build.
+- **Fixed: silent failures.** `cmd_le_set_adv_data()` refuses more than the
+  31 bytes the board can advertise (before, it took up to 255 and the board
+  dropped them), and `LE_ADV_MAX_LEN` gives way to `ADV_IND_MAX_DATA`. A short
+  reply to a fixed-size read is an error instead of a value made from stale
+  bytes.
+
+([#745](https://github.com/SqueakyFloors/ubertooth/issues/745), [#752](https://github.com/SqueakyFloors/ubertooth/issues/752), [#149](https://github.com/SqueakyFloors/ubertooth/issues/149))
 
 #### libbtbb
 
-- The tools are built against a newer libbtbb
-  ([`bf878df`](https://github.com/SqueakyFloors/libbtbb/commit/bf878df27e131dd8ab56bb3497918eb9a83f607b)),
-  which brings its own run of fixes to the Classic and BLE decoders and to the
-  capture file writers: a 255-octet advertising packet keeps its last three
-  octets instead of losing them to the CRC field, AUX1, DV, EV3, EV4 and EV5
-  payloads decode, a packet whose payload the decoder could not read is no
-  longer reported with the previous packet's bytes, a BLE capture records each
-  connection's parameters, and the library's own notes go to standard error
-  rather than into a capture on standard output. A Classic capture record also
-  carries more of the packet that settled the piconet's address: its header
-  and its payload, both checked and both recomputable from the reference
-  address in the same record, where that record used to carry one of them at
-  best. What that library is now tested against is in its
+- **Built from this project's fork.** libbtbb comes from the
+  [fork](https://github.com/SqueakyFloors/libbtbb) at a pinned commit, with no
+  `-DCMAKE_POLICY_VERSION_MINIMUM=3.5`; `install.sh --libbtbb-url` and
+  `--libbtbb-ref` build another. A libbtbb missing what the tools use is
+  refused at configure time, by name. What it is tested against is in its
   [TESTING.md](https://github.com/SqueakyFloors/libbtbb/blob/master/TESTING.md).
-  `install.sh` and the build guides check out the new commit; a libbtbb
-  without what the tools use is still refused at configure time, by name.
-  [#736](https://github.com/SqueakyFloors/ubertooth/issues/736)
-- The pin moves on to the current libbtbb
-  ([`50bbc76`](https://github.com/SqueakyFloors/libbtbb/commit/50bbc76d383e4038ee6dadccad55f0161c1cb029)),
-  which names the Bluetooth connection roles Central and Peripheral wherever it
-  says them. A printed LE packet reads `LL_PERIPHERAL_FEATURE_REQ` where it read
-  `LL_SLAVE_FEATURE_REQ`, an advertising data type reads `(Peripheral
-  Connection Interval Range)`, and the Wireshark plugins built from the same
-  clone label a packet's direction `Central to Peripheral` and word the LMP and
-  eSCO fields to match. Only the wording moves: every field abbreviation a
-  display filter or `tshark -e` names is as it was, the installed header and the
-  library's exported symbols are byte for byte what the old pin installed, and
-  a capture record is unchanged down to the option codes. The library's other
-  two commits are its own documentation.
-  [#736](https://github.com/SqueakyFloors/ubertooth/issues/736)
-- The pin moves on again, to libbtbb
-  ([`5c4e535`](https://github.com/SqueakyFloors/libbtbb/commit/5c4e535968b58db2f28e2f3bce0f02ca1c02b03e)),
-  which brings two more fixes to the Classic clock search. Fixed: a piconet
-  whose address part (UAP) was given as `0x00`, as `ubertooth-rx -u 00` gives
-  it, went on searching for an address part it had already been handed, so
-  CLK1-27 never arrived; it now starts the clock search
-  ([libbtbb issue 134](https://github.com/SqueakyFloors/libbtbb/issues/134)).
-  Fixed: a clock search on a piconet that had observed no packets chose tens
-  of thousands of candidates and worked through them; it now chooses none
-  ([libbtbb issue 131](https://github.com/SqueakyFloors/libbtbb/issues/131)).
-  The tools call no new library function, so a libbtbb without what they use
-  is still refused at configure time, by name. `install.sh` and the build
-  guides check out the new commit.
-  [#736](https://github.com/SqueakyFloors/ubertooth/issues/736)
-- The pin moves on again, to libbtbb
-  ([`d356e9d`](https://github.com/SqueakyFloors/libbtbb/commit/d356e9da7fb03969371aa14d603a8aad2f0ef198)),
-  where the release a build from a source archive reports comes from git
-  rather than a version kept by hand, as it now does here. A build with no
-  release to read reports `unknown`; the commit libbtbb records beside it is
-  what identifies such a build.
-- The pin moved on before that, to libbtbb
-  ([`c70de76`](https://github.com/SqueakyFloors/libbtbb/commit/c70de76afbe13f3740bcd906952a36c849383810)),
-  where libbtbb reports its release the way these tools report theirs: the
-  release it was built from, or the nearest release and how many commits are
-  past it. It records the commit separately, which is what the configure step
-  reads to say which libbtbb a build found.
-- The pin moved on once more before that, to libbtbb
-  ([`7e1cdf0`](https://github.com/SqueakyFloors/libbtbb/commit/7e1cdf0336857a714da1af8c7496fe32453ac6d0)),
-  which finishes the clock search off. Fixed: a capture given only a LAP
-  worked the address part out for itself and then kept searching for it, so
-  `ubertooth-rx -l <LAP>` with no `-u` read the piconet's packets and never
-  reached follow mode; the clock search now starts
-  ([libbtbb issue 136](https://github.com/SqueakyFloors/libbtbb/issues/136)).
-  [#736](https://github.com/SqueakyFloors/ubertooth/issues/736)
-- libbtbb is built from this project's
-  [fork](https://github.com/SqueakyFloors/libbtbb) at a pinned commit, needing
-  no `-DCMAKE_POLICY_VERSION_MINIMUM=3.5`; `install.sh --libbtbb-url`/`--libbtbb-ref`
-  build a different one.
-  [#320](https://github.com/SqueakyFloors/ubertooth/issues/320)
-- The pinned libbtbb now follows the Core specification when AFH re-maps a hop
-  channel, so host-side predictions agree with the channel the board tunes to.
-  A clock and UAP tracked with an AFH map used to name channels the piconet was
-  not on.
-  [#143](https://github.com/SqueakyFloors/ubertooth/issues/143)
+- **Fixed: decoding.** A 255-byte advertising packet lost its last three
+  bytes, AUX1, DV, EV3, EV4, and EV5 payloads did not decode, and an
+  unreadable payload was reported with the previous packet's bytes. All now
+  decode correctly, and AFH hop re-mapping follows the Core specification.
+- **Fixed: the Classic clock search stalled.** It kept searching for a UAP it
+  already had, whether given as `0x00` or worked out from `ubertooth-rx -l
+  <LAP>` alone, and worked through tens of thousands of candidates with no
+  packets seen ([libbtbb issue 134](https://github.com/SqueakyFloors/libbtbb/issues/134), [libbtbb issue 136](https://github.com/SqueakyFloors/libbtbb/issues/136), [libbtbb issue 131](https://github.com/SqueakyFloors/libbtbb/issues/131)).
+- **Captures and wording.** A BLE capture records each connection's
+  parameters, a Classic record carries the header and payload of the packet
+  that settled the piconet's address, the library's notes go to standard
+  error, and it reports its release the way these tools do. Bluetooth roles
+  read Central and Peripheral (for example `LL_PERIPHERAL_FEATURE_REQ`), in the
+  Wireshark plugins too; display-filter field names are unchanged.
+
+([#320](https://github.com/SqueakyFloors/ubertooth/issues/320), [#736](https://github.com/SqueakyFloors/ubertooth/issues/736), [#143](https://github.com/SqueakyFloors/ubertooth/issues/143))
 
 ### Build and compatibility
 
