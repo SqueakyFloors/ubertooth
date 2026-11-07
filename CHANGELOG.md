@@ -598,181 +598,48 @@ Behavior the tools share.
 
 #### bluetooth_rxtx
 
-- The release's receive-only firmware names itself `bluetooth_rx` instead of
-  `bluetooth_rxtx`, so `ubertooth-util -v` and ubertooth-dfu(1) tell a board
-  running it from one running the full image. A `DISABLE_TX=1` build from a
-  git checkout reports the same name; one from an unpacked source release
-  keeps the shipped version.h and so reports `bluetooth_rxtx`, which
-  firmware/README now says. Every host tool accepts either name.
-- Fixed: on the Ubertooth Zero and the ToorCon badge the firmware looked for
-  the radio's GIO6 status pin on the wrong GPIO port. That pin is P1.15 on the
-  Zero and P1.10 on the badge, and the firmware asked port 2 for all three
-  boards, so the signals it took for the radio's came from somewhere else: on
-  the Zero from bit 15 of port 2, which the part does not have, so every read
-  answered 0 and the wait for the radio's transmit buffer to drain ran to its
-  bound, which ends the packet, so a packet longer than the 32 bytes that
-  buffer holds went out as its first 32 bytes; on the badge from P2.10, a pin
-  that exists and carries no radio signal, so the wait answered whatever that
-  pin happened to read. Reads now follow the board.
-  Carrier sense armed an interrupt on the same wrong port; the part raises a
-  GPIO interrupt on ports 0 and 2 only, so on those two boards it now arms
-  nothing rather than an unrelated pin. No board loses a carrier-sense trigger
-  it was getting, because the pin that was armed is not one the radio drives,
-  and the receive loop marks a packet from its own RSSI comparison as before.
-  The Ubertooth One, whose GIO6 is P2.2, is unaffected.
-  [#1006](https://github.com/SqueakyFloors/ubertooth/issues/1006)
-  [#1007](https://github.com/SqueakyFloors/ubertooth/issues/1007)
-- A control request the board's USB controller was briefly too slow to report
-  is now answered microseconds later instead of going unanswered. The firmware
-  read the controller's answer before it could tell whether one had arrived,
-  and a reply that came late was dropped along with the request that was
-  waiting -- a one-second wait on the host, and the end of a `ubertooth-btle`
-  capture, which reads every captured packet with a control request.
-  [#714](https://github.com/SqueakyFloors/ubertooth/issues/714)
-- A control request can no longer be answered with the leftovers of the one
-  before it. Every reply used to be followed by a zero-length packet that was
-  offered to the host and left on the endpoint, because a reply shorter than
-  64 bytes has already ended its own data stage and nothing collects it; a
-  later request's read took it instead and came back with no data, no error
-  and no stall.
-  [#462](https://github.com/SqueakyFloors/ubertooth/issues/462)
-- Firmware RSSI averaging now rounds negative dBm correctly.
-  [#15](https://github.com/SqueakyFloors/ubertooth/issues/15)
-- Correct Bluetooth Low Energy cyclic redundancy check filtering and perform
-  verification in the physical-layer engine. Credit: oliver
-  ([@Oliver0804](https://github.com/Oliver0804)).
-  [upstream #550](https://github.com/greatscottgadgets/ubertooth/pull/550)
+- The receive-only build (`DISABLE_TX=1`) names itself `bluetooth_rx`, so
+  `ubertooth-util -v` and `ubertooth-dfu` tell it from the full image. A build
+  from an unpacked source release still reports `bluetooth_rxtx`.
+- **Fixed: Ubertooth Zero and ToorCon badge.** The firmware read the radio's
+  status pin on the wrong port, so on the Zero a packet longer than 32 bytes
+  went out cut short. The Ubertooth One was unaffected.
+- **Fixed: lost or stale USB replies.** A control request the board was
+  briefly slow to report went unanswered, which could end a `ubertooth-btle`
+  capture, and a request could be answered with the previous one's leftovers.
+- **Fixed: signal and CRC handling.** RSSI averaging rounds negative dBm
+  correctly, and BLE CRC filtering and verification run in the physical-layer
+  engine. Credit: oliver ([@Oliver0804](https://github.com/Oliver0804))
+  ([upstream #550](https://github.com/greatscottgadgets/ubertooth/pull/550)).
+
+([#1006](https://github.com/SqueakyFloors/ubertooth/issues/1006), [#1007](https://github.com/SqueakyFloors/ubertooth/issues/1007), [#714](https://github.com/SqueakyFloors/ubertooth/issues/714), [#462](https://github.com/SqueakyFloors/ubertooth/issues/462), [#15](https://github.com/SqueakyFloors/ubertooth/issues/15))
 
 #### btbr
 
-- **Script-visible change:** the `btbr` image reports the firmware API version
-  of the tree it was built from, instead of a fixed 1.06 that never moved. A
-  board carrying it is no longer refused over its version by every other tool;
-  those tools still cannot drive that image and now fail on the first request
-  it does not answer.
-  [#556](https://github.com/SqueakyFloors/ubertooth/issues/556)
-- Fixed: the `btbr` BR/EDR image asked port 2 for the radio's GIO6 interrupt
-  whatever the board, and GIO6 is on port 1 on the Ubertooth Zero and the
-  ToorCon badge. Its PHY refills the radio's 32-byte transmit buffer from that
-  interrupt, which is how a packet longer than the buffer reaches the air at
-  all, and the part raises a GPIO interrupt on ports 0 and 2 only: on those
-  boards nothing could arm it, and every page, inquiry, and answer to a scan
-  would have gone out as its first 28 bytes. The image now says so when it is
-  built rather than on the air. It does not build for a board whose GIO6
-  cannot raise that interrupt, and a build of all the images for such a board
-  leaves it out with a note instead of failing, so the rest build as before.
-  On the badge that replaces a link failure, because `btbr` and the firmware
-  it shares with the other images both claimed the handler for that interrupt.
-  The Ubertooth One builds `btbr` as before.
-  [#1011](https://github.com/SqueakyFloors/ubertooth/issues/1011)
-- Fixed: a `btbr` connection or page could stop forever. When the slot that
-  would have ended a transmission was already full, the board said only
-  `tdma_schedule bucket overflow` and carried on: the radio was left
-  transmitting, the packet the link had handed over stayed held, and nothing
-  told the link the slot was over, so it scheduled neither its next receive nor
-  its next transmit and went silent. On the page response it stopped the
-  firmware instead, because there the next packet is scheduled from a receive
-  that still arrives. It now says the packet was not sent, stops the radio,
-  gives the packet back, and reports the failed transmit, so the link carries
-  on.
-  [#1139](https://github.com/SqueakyFloors/ubertooth/issues/1139)
-- Fixed: a `btbr` connection or page could also stop forever when the slot the
-  transmit itself needed was already full. The board said only
-  `tdma_schedule bucket overflow`, no part of the transmit ran, and nothing
-  told the link the slot was over, so it went silent and the next packet it
-  handed over stopped the firmware with `txs: already got pkt`. It now says
-  the packet was not sent, gives the packet back, and reports the failed
-  transmit. A transmit that lost only the slot it would have started in is
-  reported as a dropped packet too, where it used to be dropped in silence.
-  [#1151](https://github.com/SqueakyFloors/ubertooth/issues/1151)
-- Fixed: every `btbr` mode that receives could go quiet the same way, because
-  the receive task asked the scheduler for its slots without reading the
-  answer. A connection, a page, an inquiry, a page scan, or a `monitor` follow
-  whose next receive was refused had nothing left to run, said only
-  `tdma_schedule bucket overflow`, and waited forever; a multi-slot packet
-  whose decode could not be continued was worse, because it also kept the
-  buffer it was being decoded into and the next receive stopped the firmware
-  with `rx_schedule: rx_msg!=0`. A refused receive is now reported to the mode
-  that asked for it, which goes back to listening where it can and otherwise
-  reports the session over, and a decode that cannot be continued ends the
-  receive as one that produced nothing. A `page` or an `inquiry` the scheduler
-  has no room to start at all is refused instead of being reported as running.
-  [#1174](https://github.com/SqueakyFloors/ubertooth/issues/1174)
-- Fixed: a `btbr` `page_scan`, `inquiry_scan`, or `monitor` could go quiet and
-  never come back. Each of them listens by asking the scheduler for the next
-  slot, and a slot already holding four tasks refuses it; the board said only
-  `tdma_schedule bucket overflow` and then had nothing left to run at all.
-  Even the scan's own one-minute deadline was never reached, because that is
-  checked when the next window is opened and no window was being opened, so
-  the session never ended and the user had to stop it. The board now says the
-  scan could not be armed and reports the session over. `monitor` had a second
-  version of it, on the slot that starts following a connection it has just
-  seen being made: it kept the address it decoded but lost the follow in
-  silence, and now reports that too.
-  [#1167](https://github.com/SqueakyFloors/ubertooth/issues/1167)
-- Fixed: when the `btbr` image's radio had not tuned in time for a transmit
-  slot, the board said only `TX: RF not FS_ON`, and then spent the next slot
-  waiting for an end of transmission that could not come, counting a radio
-  that never answered in `ubertooth-util -w`. It also left the dropped
-  packet's count of unsent bytes standing, so a page that missed a slot could
-  stop the firmware when it sent its next ID packet. It now says the packet
-  was not sent, waits for nothing, and gives the byte count back.
-  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
-- Fixed: the addresses the `btbr` firmware printed lost their leading zeros,
-  so they were not the twelve hex digits the prompt takes back.
-  `bdaddr 00:11:22:33:44:55` was echoed as `Set bdaddr 1122334455`, and the
-  `fhs: ba=` line of a `page_scan` or `monitor` session dropped them the same
-  way from the address it read off the air. Both now print twelve digits.
-  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
-- A board in `btbr`'s `page_scan` or `inquiry_scan` now listens on the one
-  frequency the specification gives a scanning device, and holds it for the
-  1.28 seconds that frequency lasts, instead of moving every few slots. A
-  pager sweeps all 32 possible frequencies in 20 ms and an inquirer in 40 ms,
-  so either now meets a scanning board regularly, where before both ends were
-  moving and had to coincide. The legs that answer a page or an inquiry hop on
-  their own rules, as the specification separates them.
-  [#811](https://github.com/SqueakyFloors/ubertooth/issues/811)
-- A board scanning for a page goes back to scanning when the packet it was
-  waiting for turns out to be something else, instead of waiting in page scan
-  forever with nothing left to run and its 60-second timeout out of reach. The
-  same in `btbr`'s monitor mode.
-  [#811](https://github.com/SqueakyFloors/ubertooth/issues/811)
-- Page scan, inquiry scan and the paging monitor watch for a packet through
-  nearly the whole 312.5-microsecond slot, as their own comment says, rather
-  than the first 25 microseconds of it. The window was set in microseconds
-  where the slot clock counts 100-nanosecond steps, so it closed before the
-  moment a packet is expected and `ubertooth-btbr` missed most page and
-  inquiry scan responses.
-  [#669](https://github.com/SqueakyFloors/ubertooth/issues/669)
-- The `btbr` firmware image hops to the channels the Bluetooth spec selects.
-  Under an AFH map it now keeps a used channel of the basic sequence instead of
-  always selecting inside the reduced set, and falls back to basic hopping
-  below the spec minimum of 20 used channels; without a map it no longer picks
-  the wrong channel for some addresses.
-  [#13](https://github.com/SqueakyFloors/ubertooth/issues/13)
-- Improve Classic Bluetooth paging speed and reliability. Credit: Hillel
-  Chimowicz ([@hllhll](https://github.com/hllhll)) and
-  [@shapaz](https://github.com/shapaz).
-  [upstream #540](https://github.com/greatscottgadgets/ubertooth/pull/540)
-- The Classic Bluetooth (`btbr`) firmware keeps the power amplifier level set
-  with `ubertooth-util -a` instead of forcing level 3 when it brings the radio
-  up, so its default rises to the power-on level 7 the same way. A generic
-  transmit still sends at the level in its own request, but leaves the board's
-  level as it found it.
-  [#181](https://github.com/SqueakyFloors/ubertooth/issues/181)
-- A Classic packet whose 2/3 FEC payload is not a multiple of five bytes long
-  now puts its last code group on the air whole, padded with zeros as the
-  Bluetooth specification asks. The `btbr` image counted that group as 12 bits
-  per byte rather than the 15 bits it occupies, so the transmitter stopped up
-  to 9 bits early and the receiver looked for the rest of the payload in the
-  wrong place: about one payload size in sixteen failed its checksum, and the
-  bits cut off the air were filled from whatever was on the stack rather than
-  with zeros. **A board running an older build of the `btbr` image will not
-  interoperate with a board running this one, for the DM1, DM3 and DM5 sizes
-  this changes**, and the firmware API version does not move for it, so nothing
-  warns you about a mixed pair: reflash both boards. Paging is unaffected, its
-  FHS packet being 20 bytes, which was already counted right.
-  [#706](https://github.com/SqueakyFloors/ubertooth/issues/706)
+- **Script-visible change.** The `btbr` image reports the firmware API
+  version of the tree it was built from (before, a fixed 1.06), so other
+  tools no longer refuse it over its version.
+- **Paging and scanning that meet.** Page scan and inquiry scan hold the one
+  frequency the specification gives for its full 1.28 seconds, watch through
+  nearly the whole slot (before, its first 25 microseconds), and hop on the
+  channels the specification selects, AFH included. Paging is faster and more
+  reliable. Credit: Hillel Chimowicz ([@hllhll](https://github.com/hllhll))
+  and [@shapaz](https://github.com/shapaz)
+  ([upstream #540](https://github.com/greatscottgadgets/ubertooth/pull/540)).
+- **Fixed: sessions that went silent forever.** A full scheduler slot, a
+  radio not tuned in time, or an unexpected packet could leave a connection,
+  page, inquiry, scan, or `monitor` waiting forever, or stop the firmware.
+  Each now reports the dropped packet or the ended session and carries on.
+- **Fixed: packets and settings.** DM1, DM3, and DM5 packets whose payload is
+  not a multiple of five bytes went out a few bits short, so some payload
+  lengths failed their checksum at the receiver. **A board running an older
+  `btbr` build will not interoperate with this one for those lengths, and
+  nothing warns about a mixed pair: reflash both boards.** The image also keeps the power level set
+  with `ubertooth-util -a`, prints addresses with their leading zeros, and is
+  not built for boards whose radio pin cannot raise its interrupt (the
+  Ubertooth Zero and the ToorCon badge).
+
+([#556](https://github.com/SqueakyFloors/ubertooth/issues/556), [#811](https://github.com/SqueakyFloors/ubertooth/issues/811), [#669](https://github.com/SqueakyFloors/ubertooth/issues/669), [#13](https://github.com/SqueakyFloors/ubertooth/issues/13), [#1139](https://github.com/SqueakyFloors/ubertooth/issues/1139), [#1151](https://github.com/SqueakyFloors/ubertooth/issues/1151), [#1174](https://github.com/SqueakyFloors/ubertooth/issues/1174), [#1167](https://github.com/SqueakyFloors/ubertooth/issues/1167), [#745](https://github.com/SqueakyFloors/ubertooth/issues/745), [#706](https://github.com/SqueakyFloors/ubertooth/issues/706), [#181](https://github.com/SqueakyFloors/ubertooth/issues/181), [#1011](https://github.com/SqueakyFloors/ubertooth/issues/1011))
 
 #### The bootloader
 
