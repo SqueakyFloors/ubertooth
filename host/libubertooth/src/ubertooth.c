@@ -1302,9 +1302,8 @@ static void cb_xfer(struct libusb_transfer *xfer)
 	 * thread, and the capture's own thread is the one that writes.
 	 *
 	 * Reading a flag a handler sets from a second thread is not something
-	 * the standard promises either; only an atomic would be. It is what the
-	 * old code did too, and it holds on the processors this fork builds
-	 * for, where each flag is one load. */
+	 * the standard promises either; only an atomic would be. It holds on
+	 * the processors this fork builds for, where each flag is one load. */
 	rx_xfer_peek(ut, &state);
 	wanted_back = state == RX_XFER_CANCELLING
 	              || stop_requested || timeout_expired
@@ -1632,8 +1631,8 @@ int ubertooth_bulk_init(ubertooth_t* ut)
 
 	/* A second phase of the same run calls this again on the same handle.
 	 * The transfer the previous phase left is finished here rather than
-	 * dropped: overwriting the pointer leaked the transfer, and one that is
-	 * still in flight must not be replaced while libusb writes to it. */
+	 * dropped: overwriting the pointer would leak it, and one that is still
+	 * in flight must not be replaced while libusb writes to it. */
 	ubertooth_bulk_stop(ut);
 	if (rx_xfer_peek(ut, NULL) != NULL) {
 		fprintf(stderr, "error: the previous receive transfer did not "
@@ -2165,8 +2164,8 @@ int rx_dump_generic(ubertooth_t* ut, int bitstream)
 static void ubertooth_cleanup(ubertooth_t* ut, int send_stop)
 {
 	/* Finish the receive transfer before the device it reads from is closed.
-	 * Cancelling it and closing anyway, as this did, left the transfer
-	 * allocated for the rest of the process. */
+	 * Cancelling it and closing anyway leaves the transfer allocated for the
+	 * rest of the process. */
 	ubertooth_bulk_stop(ut);
 	if (rx_xfer_peek(ut, NULL) != NULL) {
 		/* The transfer never came back, so libusb may still be holding this
@@ -2187,7 +2186,8 @@ static void ubertooth_cleanup(ubertooth_t* ut, int send_stop)
 		 * handles events until its own completes, and the receive
 		 * transfer is still in flight, so its cancellation could
 		 * complete inside that call and run cb_xfer() here -- on the one
-		 * thread meant to be past the stream.
+		 * thread meant to be past the stream, the poll thread having been
+		 * joined above.
 		 *
 		 * The warning covers every one of those boards: it says this one
 		 * may still be capturing, and ubertooth(7) names

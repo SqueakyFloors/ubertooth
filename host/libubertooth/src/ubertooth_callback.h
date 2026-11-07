@@ -110,7 +110,9 @@ long ubertooth_follow_quiet_ms(ubertooth_t* ut);
  * first search of this run began -- the search starts over, and this does not
  * -- and not the time since the last packet. A capture that has heard nothing
  * of the piconet, or too little of it to settle CLK1-6, reads -1 however long
- * it runs, because neither has a search to report.
+ * it runs, because neither has a search to report. A link that goes quiet
+ * after the search started keeps the reading; ubertooth_follow_quiet_ms() is
+ * the reading for the follow.
  *
  * For a tool that reports what the search is waiting for: the search prints a
  * candidate count per list and nothing that says how long it has been going.
@@ -118,7 +120,9 @@ long ubertooth_follow_quiet_ms(ubertooth_t* ut);
  * search running again after one was given up did get that far once.
  *
  * How long is long enough is the caller's, as it is above. Per board, because
- * each board runs a search of its own. */
+ * each board runs a search of its own, and what a search waits for is the
+ * same for every board, so a tool reporting it needs only one board to have
+ * run that long. */
 long ubertooth_clock_search_ms(ubertooth_t* ut);
 
 /* Gives up the clock this capture is following, for a caller that has decided

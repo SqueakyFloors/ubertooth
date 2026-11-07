@@ -332,11 +332,10 @@ void ubertooth_capture_clock_reset( ubertooth_t* ut )
  * mode before it, that packet being one left over from it. The firmware resets
  * CLKN when a mode starts, so the capture's own first count drops to whatever
  * the new mode has reached; read as a difference from the leftover's, the drop
- * is time that never passed. Where the mode before had run 200 periods that
- * came to 56 periods forwards, five hours into every time from there on, and
- * where it had run fewer than 128 the difference read backwards and was
- * rejected, which left the stale count as the baseline and stopped the capture
- * counting its own periods at all.
+ * is time that never passed: hours forwards where the mode before had run
+ * longer, and backwards -- so rejected, which leaves the stale count as the
+ * baseline and stops the capture counting its own periods -- where it had run
+ * less.
  *
  * What says so is the host's own clock, as it does for a wrap above: the two
  * packets' counts and readings together claim how much time passed between
@@ -350,17 +349,19 @@ void ubertooth_capture_clock_reset( ubertooth_t* ut )
  * way. Two packets leaning opposite ways would mean two different places,
  * which is a mode change: the case below.
  *
- * The budget cannot be widened: a leftover count two periods from the
- * capture's own already claims only about two periods. That leaves the gap
+ * The two allowances share one budget, and it cannot be widened: a leftover
+ * count two periods from the capture's own already claims only about two
+ * periods, so anything wider would stop catching it. That leaves the gap
  * slack alone to cover error in the host's measure of the gap, which is why
  * that measure is taken as each packet's transfer completes rather than where
  * the reconstruction is reached -- a capture blocked on a slow pipe can be
  * minutes behind by the time it reads its first packet.
  *
  * What is left unsettled is a leftover count a period from the capture's own,
- * which looks exactly like that latch. It costs those one or two periods and
- * no more: the capture runs at the right rate from there, a fixed amount
- * behind. ubertooth-rx(1) says so. */
+ * which looks exactly like that latch, or two periods from it where the two
+ * readings are also within a period of each other. Either costs those one or
+ * two periods and no more: the capture runs at the right rate from there, a
+ * fixed amount behind. ubertooth-rx(1) says so. */
 static int count_came_from_the_mode_before( const ubertooth_t* ut,
                                             uint32_t clk100ns, uint8_t periods,
                                             uint64_t since_last_ns )
@@ -467,8 +468,8 @@ static uint64_t wraps_the_gap_accounts_for( const ubertooth_t* ut,
  * CLKN, from the period count and the reading together, so that a move in
  * either direction reads as the signed amount it is. The half of the byte's
  * range kept for backwards differences covers every move a follow can ask
- * for, note_a_move_of_the_clock() below having reduced the amount into that
- * same range.
+ * for, note_a_move_of_the_clock() having reduced the amount into that same
+ * range.
  *
  * The measure of the gap can itself be out by a period, for reasons that have
  * nothing to do with the move, so a move within a period or two of 327.68 s
@@ -530,9 +531,9 @@ static int the_move_landed_on_this_packet( const ubertooth_t* ut,
 /* Takes out of the reconstruction the move the host asked for, on the packet
  * the test above found it on.
  *
- * Read as time passing, such a move stretched a capture's record times by up
- * to the clock's whole period, and sent individual times backwards where the
- * reading dropped. It is not a rate error, so there is no factor to correct:
+ * Read as time passing, such a move stretches a capture's record times by up
+ * to the clock's whole period, and sends individual times backwards where the
+ * reading drops. It is not a rate error, so there is no factor to correct:
  * each capture is out by whatever its own piconet's clock happened to be away
  * from the board's.
  *
@@ -1770,14 +1771,18 @@ static int drift_ppm( int32_t correction_100ns, uint32_t clkn_ticks )
  * about losing, and a board to take off its offset. br_calibrated is whether
  * the clock trim has been measured against that offset, which a clock handed
  * over or given up starts again. br_heard_ms is when a packet of the piconet
- * was last heard. br_clock_gone is whether the library has no clock for it
+ * was last heard, on the monotonic clock, and a clock handed over starts it,
+ * because nothing has been heard on that clock yet
+ * (ubertooth_follow_quiet_ms()). br_clock_gone is whether the library has no
+ * clock for it
  * any more while the board may still be hopping on the old offset, which is
  * where a board that refused the request below leaves this capture.
  * br_trim_counter and br_clkn_trim are how far the access code has been
  * arriving from CLK_TUNE_TIME and the CLKN the last trim was sent at, which
  * is what the drift in PPM is measured over. br_searching and
  * br_search_start_ms are whether a clock search is running with a packet
- * behind it and no clock confirmed yet, and when it started.
+ * behind it and no clock confirmed yet, and when it started, on the same
+ * monotonic clock (ubertooth_clock_search_ms()).
  *
  * br_clock_confirmed is whether a clock was accepted for this board at any
  * point in this run, piconet's or not. It ends the search reading for the
@@ -2148,15 +2153,12 @@ void cb_rx(ubertooth_t* ut, void* args)
 	 * heard a packet or two of the piconet and has not settled CLK1-6 is
 	 * waiting for traffic, not searching, and a reading taken from its
 	 * first packet would let a caller say the search is not going to finish
-	 * before any search had run. Measured on a link that went quiet: four
-	 * packets in 100 s, no candidate list, and the whole span would
-	 * otherwise have read as a search.
+	 * before any search had run.
 	 *
 	 * The flag is transient: the library builds the list and compares the
 	 * hop that built it in one call, and a list emptied there is thrown
 	 * away again. So this sees a search whose candidate list outlived the
-	 * packet that built it, which is what every search on the bench has
-	 * done. */
+	 * packet that built it. */
 	if (!ut->br_searching && !ut->br_following && !ut->br_clock_confirmed &&
 	    pn != NULL && btbb_piconet_get_flag(pn, BTBB_HOP_REVERSAL_INIT)) {
 		ut->br_searching = 1;

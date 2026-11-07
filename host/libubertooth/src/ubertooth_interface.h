@@ -39,7 +39,7 @@
  * where it is. It moves only for a change that really does break an older
  * host tool: a request removed or renumbered, or a reply or record layout an
  * older host would misread. Such a bump also updates CHANGELOG.md,
- * COMPATIBILITY.md, validation/TEST_PLAN.md and the pinned test strings.
+ * COMPATIBILITY.md, validation/TEST_PLAN.md, and the pinned test strings.
  *
  * So this number is not the revision the `Firmware version:` line shows
  * beside it: that line carries the build's own revision, and this only says
@@ -289,7 +289,10 @@ static inline const char *ubertooth_fw_info_result_string(int result)
  *
  * This block closes both: ubertooth-dfu fills it in as it writes, with flags
  * saying which of the two checks it filled in, how many bytes it wrote, and a
- * checksum over them.
+ * checksum over them. firmware/common/image_check.c reserves the 32 bytes and
+ * firmware/common/sections.ld puts them at this offset -- on the literal, so
+ * changing the value here without changing that script desynchronizes host
+ * from firmware with nothing failing to build.
  *
  * The offset is inside the image's first 256 bytes on purpose, so the block
  * reaches the flash in the same program as the vector table it describes:

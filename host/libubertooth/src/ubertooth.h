@@ -787,7 +787,7 @@ void ubertooth_count_capture_losses(ubertooth_t* ut, const usb_pkt_rx* rx);
  * being driven harder than it can measure, and on this radio that is also
  * where it stops demodulating reliably: the Basic Rate and low-energy
  * receives turn the board's amplifier and high-gain mode both on, so two
- * boards on one bench reach it at any transmit power.
+ * receives turn the board's amplifier and high-gain mode both on.
  *
  * Judged a block of records at a time rather than record by record, because
  * ordinary air reaches the ceiling now and then -- a Wi-Fi burst on the
@@ -795,8 +795,9 @@ void ubertooth_count_capture_losses(ubertooth_t* ut, const usb_pkt_rx* rx);
  *
  * What it judges is decided here and not by the callers: a Basic Rate record
  * that states a signal figure, and nothing else. That is the one kind of
- * record that samples the air rather than tracing a packet that decoded, so a
- * record which exists only because a packet decoded cannot show a receiver
+ * record that samples the air rather than tracing a packet that decoded: the
+ * board sends one per block of symbols whether or not a packet was in it, and
+ * a record which exists only because a packet decoded cannot show a receiver
  * that is decoding nothing. Deciding it here is also what makes a replay
  * safe, since ubertooth-rx -i will replay a dump written by any tool.
  */
