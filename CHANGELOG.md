@@ -423,59 +423,26 @@ Behavior the tools share.
 
 ### ubertooth-specan-ui
 
-#### New features
+- **BLE channel labels.** Press `n` in `ubertooth-specan-ui` to label the axis
+  and markers with BLE channel numbers, with the advertising channels 37, 38,
+  and 39 always named, and `n` again for megahertz. Credit: Emmanuel Blot
+  ([@eblot](https://github.com/eblot)).
+- **Average trace.** A slowly smoothed average of the max-hold trace is drawn
+  as a cyan dotted line labeled "Avg: N dBm". Credit: Sirio Balmelli
+  ([@siriobalmelli](https://github.com/siriobalmelli)).
+- **Easier to use.** Keys are shown on screen (press `h`), frequencies are
+  labeled in whole MHz, marker labels no longer linger, the plot is slightly
+  wider than the scanned range, and there is a man page.
+- **Script-visible change.** `ubertooth-specan-ui` refuses an unknown option
+  or stray argument with exit 1 (before, it ignored it and swept). A missing
+  `numpy` or Qt binding, or a bad `-l` or `-u` value, gets one `error:` line
+  instead of a traceback.
+- **Fixed: nothing plotted.** `ubertooth-specan-ui` passed arguments
+  `ubertooth-specan` rejected, so it drew nothing. Its `-U` now takes an index
+  or serial, pressing `C` before data arrives no longer crashes it, and
+  `ubertooth-specan-ui --wifi 14` sits at 2484 MHz (before, 2482).
 
-- `ubertooth-specan-ui` reports a missing `numpy` or Qt binding as one
-  `error: ` line with a note saying what to install, rather than ending in a
-  traceback, which is what `ubertooth-btbr` has done since its own fix. It also
-  reads `-l` and `-u` itself, so a value that is not a number and one outside
-  the band get the line `ubertooth-specan` gives for both -- `error: lower
-  frequency must be 2402-2480 MHz (got abc)` -- in place of the argument
-  parser's `invalid int value`.
-- **Script-visible change:** `ubertooth-specan-ui` refuses a command line it
-  cannot read instead of running it, as `error: unrecognized option
-  '--bogus'` or `error: unexpected argument 'extra'` on standard error with
-  exit 1. A mistyped option used to be dropped without a word and the window
-  opened and swept; a bad value ended the command in 2 with the usage text.
-  [#934](https://github.com/SqueakyFloors/ubertooth/issues/934)
-- `ubertooth-specan-ui` draws a slowly smoothed average of the max-hold trace
-  as a cyan dotted line labeled "Avg: N dBm", shown with the other markers.
-  Credit: Sirio Balmelli ([@siriobalmelli](https://github.com/siriobalmelli)).
-  [#75](https://github.com/SqueakyFloors/ubertooth/issues/75)
-  https://github.com/siriobalmelli-foss/ubertooth/commit/01c3bf9e
-- `ubertooth-specan-ui` shows its keys on screen (press `h`; a hint is always
-  visible), labels frequencies in whole MHz, no longer leaves ghost marker
-  labels behind, draws the plot slightly wider than the scanned range, and has
-  a man page and usage guide.
-  [#125](https://github.com/SqueakyFloors/ubertooth/issues/125)
-  [#126](https://github.com/SqueakyFloors/ubertooth/issues/126)
-- `ubertooth-specan-ui` can label its axis and its markers with BLE channel
-  numbers instead of megahertz. Press `n` in the window for the channel
-  numbers -- the advertising channels 37, 38, and 39, and the data channels 0
-  to 36 -- and `n` again for the megahertz the window still starts in. In
-  channel mode the axis is marked on the channels themselves, so a line on the
-  graph lines up with the number under it, the three advertising channels are
-  always named when they are in the plot, and a marker names the channel
-  nearest the point it sits on. The difference between two markers is in
-  megahertz in both modes, and says so. The right end of the axis reads `MHz`
-  or `BLE ch`, since the tick labels themselves are bare numbers either way.
-  Credit: Emmanuel Blot ([@eblot](https://github.com/eblot)) for the channel
-  labels and the mapping behind them.
-  [#76](https://github.com/SqueakyFloors/ubertooth/issues/76),
-  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
-
-#### Fixes
-
-- `ubertooth-specan-ui --wifi 14` places the channel on 2484 MHz, where it is,
-  rather than 2482, so the band it sweeps for that channel, and where a signal
-  in it lands on the plot, are no longer 2 MHz low.
-  [#673](https://github.com/SqueakyFloors/ubertooth/issues/673)
-- `ubertooth-specan-ui` plots again: it passed `-U 0` to `ubertooth-specan` as a
-  single argument, which was read as a serial, and asked for 2400-2483 MHz,
-  which `ubertooth-specan` rejects. Its `-U` now takes an index or a serial like
-  the other tools, and it no longer crashes when `C` is pressed before data
-  arrives.
-  [#124](https://github.com/SqueakyFloors/ubertooth/issues/124)
+([#76](https://github.com/SqueakyFloors/ubertooth/issues/76), [#745](https://github.com/SqueakyFloors/ubertooth/issues/745), [#75](https://github.com/SqueakyFloors/ubertooth/issues/75), [#125](https://github.com/SqueakyFloors/ubertooth/issues/125), [#126](https://github.com/SqueakyFloors/ubertooth/issues/126), [#934](https://github.com/SqueakyFloors/ubertooth/issues/934), [#124](https://github.com/SqueakyFloors/ubertooth/issues/124), [#673](https://github.com/SqueakyFloors/ubertooth/issues/673))
 
 ### ubertooth-dump
 
