@@ -5,6 +5,7 @@
 | Fork commit | `SHA` (RELEASE-TAG) |
 | libbtbb commit | `SHA` |
 | Harness commit | `SHA` |
+| Tool and firmware versions | as read back from the built tools and the flashed boards |
 | Hosts | platform classes used |
 | Start, end (UTC) | START, END (DURATION) |
 | Verdict | qualified, or not qualified |
@@ -13,9 +14,9 @@
 
 One row per row of the harness required test matrix.
 
-| Gate | Plan and suite | Result | Notes |
+| Gate | What was run | Result | Notes |
 |---|---|---|---|
-| GATE | `testplans/PLAN.yaml`, `SUITE` | pass, fail, blocked, or skipped | disposition, or why it was not run |
+| GATE | the plan and suite, or the acceptance procedure | pass, fail, blocked, or skipped | disposition, or why it was not run |
 
 ## Measurements
 

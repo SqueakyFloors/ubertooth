@@ -15,21 +15,20 @@ This folder holds the hardware validation material for this fork:
 
 ## Release validation
 
-The [test harness](https://github.com/SqueakyFloors/ubertooth-test-harness) is
-the testbed that qualifies a release: it builds the candidate's host tools and
-firmware and runs them against the lab's Ubertooths and peer radios. Its
+The [test harness](https://github.com/SqueakyFloors/ubertooth-test-harness)
+qualifies a release. Its
 [release-testing procedure](https://github.com/SqueakyFloors/ubertooth-test-harness/blob/main/docs/release-testing.md)
-holds the required test matrix and the schedule; its
+holds the required test matrix and the schedule, and its
 [hardware document](https://github.com/SqueakyFloors/ubertooth-test-harness/blob/main/docs/hardware.md)
-describes the bench and the fixtures.
+describes the bench.
 
 A release is qualified by one fork commit, the libbtbb commit that commit pins,
 and one harness commit, all resolved before the first run and recorded in every
 report. The required gates are the rows of that procedure's required test
-matrix, run from those commits; the whole set finishes in under six hours.
-The 24-hour and 72-hour soaks, and any other endurance run, are optional
-rather than gates, and are recorded separately so their absence does not read
-as a missing gate.
+matrix, run from those commits; the whole set must finish within six hours.
+Soaks longer than the four-hour stability gate, the 24-hour and 72-hour runs
+among them, are optional rather than gates, and are recorded separately so
+their absence does not read as a missing gate.
 
 Every required gate must pass. A required test that failed, was blocked,
 skipped, or whose hardware was unavailable leaves the release unqualified until
