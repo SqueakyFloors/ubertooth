@@ -38,195 +38,25 @@ knowing about.
 A board or a tool that stopped answering, wedged, reset itself, or crashed,
 and the reporting that makes those visible.
 
-- `ubertooth-util -w` counts one more wait that gave up: the short lead a
-  packet is given to reach the radio's FIFO before the firmware reads it out.
-  It was the last timed wait with nothing a user could see, and a
-  count above zero says the board's timer 0 was not advancing, or was far too
-  slow, so that capture's records are wrong throughout rather than only in
-  their first byte. The line now ends `packet bytes 0, packet lead 0`. These
-  tools reading a board that still carries older firmware report
-  `error: radio wait timeouts read failed: board returned 10 of 12 bytes` for
-  that one line rather than misreading it; flash the board to match.
-- `ubertooth-util -w` says how deep the board's stack has ever been, as `Most
-  stack ever used since boot: 432 of 11128 bytes`. The firmware writes a
-  known word over the unused stack at startup and counts how much of it has
-  gone, so a capture or a mode that comes close to running out of room can be
-  spotted before it writes over something.
-  [#904](https://github.com/SqueakyFloors/ubertooth/issues/904)
-- `ubertooth-util -w` says where a processor fault was, even for the faults the
-  part records no access address for, as `Last processor fault: status
-  0x00000001, the instruction was at 0x4001f0a4`. A hard fault and a usage
-  fault keep no address register, and nor does an instruction fetch the part
-  refuses to execute — a branch through a corrupted pointer — so for those the
-  only record used to be which of the four faults it was. The board now reads
-  the address out of the exception frame, which for that fetch is where the
-  pointer pointed. Because the record means something new, the breadcrumb starts
-  again on the first boot of this firmware: a board's reset, boot, and transfer
-  error counts restart once, as they do after a power cycle. The firmware API
-  version moved with it, so a release build of the host tools refuses a board
-  carrying older firmware and a development build warns about it, which is what
-  keeps either from reading an older record's leftover address register as an
-  instruction.
-  [#764](https://github.com/SqueakyFloors/ubertooth/issues/764)
-- `ubertooth-util -w` on a board that reset itself says which part of its USB
-  work it stopped in: handing a capture packet over, reading a request,
-  running one, writing the reply, or one of the handshakes with the USB
-  controller. It used to report all of those as "servicing USB".
-  [#239](https://github.com/SqueakyFloors/ubertooth/issues/239)
-  [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
-- `ubertooth-util -w` reports whether the board last came up from a watchdog
-  reset, how many it has done since power-on, and which mode and which wait it
-  was in when it stopped answering.
-  [#509](https://github.com/SqueakyFloors/ubertooth/issues/509)
-- `ubertooth-util -w` also reports how many of the firmware's waits on the
-  radio gave up, one count per wait. Those waits are bounded so that a radio
-  that never reports the state it was asked for cannot hold the board, and
-  carrying on is silent: a count above zero is what tells a half-working radio
-  from a quiet channel.
-  [#488](https://github.com/SqueakyFloors/ubertooth/issues/488)
-- The report for a request the board refused names the reset that recovers a
-  board which has stopped answering. Such a board stalls every request sent to
-  it, whatever its firmware implements, so the stall report used to send the
-  user to reflash a board that was not short of the request at all. It now
-  carries a second note, `note: a board that stalls every request is wedged
-  rather than short of this one; reset it with ubertooth-util -r on the same
-  board`, and the note for a request that timed out names the same reset
-  before the unplug it already suggested, so the recovery that needs nobody
-  at the bench comes first.
-- Starting another tool with `-U` while a capture runs no longer hangs the
-  capturing board until the watchdog resets it. [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
-- A stack that runs out of room is caught and reported instead of running on
-  unnoticed. The firmware asks the part's memory protection unit to refuse the
-  32 bytes at the bottom of the stack, so an overflow faults there and then:
-  the board blinks the fault code, resets itself three seconds later, and
-  `ubertooth-util -w` reports the fault with the refused address just below
-  the stack. It used to write over the data below the stack and show up later
-  as wrong capture data or a fault somewhere unrelated, with nothing to say
-  which it was. The fault arrives as a memory management fault, or as a hard
-  fault carrying the same status and address where the processor could not
-  stack the fault's own frame clear of the guard. Both `bluetooth_rxtx` and
-  `btbr` get this; the bootloader does not, since it runs for a moment with
-  the whole stack to itself and is the image a board is recovered through.
-  [#953](https://github.com/SqueakyFloors/ubertooth/issues/953)
-- The firmware has room for its stack. The largest capture and packet buffers
-  now sit in the microcontroller's second RAM bank, which nothing else used,
-  so the `bluetooth_rxtx` image leaves its stack about 11 KB where it left
-  about 730 bytes. A stack that ran out of room used to write over the data
-  below it and show up later as wrong capture data or a fault somewhere else.
-  The link now fails if an image leaves the stack less than 2 KB. A spectrum
-  dump, the one capture that runs the board's USB queue flat out, gives up
-  about 1% of its throughput for this; an advertising capture and a follow
-  were unchanged on the bench.
-  [#904](https://github.com/SqueakyFloors/ubertooth/issues/904)
-- `ubertooth-util -w` reports how many capture transfers have failed since
-  power-on, so a capture losing packets to the hardware tells itself apart from
-  a quiet channel, and what the board's last processor fault was: the fault
-  status register and the address of the refused access.
-  [#823](https://github.com/SqueakyFloors/ubertooth/issues/823)
-  [#764](https://github.com/SqueakyFloors/ubertooth/issues/764)
-- `ubertooth-util -r` recovers a board that answers nothing, which used to
-  need a re-plug or a hub port power cycle. Such a board refuses the reset
-  request like every other request, so `-r` resets its USB connection first --
-  the re-plug done in software -- and then resets the board as usual, so it
-  comes back idle. Select it by index: its serial cannot be read.
-  [#731](https://github.com/SqueakyFloors/ubertooth/issues/731)
-- A board that is advertising (`ubertooth-btle -s`, `ubertooth-ducky`) keeps
-  answering the host if its radio stops sending. The wait for the radio to
-  empty its transmit buffer had no end, and that wait sits in the loop that
-  services USB, so a radio that stopped draining left the board answering
-  nothing until it was unplugged and plugged back in.
-- `ubertooth-util -w` names three more places a board can stop answering in:
-  the low-energy engine's two interrupt handlers and its symbol buffer. A
-  reset caught in one of those handlers used to be reported as the mode's loop
-  servicing USB, which is also what a reset caught in the loop itself reports.
-  [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
-- `ubertooth-util -w` names two more: an interrupt the firmware does not
-  handle, and a failed debug UART transfer. Both stop the board in a loop that
-  marked nothing, so the report named whatever the board had been doing before
-  it got there.
-  [#723](https://github.com/SqueakyFloors/ubertooth/issues/723)
-- `ubertooth-util -w`'s line for what the board is doing now no longer names a
-  wait the board has already left. A wait reached from inside an interrupt
-  handler used to claim that line on its way out, and the crystal-oscillator
-  wait is reached that way on every BLE channel hop.
-  [#730](https://github.com/SqueakyFloors/ubertooth/issues/730)
-- A board that stops answering the host usually resets itself within about
-  three seconds and comes back idle, instead of staying on USB answering
-  nothing until it is unplugged or its hub port is power-cycled. A capture sees
-  the board disappear rather than hang. A board that hits one of the LED fault
-  codes now reboots part-way through blinking it for the same reason, and
-  `ubertooth-util -w` says which of the four faults it was, which counting
-  blinks never gave you. That holds for a board running `btbr` too, where a
-  fault used to read back as whatever the firmware was doing before it, "not in
-  a wait" or "servicing USB"; a board that image stopped itself reads back as
-  that.
-  [#239](https://github.com/SqueakyFloors/ubertooth/issues/239)
-  [#458](https://github.com/SqueakyFloors/ubertooth/issues/458)
-  [#509](https://github.com/SqueakyFloors/ubertooth/issues/509)
-  [#608](https://github.com/SqueakyFloors/ubertooth/issues/608)
-- The `libusb -7` note names the fallback -- unplug the board or power-cycle its
-  hub port -- as well as the self-reset, which a board whose loop keeps feeding
-  the watchdog never gets.
-  [#609](https://github.com/SqueakyFloors/ubertooth/issues/609)
-- A control request sent to a board that is receiving, transmitting or scanning
-  no longer stalls. `ubertooth-util`, `ubertooth-debug` and anything else that
-  reads the channel, a register or the clock during a capture used to fail
-  roughly one call in twenty in Bluetooth follow mode, because the board stopped
-  answering while it retuned.
-  [#149](https://github.com/SqueakyFloors/ubertooth/issues/149)
-  [#223](https://github.com/SqueakyFloors/ubertooth/issues/223)
-- Three modes that could only be ended by unplugging the board now stop when
-  asked: generic receive (`ubertooth-debug` after `UBERTOOTH_RX_GENERIC`), the
-  range test and the repeater. Each waited for a packet without answering the
-  host, so on a quiet channel the board was unreachable; the repeater did not
-  look at the requested mode.
-  [#223](https://github.com/SqueakyFloors/ubertooth/issues/223)
-- An interrupt handler can no longer cut into a CC2400 register transfer and
-  corrupt the register being read or written, or cost the radio a strobe and
-  leave the board quiet. The longer FIFO transfers are still unguarded.
-  [#175](https://github.com/SqueakyFloors/ubertooth/issues/175)
-  [#429](https://github.com/SqueakyFloors/ubertooth/issues/429)
-- `ubertooth-btbr` no longer leaves the board unreachable when the radio does
-  not reach the state a slot is waiting for. The BR/EDR firmware waited on the
-  radio's state machine forever, from the timer interrupt, so the board stopped
-  answering anything until it was re-plugged.
-  [#174](https://github.com/SqueakyFloors/ubertooth/issues/174)
-- `ubertooth-btbr` no longer leaves the board unreachable when a packet stops
-  part-way through. The BR/EDR firmware waited forever for the rest of the
-  bytes, from the timer interrupt; it now gives up when they are overdue and
-  reports the packet as received but undecodable, as it already did for a
-  header it could not decode.
-  [#495](https://github.com/SqueakyFloors/ubertooth/issues/495)
-- Stopping a capture that has packets in hand (Ctrl-C, or an `ubertooth-afh` or
-  `ubertooth-rx` timeout with traffic flowing) no longer releases a receive
-  transfer the USB layer is still using, which could corrupt memory or crash
-  the tool. A board that never gives the transfer back is now reported and
-  left open rather than closed underneath it.
-  [#370](https://github.com/SqueakyFloors/ubertooth/issues/370)
-- `ubertooth-afh` exits 1 when the selected board is not found, instead of
-  crashing with a segmentation fault; `ubertooth-follow` now stops there too.
-  [#185](https://github.com/SqueakyFloors/ubertooth/issues/185)
-- Firmware no longer stops answering USB control
-  requests after a BLE sniffing mode is stopped, so the
-  board no longer needs a re-plug to be usable again.
-  [#158](https://github.com/SqueakyFloors/ubertooth/issues/158)
-- Control requests now answer reliably while the LED spectrum analyzer
-  (`ubertooth-util -q`) runs: reads such as `-d`, `-C` and `-z` no longer fail
-  every few samples with a stalled transfer, and `-S` stops the mode even if
-  the radio stops reporting a synthesizer lock.
-  [#213](https://github.com/SqueakyFloors/ubertooth/issues/213)
-- `btbr` firmware: a host that stops reading no longer leaves the board
-  answering nothing until it is power-cycled. A debug or fault message now
-  waits about a tenth of a second for the host to read it and is then dropped,
-  and the board keeps answering commands while it waits.
-  [#282](https://github.com/SqueakyFloors/ubertooth/issues/282)
-- The low-energy capture engine changes its timer's match-enable register, its
-  buffer pool and the buffer a finished packet is handed over from with
-  interrupts held off, so the connection-event timer can no longer cut into any
-  of the three. Each was read, altered and written back in steps the timer
-  could land between, which could lose a buffer or a timer match.
-  [#877](https://github.com/SqueakyFloors/ubertooth/issues/877)
-  [#505](https://github.com/SqueakyFloors/ubertooth/issues/505)
+- **Boards recover on their own.** A board that stops answering resets itself
+  within about three seconds, and `ubertooth-util -r` recovers one that
+  answers nothing, without a re-plug. A failed request's error suggests
+  `ubertooth-util -r` before unplugging.
+- **Fixed: boards that hung until re-plugged.** Control requests during a
+  capture, stopping a mode, starting another tool with `-U` during a capture,
+  or a stalled radio could leave the board unresponsive, in both
+  `bluetooth_rxtx` and `btbr`.
+- **Fixed: memory corruption and crashes.** The firmware stack grows from
+  about 730 bytes to 11 KB, and an overflow faults at once instead of
+  overwriting capture data. Interrupt races in the radio and capture code are
+  closed, and the host tools no longer crash stopping a capture or when a
+  board is missing.
+- **`ubertooth-util -w` says why a board stopped:** resets, the mode and wait
+  it stopped in, processor faults and their address, timed-out waits, failed
+  transfers, and stack use. The firmware API version moved with it; reflash
+  older boards.
+
+([#904](https://github.com/SqueakyFloors/ubertooth/issues/904), [#764](https://github.com/SqueakyFloors/ubertooth/issues/764), [#239](https://github.com/SqueakyFloors/ubertooth/issues/239), [#505](https://github.com/SqueakyFloors/ubertooth/issues/505), [#509](https://github.com/SqueakyFloors/ubertooth/issues/509), [#488](https://github.com/SqueakyFloors/ubertooth/issues/488), [#953](https://github.com/SqueakyFloors/ubertooth/issues/953), [#823](https://github.com/SqueakyFloors/ubertooth/issues/823), [#731](https://github.com/SqueakyFloors/ubertooth/issues/731), [#723](https://github.com/SqueakyFloors/ubertooth/issues/723), [#730](https://github.com/SqueakyFloors/ubertooth/issues/730), [#458](https://github.com/SqueakyFloors/ubertooth/issues/458), [#608](https://github.com/SqueakyFloors/ubertooth/issues/608), [#609](https://github.com/SqueakyFloors/ubertooth/issues/609), [#149](https://github.com/SqueakyFloors/ubertooth/issues/149), [#223](https://github.com/SqueakyFloors/ubertooth/issues/223), [#175](https://github.com/SqueakyFloors/ubertooth/issues/175), [#429](https://github.com/SqueakyFloors/ubertooth/issues/429), [#174](https://github.com/SqueakyFloors/ubertooth/issues/174), [#495](https://github.com/SqueakyFloors/ubertooth/issues/495), [#370](https://github.com/SqueakyFloors/ubertooth/issues/370), [#185](https://github.com/SqueakyFloors/ubertooth/issues/185), [#158](https://github.com/SqueakyFloors/ubertooth/issues/158), [#213](https://github.com/SqueakyFloors/ubertooth/issues/213), [#282](https://github.com/SqueakyFloors/ubertooth/issues/282), [#877](https://github.com/SqueakyFloors/ubertooth/issues/877))
 
 ### Across all tools
 
@@ -234,93 +64,97 @@ Behavior the tools share.
 
 #### The command line and option values
 
-- The command-line handling has been thoroughly revamped so every tool behaves
-  consistently and as expected: invalid arguments and combinations are rejected
-  before a board is opened, and an option and its value may be separated by a
-  space.
-  ([#155](https://github.com/SqueakyFloors/ubertooth/issues/155), [#193](https://github.com/SqueakyFloors/ubertooth/issues/193), [#236](https://github.com/SqueakyFloors/ubertooth/issues/236), [#323](https://github.com/SqueakyFloors/ubertooth/issues/323), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#501](https://github.com/SqueakyFloors/ubertooth/issues/501), [#541](https://github.com/SqueakyFloors/ubertooth/issues/541), [#790](https://github.com/SqueakyFloors/ubertooth/issues/790))
+- Command-line handling revamped so every tool behaves consistently: invalid
+  arguments and combinations are rejected before a board is opened. An option
+  and its value may now be separated by a space.
+
+([#155](https://github.com/SqueakyFloors/ubertooth/issues/155), [#193](https://github.com/SqueakyFloors/ubertooth/issues/193), [#236](https://github.com/SqueakyFloors/ubertooth/issues/236), [#323](https://github.com/SqueakyFloors/ubertooth/issues/323), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#501](https://github.com/SqueakyFloors/ubertooth/issues/501), [#541](https://github.com/SqueakyFloors/ubertooth/issues/541), [#790](https://github.com/SqueakyFloors/ubertooth/issues/790))
 
 #### Output streams, messages, and exit status
 
-- **Script-visible change.** Diagnostics, version output, and exit status now read the same across every tool: standard output carries only results and capture data, errors, warnings, and progress go to standard error, `-h` exits 0, and a command line with nothing to do is refused. `-V` is labeled and consistent everywhere, including the three Python tools, and names the host version and each attached board's firmware. A request a board's firmware lacks, or any refused control command, is reported in one wording that names the request rather than a raw libusb code, and the Python tools no longer end in a traceback when a standard stream has gone away.
-- **Script-visible change.** Every version line names the release a build came from rather than a commit: the release tag it was built at, or the nearest release and how many commits are past it, as in `2026-11-R1+22`, keeping the `*` for a modified tree. That is the host tools' line, libbtbb's beside it, each board's firmware, and the bootloader's. The host line drops the library ABI numbers and the `libbtbb loaded from:` line; a run that loads a libbtbb other than the one the tools were built against now says so in one warning. `-V` is those two lines and no more: the `Firmware build:` line is gone, and no image records when, where or by whom it was built, so the same source builds a byte-identical image and two builds that report the same version are told apart by the `.dfu` file's checksum. A build from a source download reports the release the download was made from, which git writes into the archive as it makes it, so no release version is kept by hand. A build with no release to read reports `unknown` rather than the last release there was, which includes a clone fetched without tags and a shallow one. Programs built against libubertooth: the `UBERTOOTH_VERSION_LABEL_BUILD` label leaves `ubertooth.h` with the line it named; the board request that answered the build string stays, and answers the version.
-  ([#21](https://github.com/SqueakyFloors/ubertooth/issues/21), [#275](https://github.com/SqueakyFloors/ubertooth/issues/275), [#323](https://github.com/SqueakyFloors/ubertooth/issues/323), [#337](https://github.com/SqueakyFloors/ubertooth/issues/337), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#542](https://github.com/SqueakyFloors/ubertooth/issues/542), [#610](https://github.com/SqueakyFloors/ubertooth/issues/610), [#636](https://github.com/SqueakyFloors/ubertooth/issues/636), [#745](https://github.com/SqueakyFloors/ubertooth/issues/745), [#812](https://github.com/SqueakyFloors/ubertooth/issues/812), [#911](https://github.com/SqueakyFloors/ubertooth/issues/911), [#920](https://github.com/SqueakyFloors/ubertooth/issues/920), [#930](https://github.com/SqueakyFloors/ubertooth/issues/930), [#1230](https://github.com/SqueakyFloors/ubertooth/issues/1230))
+- **Script-visible change.** In every tool, results and capture data go to
+  standard output; errors, warnings, and progress go to standard error; help
+  (`-h`) exits 0; and a command line with nothing to do is refused. A request the firmware lacks is
+  named in the error instead of a raw libusb code, and the Python tools no
+  longer end in a traceback when a stream closes.
+- **Script-visible change.** Every tool's `-V` option, the Python tools
+  included, prints the host and firmware versions the same way. Versions name
+  a release rather than a commit, and the same source builds a byte-identical
+  image. For example:
+
+      $ ubertooth-util -V
+      Host tools version: 2026-11-R1+22 (libbtbb 2026-11-R1+22)
+      Firmware version: bluetooth_rxtx 2026-11-R1+22 (API:1.58)
+
+([#21](https://github.com/SqueakyFloors/ubertooth/issues/21), [#275](https://github.com/SqueakyFloors/ubertooth/issues/275), [#323](https://github.com/SqueakyFloors/ubertooth/issues/323), [#337](https://github.com/SqueakyFloors/ubertooth/issues/337), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#542](https://github.com/SqueakyFloors/ubertooth/issues/542), [#610](https://github.com/SqueakyFloors/ubertooth/issues/610), [#636](https://github.com/SqueakyFloors/ubertooth/issues/636), [#745](https://github.com/SqueakyFloors/ubertooth/issues/745), [#812](https://github.com/SqueakyFloors/ubertooth/issues/812), [#911](https://github.com/SqueakyFloors/ubertooth/issues/911), [#920](https://github.com/SqueakyFloors/ubertooth/issues/920), [#930](https://github.com/SqueakyFloors/ubertooth/issues/930), [#1230](https://github.com/SqueakyFloors/ubertooth/issues/1230))
 
 #### Choosing a board, and what it is running
 
-- **Reflash required.** The firmware API version is now 1.58. A release build of the host tools refuses firmware of any other version, older or newer, while a development build only warns, so host tools and firmware from different commits can be used together without a reflash. `ubertooth-dfu` reflashes a board whatever it is running, but only with an image built from this tree, and `2020-12-R1` firmware is refused. Every image now carries a block naming the image and the revision it was built from, which `ubertooth-dfu -d` and `ubertooth-util -v`/`-V` read off a board or a file.
-- Choosing a board reads the same across every tool: `-U` takes a USB index or a stable serial, the messages for no board, several boards, or an unreadable serial are uniform and say what to do, and a bus that cannot be listed is reported as that rather than as an empty bench.
-- A setting one run states for its mode (jamming, modulation, channel, AFH map, and the like) no longer leaks into the next run that reuses the board: the board keeps what was stated for the mode it is starting and drops it there.
-  ([#4](https://github.com/SqueakyFloors/ubertooth/issues/4), [#6](https://github.com/SqueakyFloors/ubertooth/issues/6), [#21](https://github.com/SqueakyFloors/ubertooth/issues/21), [#27](https://github.com/SqueakyFloors/ubertooth/issues/27), [#28](https://github.com/SqueakyFloors/ubertooth/issues/28), [#77](https://github.com/SqueakyFloors/ubertooth/issues/77), [#165](https://github.com/SqueakyFloors/ubertooth/issues/165), [#167](https://github.com/SqueakyFloors/ubertooth/issues/167), [#174](https://github.com/SqueakyFloors/ubertooth/issues/174), [#179](https://github.com/SqueakyFloors/ubertooth/issues/179), [#188](https://github.com/SqueakyFloors/ubertooth/issues/188), [#191](https://github.com/SqueakyFloors/ubertooth/issues/191), [#209](https://github.com/SqueakyFloors/ubertooth/issues/209), [#210](https://github.com/SqueakyFloors/ubertooth/issues/210), [#232](https://github.com/SqueakyFloors/ubertooth/issues/232), [#240](https://github.com/SqueakyFloors/ubertooth/issues/240), [#261](https://github.com/SqueakyFloors/ubertooth/issues/261), [#312](https://github.com/SqueakyFloors/ubertooth/issues/312), [#318](https://github.com/SqueakyFloors/ubertooth/issues/318), [#323](https://github.com/SqueakyFloors/ubertooth/issues/323), [#352](https://github.com/SqueakyFloors/ubertooth/issues/352), [#395](https://github.com/SqueakyFloors/ubertooth/issues/395), [#396](https://github.com/SqueakyFloors/ubertooth/issues/396), [#401](https://github.com/SqueakyFloors/ubertooth/issues/401), [#429](https://github.com/SqueakyFloors/ubertooth/issues/429), [#433](https://github.com/SqueakyFloors/ubertooth/issues/433), [#434](https://github.com/SqueakyFloors/ubertooth/issues/434), [#440](https://github.com/SqueakyFloors/ubertooth/issues/440), [#464](https://github.com/SqueakyFloors/ubertooth/issues/464), [#473](https://github.com/SqueakyFloors/ubertooth/issues/473), [#475](https://github.com/SqueakyFloors/ubertooth/issues/475), [#488](https://github.com/SqueakyFloors/ubertooth/issues/488), [#490](https://github.com/SqueakyFloors/ubertooth/issues/490), [#505](https://github.com/SqueakyFloors/ubertooth/issues/505), [#508](https://github.com/SqueakyFloors/ubertooth/issues/508), [#543](https://github.com/SqueakyFloors/ubertooth/issues/543), [#547](https://github.com/SqueakyFloors/ubertooth/issues/547), [#570](https://github.com/SqueakyFloors/ubertooth/issues/570), [#571](https://github.com/SqueakyFloors/ubertooth/issues/571), [#580](https://github.com/SqueakyFloors/ubertooth/issues/580), [#636](https://github.com/SqueakyFloors/ubertooth/issues/636), [#652](https://github.com/SqueakyFloors/ubertooth/issues/652), [#657](https://github.com/SqueakyFloors/ubertooth/issues/657), [#658](https://github.com/SqueakyFloors/ubertooth/issues/658), [#660](https://github.com/SqueakyFloors/ubertooth/issues/660), [#686](https://github.com/SqueakyFloors/ubertooth/issues/686), [#718](https://github.com/SqueakyFloors/ubertooth/issues/718), [#757](https://github.com/SqueakyFloors/ubertooth/issues/757), [#764](https://github.com/SqueakyFloors/ubertooth/issues/764), [#805](https://github.com/SqueakyFloors/ubertooth/issues/805), [#828](https://github.com/SqueakyFloors/ubertooth/issues/828), [#872](https://github.com/SqueakyFloors/ubertooth/issues/872))
+- **Reflash required.** The firmware API version is now 1.58. A release build
+  refuses firmware of any other version; a development build warns.
+  `ubertooth-dfu` reflashes any board, but only with an image from this tree
+  (`2020-12-R1` firmware is refused). Each image carries an info block that
+  `ubertooth-dfu -d` and `ubertooth-util -v`/`-V` read.
+- Every tool that uses a board selects it the same way, with `-U` followed by
+  a USB index or the board's serial number (for example `ubertooth-btle -f -U
+  1`), and gives the same messages for no board, several boards, or an
+  unreadable serial.
+- **Fixed:** a mode setting (jamming, modulation, channel, AFH map) leaked into
+  the next run on the same board.
+
+([#4](https://github.com/SqueakyFloors/ubertooth/issues/4), [#6](https://github.com/SqueakyFloors/ubertooth/issues/6), [#21](https://github.com/SqueakyFloors/ubertooth/issues/21), [#27](https://github.com/SqueakyFloors/ubertooth/issues/27), [#28](https://github.com/SqueakyFloors/ubertooth/issues/28), [#77](https://github.com/SqueakyFloors/ubertooth/issues/77), [#165](https://github.com/SqueakyFloors/ubertooth/issues/165), [#167](https://github.com/SqueakyFloors/ubertooth/issues/167), [#174](https://github.com/SqueakyFloors/ubertooth/issues/174), [#179](https://github.com/SqueakyFloors/ubertooth/issues/179), [#188](https://github.com/SqueakyFloors/ubertooth/issues/188), [#191](https://github.com/SqueakyFloors/ubertooth/issues/191), [#209](https://github.com/SqueakyFloors/ubertooth/issues/209), [#210](https://github.com/SqueakyFloors/ubertooth/issues/210), [#232](https://github.com/SqueakyFloors/ubertooth/issues/232), [#240](https://github.com/SqueakyFloors/ubertooth/issues/240), [#261](https://github.com/SqueakyFloors/ubertooth/issues/261), [#312](https://github.com/SqueakyFloors/ubertooth/issues/312), [#318](https://github.com/SqueakyFloors/ubertooth/issues/318), [#323](https://github.com/SqueakyFloors/ubertooth/issues/323), [#352](https://github.com/SqueakyFloors/ubertooth/issues/352), [#395](https://github.com/SqueakyFloors/ubertooth/issues/395), [#396](https://github.com/SqueakyFloors/ubertooth/issues/396), [#401](https://github.com/SqueakyFloors/ubertooth/issues/401), [#429](https://github.com/SqueakyFloors/ubertooth/issues/429), [#433](https://github.com/SqueakyFloors/ubertooth/issues/433), [#434](https://github.com/SqueakyFloors/ubertooth/issues/434), [#440](https://github.com/SqueakyFloors/ubertooth/issues/440), [#464](https://github.com/SqueakyFloors/ubertooth/issues/464), [#473](https://github.com/SqueakyFloors/ubertooth/issues/473), [#475](https://github.com/SqueakyFloors/ubertooth/issues/475), [#488](https://github.com/SqueakyFloors/ubertooth/issues/488), [#490](https://github.com/SqueakyFloors/ubertooth/issues/490), [#505](https://github.com/SqueakyFloors/ubertooth/issues/505), [#508](https://github.com/SqueakyFloors/ubertooth/issues/508), [#543](https://github.com/SqueakyFloors/ubertooth/issues/543), [#547](https://github.com/SqueakyFloors/ubertooth/issues/547), [#570](https://github.com/SqueakyFloors/ubertooth/issues/570), [#571](https://github.com/SqueakyFloors/ubertooth/issues/571), [#580](https://github.com/SqueakyFloors/ubertooth/issues/580), [#636](https://github.com/SqueakyFloors/ubertooth/issues/636), [#652](https://github.com/SqueakyFloors/ubertooth/issues/652), [#657](https://github.com/SqueakyFloors/ubertooth/issues/657), [#658](https://github.com/SqueakyFloors/ubertooth/issues/658), [#660](https://github.com/SqueakyFloors/ubertooth/issues/660), [#686](https://github.com/SqueakyFloors/ubertooth/issues/686), [#718](https://github.com/SqueakyFloors/ubertooth/issues/718), [#757](https://github.com/SqueakyFloors/ubertooth/issues/757), [#764](https://github.com/SqueakyFloors/ubertooth/issues/764), [#805](https://github.com/SqueakyFloors/ubertooth/issues/805), [#828](https://github.com/SqueakyFloors/ubertooth/issues/828), [#872](https://github.com/SqueakyFloors/ubertooth/issues/872))
 
 #### Captures: destinations, files, and what a capture reports
 
-- Capture destinations are handled consistently: a lone `-` (and `/dev/stdout`, `/dev/fd/1`, and `/proc/self/fd/1`) streams the capture with the report kept off that stream, two destinations that resolve to one file are refused before either is opened, a PcapNG capture to stdout is refused with advice, a replay refuses to write over the dump it is reading, and a run refused for its firmware leaves no empty file behind.
-- Captures now report honestly what the board saw: each record carries the packet's own signal power and an estimated background with a signal-to-noise ratio (and `none` where nothing was measured), and a capture warns once per run, with an end-of-run total, when the signal saturates the receiver, when the queue filled and dropped packets, when a transfer error or an overwritten block lost air, and when it could not be written. Several accuracy fixes went in too: the access-code search no longer misses the last position in a bank, early signal levels are the packet's own, the piconet clock trim moves the clock the right way, and the noise-power-valid flag stays clear when nothing measured it.
-- The tools are built against an updated libbtbb that names each record's logical transport (SCO, eSCO, or ACL), removes its own unfinished capture file on error, and survives a failed hash-table allocation. Credit: Hannes Ellinger ([@el-han](https://github.com/el-han)) for the per-packet signal figure, and [@orgua](https://github.com/orgua) for noting that dBm readings must be averaged in power ([upstream #240](https://github.com/greatscottgadgets/ubertooth/pull/240)).
-  ([#77](https://github.com/SqueakyFloors/ubertooth/issues/77), [#118](https://github.com/SqueakyFloors/ubertooth/issues/118), [#435](https://github.com/SqueakyFloors/ubertooth/issues/435), [#448](https://github.com/SqueakyFloors/ubertooth/issues/448), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#637](https://github.com/SqueakyFloors/ubertooth/issues/637), [#643](https://github.com/SqueakyFloors/ubertooth/issues/643), [#658](https://github.com/SqueakyFloors/ubertooth/issues/658), [#663](https://github.com/SqueakyFloors/ubertooth/issues/663), [#665](https://github.com/SqueakyFloors/ubertooth/issues/665), [#736](https://github.com/SqueakyFloors/ubertooth/issues/736), [#745](https://github.com/SqueakyFloors/ubertooth/issues/745), [#771](https://github.com/SqueakyFloors/ubertooth/issues/771), [#786](https://github.com/SqueakyFloors/ubertooth/issues/786), [#792](https://github.com/SqueakyFloors/ubertooth/issues/792), [#803](https://github.com/SqueakyFloors/ubertooth/issues/803), [#849](https://github.com/SqueakyFloors/ubertooth/issues/849), [#869](https://github.com/SqueakyFloors/ubertooth/issues/869), [#873](https://github.com/SqueakyFloors/ubertooth/issues/873), [#1040](https://github.com/SqueakyFloors/ubertooth/issues/1040), [#1130](https://github.com/SqueakyFloors/ubertooth/issues/1130), [#1147](https://github.com/SqueakyFloors/ubertooth/issues/1147), [#1149](https://github.com/SqueakyFloors/ubertooth/issues/1149), [#1157](https://github.com/SqueakyFloors/ubertooth/issues/1157))
+- Capture destinations are consistent across tools: a file name of `-` (or any
+  path to standard output) streams the capture with the report on standard error, PcapNG to standard
+  output is refused with advice, and a refused run leaves no empty file.
+- **Fixed:** two capture options naming one file, or a replay writing into its
+  own dump, silently destroyed the capture (or never ended). Both are refused
+  before anything is written; a replay piped into its own dump warns.
+- Each record carries the packet's signal power, a background estimate, and
+  SNR (or `none`). A run warns, with an end-of-run total, on receiver
+  saturation, dropped packets, lost air time, or write failures. Fixes to the
+  access-code search, early signal levels, clock trim, and the noise-valid
+  flag make the figures accurate.
+- Updated libbtbb names each record's logical transport (SCO, eSCO, or ACL),
+  removes its unfinished capture file on error, and survives a failed
+  allocation. Credit: Hannes Ellinger
+  ([@el-han](https://github.com/el-han)) for the per-packet signal figure, and
+  [@orgua](https://github.com/orgua) for noting that dBm readings must be
+  averaged in power
+  ([upstream #240](https://github.com/greatscottgadgets/ubertooth/pull/240)).
 
-- Fixed: a capture destination that reached standard output by a name the
-  tools did not recognize kept the stream to itself only by accident. A
-  symbolic link pointing at `/dev/stdout` got the tool's own report lines
-  mixed into the capture, and a terminal behind such a link was not refused.
-  A destination that is a link to that stream is now the stream, so the
-  report goes to standard error and the capture arrives whole. The same
-  holds for any spelling the system itself answers with that descriptor,
-  `/dev/fd/01` on the BSDs included.
-  [#1165](https://github.com/SqueakyFloors/ubertooth/issues/1165)
-- Fixed: `ubertooth-rx` and `ubertooth-btle` silently destroyed a capture when
-  two capture options were given one file name. `-q coll.bin -d coll.bin`
-  exited 0 with one format in the file and no sign the other had been asked
-  for; it is now refused with `error: -q and -d cannot both write to
-  coll.bin`, before either file is opened. Every pair of `-r`, `-q`/`-c`, and
-  `-d` is checked, as it already was in `ubertooth-follow`.
-  [#1149](https://github.com/SqueakyFloors/ubertooth/issues/1149)
-- Fixed: a replay whose capture was pointed at its own dump through a
-  descriptor the calling shell opened read the records it was appending and
-  never ended, filling the dump with its own output. `ubertooth-rx -i cap.bin
-  -d /dev/fd/3 3>>cap.bin` and the `ubertooth-btle -R` version of it are now
-  refused with the file left as it was. The descriptor is asked which file it
-  holds, so the answer is the same on Linux and macOS, and so is every
-  spelling that reaches it: a symbolic link to one of those, the fixed names
-  `/dev/stderr` and `/dev/stdin`, and, on the BSDs, `/dev/fd/03`.
-  [#1146](https://github.com/SqueakyFloors/ubertooth/issues/1146)
-- Fixed: `ubertooth-rx -i cap.bin >> cap.bin` wrote its decode into the
-  capture it was replaying and said nothing, leaving a file no later replay
-  could read. A replay whose standard output is the dump it is reading now
-  says so in one `warning: ` line and carries on, exit status unchanged;
-  `ubertooth-btle -R` too.
-  [#1148](https://github.com/SqueakyFloors/ubertooth/issues/1148)
+([#77](https://github.com/SqueakyFloors/ubertooth/issues/77), [#118](https://github.com/SqueakyFloors/ubertooth/issues/118), [#435](https://github.com/SqueakyFloors/ubertooth/issues/435), [#448](https://github.com/SqueakyFloors/ubertooth/issues/448), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#637](https://github.com/SqueakyFloors/ubertooth/issues/637), [#643](https://github.com/SqueakyFloors/ubertooth/issues/643), [#658](https://github.com/SqueakyFloors/ubertooth/issues/658), [#663](https://github.com/SqueakyFloors/ubertooth/issues/663), [#665](https://github.com/SqueakyFloors/ubertooth/issues/665), [#736](https://github.com/SqueakyFloors/ubertooth/issues/736), [#745](https://github.com/SqueakyFloors/ubertooth/issues/745), [#771](https://github.com/SqueakyFloors/ubertooth/issues/771), [#786](https://github.com/SqueakyFloors/ubertooth/issues/786), [#792](https://github.com/SqueakyFloors/ubertooth/issues/792), [#803](https://github.com/SqueakyFloors/ubertooth/issues/803), [#849](https://github.com/SqueakyFloors/ubertooth/issues/849), [#869](https://github.com/SqueakyFloors/ubertooth/issues/869), [#873](https://github.com/SqueakyFloors/ubertooth/issues/873), [#1040](https://github.com/SqueakyFloors/ubertooth/issues/1040), [#1130](https://github.com/SqueakyFloors/ubertooth/issues/1130), [#1147](https://github.com/SqueakyFloors/ubertooth/issues/1147), [#1149](https://github.com/SqueakyFloors/ubertooth/issues/1149), [#1157](https://github.com/SqueakyFloors/ubertooth/issues/1157), [#1165](https://github.com/SqueakyFloors/ubertooth/issues/1165), [#1146](https://github.com/SqueakyFloors/ubertooth/issues/1146), [#1148](https://github.com/SqueakyFloors/ubertooth/issues/1148))
 
 #### Capture timestamps
 
-- Capture timestamps are now correct and continuous, live and on replay: they start when the capture started, no longer jump when the board's capture clock rolls over or leap by hours from a record left over from the previous mode, survive quiet gaps, and reflect when each packet actually arrived rather than when the host got to it. The per-packet `systime` and the host time a `-d` dump stores come from the same reading the capture is anchored on, so they agree.
-  ([#202](https://github.com/SqueakyFloors/ubertooth/issues/202), [#218](https://github.com/SqueakyFloors/ubertooth/issues/218), [#229](https://github.com/SqueakyFloors/ubertooth/issues/229), [#465](https://github.com/SqueakyFloors/ubertooth/issues/465), [#478](https://github.com/SqueakyFloors/ubertooth/issues/478), [#492](https://github.com/SqueakyFloors/ubertooth/issues/492), [#589](https://github.com/SqueakyFloors/ubertooth/issues/589), [#612](https://github.com/SqueakyFloors/ubertooth/issues/612))
+- **Fixed:** timestamps jumped at clock rollovers, leapt by hours after a mode
+  change, or showed when the host read a packet instead of when it arrived.
+  They now run correctly live and on replay, and the per-packet `systime`
+  matches the host time in an `ubertooth-rx -d` or `ubertooth-btle -d` dump.
+
+([#202](https://github.com/SqueakyFloors/ubertooth/issues/202), [#218](https://github.com/SqueakyFloors/ubertooth/issues/218), [#229](https://github.com/SqueakyFloors/ubertooth/issues/229), [#465](https://github.com/SqueakyFloors/ubertooth/issues/465), [#478](https://github.com/SqueakyFloors/ubertooth/issues/478), [#492](https://github.com/SqueakyFloors/ubertooth/issues/492), [#589](https://github.com/SqueakyFloors/ubertooth/issues/589), [#612](https://github.com/SqueakyFloors/ubertooth/issues/612))
 
 #### Starting and stopping a capture
 
-- **Script-visible change.** Starting and stopping a capture now reports success and failure honestly: a capture that cannot start, whose USB stream fails, or that never gets its receive transfer back exits 1 rather than a false 0 or a wrapped libusb code; a tool that cannot end its mode exits 1 and says so instead of leaving a board no other tool can open; one Ctrl-C ends a run even while the board is still being opened; closing the terminal takes the board out of its mode; and a stop no longer waits out the capture's poll retries. Whatever was captured is still written.
-  ([#319](https://github.com/SqueakyFloors/ubertooth/issues/319), [#379](https://github.com/SqueakyFloors/ubertooth/issues/379), [#431](https://github.com/SqueakyFloors/ubertooth/issues/431), [#454](https://github.com/SqueakyFloors/ubertooth/issues/454), [#515](https://github.com/SqueakyFloors/ubertooth/issues/515), [#545](https://github.com/SqueakyFloors/ubertooth/issues/545), [#584](https://github.com/SqueakyFloors/ubertooth/issues/584), [#741](https://github.com/SqueakyFloors/ubertooth/issues/741), [#802](https://github.com/SqueakyFloors/ubertooth/issues/802), [#844](https://github.com/SqueakyFloors/ubertooth/issues/844))
+- **Script-visible change.** A capture that cannot start, loses its USB
+  stream, or cannot end its mode exits 1 and says so, instead of a false 0 or
+  a board left unusable. One Ctrl-C ends a run, even during startup; closing
+  the terminal ends the board's mode; stops are prompt; and captured data is
+  still written.
+
+([#319](https://github.com/SqueakyFloors/ubertooth/issues/319), [#379](https://github.com/SqueakyFloors/ubertooth/issues/379), [#431](https://github.com/SqueakyFloors/ubertooth/issues/431), [#454](https://github.com/SqueakyFloors/ubertooth/issues/454), [#515](https://github.com/SqueakyFloors/ubertooth/issues/515), [#545](https://github.com/SqueakyFloors/ubertooth/issues/545), [#584](https://github.com/SqueakyFloors/ubertooth/issues/584), [#741](https://github.com/SqueakyFloors/ubertooth/issues/741), [#802](https://github.com/SqueakyFloors/ubertooth/issues/802), [#844](https://github.com/SqueakyFloors/ubertooth/issues/844))
 
 #### Generic radio mode
 
-- The board's generic radio mode is reachable from the command line, as an
-  **experimental** feature. It demodulates with whatever CC2400 configuration
-  the host has written rather than a Bluetooth one, so a 2.4 GHz protocol that
-  is not Bluetooth can be captured without new firmware, and one packet can be
-  transmitted the same way. ubertooth(7), GENERIC RADIO MODE is the worked
-  example of both.
-  `ubertooth-debug -w <reg>=<value>[,...]` writes the registers, which the tool
-  could only read before; `ubertooth-dump -g` starts the capture; and
-  `ubertooth-tx -g <payload> -a <syncword> [-n <count>]` transmits packets,
-  which is the one transmitter whose framing is known, so two boards set to
-  the same framing are how the packet-framing receive is checked. Both halves
-  of the receive work: the raw symbol stream, and the packet framing where the
-  radio matches a sync word and the board sends one record per detection.
-  What goes on the air carries the radio's CRC, and each record says what the
-  radio made of it, so a payload with a bit error in it is no longer read as a
-  payload. Expect the options and the output to change.
-  [#352](https://github.com/SqueakyFloors/ubertooth/issues/352)
+- **Experimental:** generic radio mode captures and sends non-Bluetooth
+  2.4 GHz protocols without new firmware. `ubertooth-debug -w` writes CC2400
+  registers, `ubertooth-dump -g` captures raw symbols or sync-word-framed
+  packets with CRC status, and `ubertooth-tx -g` transmits; see ubertooth(7),
+  GENERIC RADIO MODE. Options and output may change.
+
+([#352](https://github.com/SqueakyFloors/ubertooth/issues/352))
 
 ### ubertooth-btle
 
