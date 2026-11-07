@@ -166,7 +166,7 @@ jobs:
         # check on main, so it has to be carried to three other places: the
         # host-skipped stand-in below, the protection rule on main, and the
         # table in CONTRIBUTING.md.
-        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'release' || github.event_name == 'workflow_dispatch') && '["ubuntu-22.04","ubuntu-24.04","macos-14","macos-15","macos-26","ubuntu-latest"]' || '["ubuntu-22.04","ubuntu-24.04","macos-26"]') }}
+        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'release' || github.event_name == 'workflow_dispatch') && '["ubuntu-22.04","ubuntu-24.04","macos-15","macos-26","ubuntu-latest"]' || '["ubuntu-22.04","ubuntu-24.04","macos-26"]') }}
     runs-on: ${{ matrix.os }}
     # Above the bounded install step below plus the build and the tests, so a
     # step that overruns fails itself and names what stalled rather than being
@@ -492,7 +492,7 @@ jobs:
       matrix:
         # Same tiers as the host job, and the same four places to keep in
         # step when the minimal tier changes.
-        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'release' || github.event_name == 'workflow_dispatch') && '["ubuntu-22.04","ubuntu-24.04","macos-14","macos-15","macos-26","ubuntu-latest"]' || '["ubuntu-24.04","macos-26"]') }}
+        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'release' || github.event_name == 'workflow_dispatch') && '["ubuntu-22.04","ubuntu-24.04","macos-15","macos-26","ubuntu-latest"]' || '["ubuntu-24.04","macos-26"]') }}
     runs-on: ${{ matrix.os }}
     # Above the install step below plus the build, as in the host job. The
     # cold-run install step may take fourteen of these minutes on its own, and

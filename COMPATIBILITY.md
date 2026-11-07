@@ -24,14 +24,14 @@ Legend:
 |---|---|---|---|---|
 | **Ubuntu** | 20.04 LTS | 20.04, 22.04, 24.04 (CI, host+fw); 24.04.4 x86_64 on hardware (host tools) | ≤ 18.04 (use 2020-12-R1) | ✅ 20.04 verified in CI (container) |
 | **Fedora** | none declared: whatever `fedora:latest` is ([note below](#fedora-is-the-unpinned-canary)) | `fedora:latest` (CI): the host tools and their tests, and all of `install.sh` | older than `latest`: untested | ✅ verified in CI only; no Fedora machine has run it, and `install.sh --with-firmware` there is unverified |
-| **macOS** | 14 (Sonoma) | 14, 15, 26 / arm64 (CI, host+fw); 26.7.1 arm64 on hardware (host tools) | ≤ 13 | ✅ 14 verified in CI |
+| **macOS** | 14 (Sonoma) | 15, 26 / arm64 (CI, host+fw); 26.7.1 arm64 on hardware (host tools) | ≤ 13 | 🎯 14 untested (runner retired); 15 is the oldest verified in CI |
 | **Windows** | — | — | all | ❌ Unsupported (libusb + udev; use Linux/VM) |
 | **CMake** | 3.5 | 3.5 … 3.27 (enforced range); 3.28.3 (Ubuntu 24.04) and 4.4.4 (macOS 26) build the host tools | < 3.5 (CMake 4 removed it) | ✅ floor enforced in CMakeLists |
 | **GNU make (firmware)** | 3.81 | 3.81 (macOS), 4.3 (Linux) | — | ✅ 3.81 verified; build avoids make ≥ 4.0 features |
 | **perl (firmware tests)** | 5, any version | the system perl on the Ubuntu 24.04 and macOS 26 CI runners | — | ✅ verified in CI on both. Only `make -C firmware test` needs it |
 | **Python (host tools)** | 3.8 | 3.8 (U20 CI) … 3.14 (macOS CI) | 2.x (removed upstream) | ✅ 3.8 verified in CI |
-| **GCC (host)** | 9.4 | 9.4 (Ubuntu 20.04 CI), 11.4 (22.04), 13.3 (24.04), 16.2 (Fedora CI); Apple clang 15 (macOS 14), 17 (macOS 15), 21 (macOS 26); also `-std=c17`/`-std=c2x` | older than 9.4 (not tested) | ✅ 9.4 verified in CI (oldest tested) |
-| **arm-none-eabi-gcc (firmware)** | 9-2019-q4 (GCC 9.2.1) | 9-2019-q4 (Ubuntu 20.04 CI), 10.3-2021.07 (22.04), 13.2.rel1 (24.04), 15.3.1 (macOS 14/15/26 CI); 13.2 (Linux) and 15.3 (macOS) on hardware | older than 9-2019-q4 (not tested) | ✅ 9-2019-q4 verified in CI (oldest tested) |
+| **GCC (host)** | 9.4 | 9.4 (Ubuntu 20.04 CI), 11.4 (22.04), 13.3 (24.04), 16.2 (Fedora CI); Apple clang 17 (macOS 15), 21 (macOS 26); also `-std=c17`/`-std=c2x` | older than 9.4 (not tested) | ✅ 9.4 verified in CI (oldest tested) |
+| **arm-none-eabi-gcc (firmware)** | 9-2019-q4 (GCC 9.2.1) | 9-2019-q4 (Ubuntu 20.04 CI), 10.3-2021.07 (22.04), 13.2.rel1 (24.04), 15.3.1 (macOS 15/26 CI); 13.2 (Linux) and 15.3 (macOS) on hardware | older than 9-2019-q4 (not tested) | ✅ 9-2019-q4 verified in CI (oldest tested) |
 | **libusb** | 1.0.23 | 1.0.23 (Ubuntu 20.04 CI), 1.0.25 (22.04), 1.0.27 (24.04), 1.0.30 (macOS) | pre-1.0; older than 1.0.23 (not tested) | ✅ 1.0.23 verified in CI (oldest tested) |
 | **libbtbb** | the pinned fork commit ([`d356e9d`](https://github.com/SqueakyFloors/libbtbb/commit/d356e9da7fb03969371aa14d603a8aad2f0ef198), C lib) | that commit (CI, `install.sh`); upstream master was CI's dependency until the switch to the pin | one missing a function the tools call or a macro they read: refused at configure time; one from another commit: a warning. Any other libbtbb, upstream's included: untested here | ✅ the pin is what CI builds |
 | **libbluetooth (BlueZ)** — optional, for `ubertooth-scan` and `ubertooth-follow` | 5.53 | 5.53 (Ubuntu 20.04 CI), 5.64 (22.04), 5.72 (24.04), 5.87 (Fedora CI) | macOS: no BlueZ, and the operations these tools need are not in macOS's public APIs either, so both are skipped there and will stay that way ([note below](#macos-ubertooth-scan-and-ubertooth-follow-are-linux-only)) | ✅ 5.53 verified in CI. Both tools have since run against a real adapter: `ubertooth-scan` ([#1175](https://github.com/SqueakyFloors/ubertooth/pull/1175)) and `ubertooth-follow` ([#518](https://github.com/SqueakyFloors/ubertooth/issues/518)), the latter not yet reliably, for a timing reason rather than a BlueZ one (the `-w` delay, in `host/doc/ubertooth-follow.md`). Neither run recorded the adapter's BlueZ version |
@@ -79,7 +79,7 @@ libusb on Windows and the absence of udev rules make this impractical. Run the
 host tools under Linux (native or VM). Documented as a hard non-goal.
 
 ### macOS: arm64 verified, Intel (x86_64) not CI-tested
-CI covers Apple-Silicon (arm64) macOS 14/15/26. Intel macOS is not tested in CI:
+CI covers Apple-Silicon (arm64) macOS 15 and 26. Intel macOS is not tested in CI:
 GitHub's `macos-13` (last Intel) runners are capacity-constrained and queue
 unreliably, so an Intel CI job stalls rather than giving a timely signal. The
 code should build on Intel (no include path in the build names a Homebrew

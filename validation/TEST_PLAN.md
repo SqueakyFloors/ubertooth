@@ -11,11 +11,10 @@ checks (2a-1, 5b).
 
 The clean build itself is CI's work: the `host` job builds the tools and runs
 the unit tests on Ubuntu 22.04, Ubuntu 24.04, and macOS 26 on every change,
-and the scheduled and release runs add macOS 14, macOS 15, and
-`ubuntu-latest`; container jobs cover Ubuntu 20.04 and Fedora. What the steps
-below add is the install side, which no job exercises: the staged and
-installed Python launchers, and a source tree and a system Python that must
-not be written to.
+and the scheduled and release runs add macOS 15 and `ubuntu-latest`;
+container jobs cover Ubuntu 20.04 and Fedora. What the steps below add is the
+install side, which no job exercises: the staged and installed Python
+launchers, and a source tree and a system Python that must not be written to.
 
 ### 1a. Clean build on Ubuntu 22.04
 - [ ] Clone repo fresh on Ubuntu 22.04
