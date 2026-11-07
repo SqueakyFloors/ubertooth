@@ -334,34 +334,19 @@ Behavior the tools share.
 
 ### ubertooth-scan
 
-#### New features
+- **Script-visible change.** `ubertooth-scan` keeps its headings, `-x`
+  progress, and failures on standard error, so saved or piped output holds
+  only results. A refused inquiry, or a device that will not complete the
+  `ubertooth-scan -x` report, is named and exits 1 (before, exit 0).
+- **Fixed: wrong or stuck device names.** `ubertooth-scan` could print one
+  device's name against another's address, and a device that answered and
+  then went silent held the scan forever. Unreadable names now print as
+  `[unknown]` and the scan carries on.
+- **Fixed: newer manufacturers unnamed.** `ubertooth-scan -x` reported a
+  device from a recently registered company as `Manufacturer: not assigned`;
+  it now knows four times as many company identifiers.
 
-- **Script-visible change:** a `ubertooth-scan` run collected in a file or
-  piped into another program no longer picks up its three headings, the
-  progress of `-x` or its failures: those are on standard error now. An
-  inquiry the adapter refused, or a device the inquiry found that would not
-  complete the report `-x` asks for, is named and exits 1; the inquiry used to
-  print the name of a BlueZ function and exit 0, and three of the report's
-  failures ended the whole run with the board still open.
-  [#323](https://github.com/SqueakyFloors/ubertooth/issues/323)
-
-#### Fixes
-
-- Fixed: `ubertooth-scan` could print one device's name against another
-  device's address. A name is now printed only where the device's own answer
-  carried it, and a line whose name could not be read says `[unknown]`.
-  [#1172](https://github.com/SqueakyFloors/ubertooth/issues/1172)
-- Fixed: a device that answered `ubertooth-scan`'s page and then said nothing
-  held the scan forever, with the results so far printed and nothing after
-  them. The name read behind each result now has the same 25-second deadline
-  as the rest of the tool's reads, so such a device becomes an `[unknown]`
-  result, with a `note:` on standard error saying why, and the scan carries on.
-  [#1090](https://github.com/SqueakyFloors/ubertooth/issues/1090)
-- Fixed: `ubertooth-scan -x` reported a device from a company that joined the
-  Bluetooth SIG recently as `Manufacturer: not assigned`. The line is now
-  named from libbtbb's table of company identifiers, which has 4133 of them
-  where the BlueZ table it read before stops at 1037.
-  [#745](https://github.com/SqueakyFloors/ubertooth/issues/745)
+([#323](https://github.com/SqueakyFloors/ubertooth/issues/323), [#1172](https://github.com/SqueakyFloors/ubertooth/issues/1172), [#1090](https://github.com/SqueakyFloors/ubertooth/issues/1090), [#745](https://github.com/SqueakyFloors/ubertooth/issues/745))
 
 ### ubertooth-btbr
 
