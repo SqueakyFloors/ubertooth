@@ -222,24 +222,17 @@ Behavior the tools share.
 
 ### btle-extcap.py
 
-#### New features
-
 - **Each board is its own Wireshark interface.** Interfaces are named by the
   board's serial, so re-plugging cannot move a capture to another board, and
   several boards no longer list as `Ubertooth One 0:` repeated. A Wireshark
   profile that saved an Ubertooth has to pick it again.
-
-([#269](https://github.com/SqueakyFloors/ubertooth/issues/269))
-
-#### Fixes
-
-- **Ubertooth missing from Wireshark.** `btle-extcap.py` refused the
+- **Fixed: Ubertooth missing from Wireshark.** `btle-extcap.py` refused the
   options Wireshark adds to its calls, so no Ubertooth appeared in the capture
   list. `btle-extcap.py -h` also lists the options the script really takes.
-- **Failures reported as success.** A failing `ubertooth-util`, a
+- **Fixed: failures reported as success.** A failing `ubertooth-util`, a
   missing tool, or a closed standard output used to give an empty interface
   list, exit 0, or a traceback. Each is now one `error:` line and exit 1.
-- **Capture filters silently ignored.** A capture filter typed for an
+- **Fixed: capture filters silently ignored.** A capture filter typed for an
   Ubertooth interface now turns Wireshark's filter box red and says to use a
   display filter (before, the capture ran unfiltered).
 - **Script-visible change.** `btle-extcap.py --capture` exits only 0 or 1, and
@@ -249,7 +242,7 @@ Behavior the tools share.
   options and calls with nothing to do get the same error wording as every
   other tool.
 
-([#297](https://github.com/SqueakyFloors/ubertooth/issues/297), [#334](https://github.com/SqueakyFloors/ubertooth/issues/334), [#268](https://github.com/SqueakyFloors/ubertooth/issues/268), [#362](https://github.com/SqueakyFloors/ubertooth/issues/362), [#926](https://github.com/SqueakyFloors/ubertooth/issues/926), [#929](https://github.com/SqueakyFloors/ubertooth/issues/929), [#343](https://github.com/SqueakyFloors/ubertooth/issues/343), [#386](https://github.com/SqueakyFloors/ubertooth/issues/386), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#323](https://github.com/SqueakyFloors/ubertooth/issues/323))
+([#269](https://github.com/SqueakyFloors/ubertooth/issues/269), [#297](https://github.com/SqueakyFloors/ubertooth/issues/297), [#334](https://github.com/SqueakyFloors/ubertooth/issues/334), [#268](https://github.com/SqueakyFloors/ubertooth/issues/268), [#362](https://github.com/SqueakyFloors/ubertooth/issues/362), [#926](https://github.com/SqueakyFloors/ubertooth/issues/926), [#929](https://github.com/SqueakyFloors/ubertooth/issues/929), [#343](https://github.com/SqueakyFloors/ubertooth/issues/343), [#386](https://github.com/SqueakyFloors/ubertooth/issues/386), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#323](https://github.com/SqueakyFloors/ubertooth/issues/323))
 
 ### ubertooth-rx
 
@@ -298,58 +291,21 @@ Behavior the tools share.
 
 ### ubertooth-afh
 
-#### New features
+- **Script-visible change.** `ubertooth-afh -a` is removed.
+- **Script-visible change.** The removal threshold `ubertooth-afh -m` now
+  defaults to 800 packets (before, 5), so a full-band map holds at 79 of 79;
+  a channel the piconet gives up takes 800 packets to leave the map.
+- **Fixed: wrong channel maps.** `ubertooth-afh` reported only a handful of
+  the channels a full-band piconet uses, marked the two band-edge channels
+  used without hearing them, and could park on one channel and report only
+  that.
+- **Fixed: failures that looked like results.** When the board refuses the
+  band sweep, `ubertooth-afh` exits 1 instead of printing a one-channel map,
+  and `ubertooth-btle` likewise names the setup request the board refused.
+  `ubertooth-afh -t` exits 2 when detection hears nothing, instead of
+  monitoring an all-zero map, and stops on the first Ctrl-C.
 
-- **Script-visible change:** `ubertooth-afh -a` is gone. It never sent
-  anything, and it silently swallowed the word after it.
-  [#21](https://github.com/SqueakyFloors/ubertooth/issues/21)
-
-#### Fixes
-
-- **Script-visible change:** `ubertooth-afh` reports the map of a piconet
-  using the whole band instead of a handful of channels. The channel removal
-  threshold `-m` counts packets, not seconds, and with 79 channels in use a
-  given channel carries about one packet in 79, so the old default of 5 pruned
-  channels the piconet was using: the map flapped rather than settling, and
-  the example in the tool's own help text, which has no `-t` and so no
-  detection phase, settled on about five channels of the 79. The default is
-  now 800 packets, which holds that map at 79 of 79 with no channel added or
-  removed. The cost is at the other end of the trade-off: a channel the
-  piconet really has given up takes 800 packets to leave the map. See
-  ubertooth-afh(1), THE REMOVAL THRESHOLD.
-  [#194](https://github.com/SqueakyFloors/ubertooth/issues/194)
-- `ubertooth-afh` no longer reports the two channels at the edges of the band
-  as used without having seen a packet on them. Detection fills a single
-  unused channel between used ones, and off the end of the band -- Basic Rate
-  has channels 0 to 78 -- it read a channel that does not exist as used, so a
-  packet on channel 1 marked channel 0 used and one on channel 77 marked
-  channel 78. Both went into the printed map and into the map sent to the
-  board.
-  [#756](https://github.com/SqueakyFloors/ubertooth/issues/756)
-- `ubertooth-afh` stops when the board refuses the band sweep its map is
-  watched through, instead of printing a map of the one channel the board was
-  left on. With `-r` it now exits 1 when the receive could not be started at
-  all, where it exited 0. `ubertooth-btle` names which of the requests that set
-  a mode up the board refused, rather than only the mode, and a refused
-  `-s` advertise request stops the board rather than possibly leaving it
-  advertising, which is the state it stops answering in.
-  [#379](https://github.com/SqueakyFloors/ubertooth/issues/379)
-- `ubertooth-afh -t` now says when the initial detection phase received no
-  packet from the piconet, does not start monitoring, and exits with status 2,
-  instead of printing an all-zero map and carrying on monitoring until
-  interrupted.
-  [#187](https://github.com/SqueakyFloors/ubertooth/issues/187)
-- `ubertooth-afh` now detects the channel map from the board's AFH hopping
-  mode, which had never run: the firmware's AFH mode returned as soon as it was
-  entered, and the capture that followed hopped only by leftover state, so the
-  tool could end up parked on one channel and report only that one as used.
-  Hopping across the channels the piconet is not yet known to use is now what
-  the board is actually asked to do.
-  [#238](https://github.com/SqueakyFloors/ubertooth/issues/238)
-- `ubertooth-afh -t` stops on the first Ctrl-C. An interrupt during the
-  detection phase was dropped along with the timeout that normally ends it, so
-  monitoring started anyway and had to be interrupted a second time.
-  [#521](https://github.com/SqueakyFloors/ubertooth/issues/521)
+([#21](https://github.com/SqueakyFloors/ubertooth/issues/21), [#194](https://github.com/SqueakyFloors/ubertooth/issues/194), [#756](https://github.com/SqueakyFloors/ubertooth/issues/756), [#238](https://github.com/SqueakyFloors/ubertooth/issues/238), [#379](https://github.com/SqueakyFloors/ubertooth/issues/379), [#187](https://github.com/SqueakyFloors/ubertooth/issues/187), [#521](https://github.com/SqueakyFloors/ubertooth/issues/521))
 
 ### ubertooth-follow
 
