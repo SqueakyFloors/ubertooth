@@ -1529,9 +1529,11 @@ add_test(
 		${CMAKE_CURRENT_SOURCE_DIR}/test_release_version.py
 		${CMAKE_COMMAND}
 		${CMAKE_CURRENT_SOURCE_DIR}/../../..)
-# A dozen scratch checkouts and a `cmake -P` each, which is a fraction of a
-# second apiece: 3 s here, with room for a cold CI runner.
-set_tests_properties(release-version PROPERTIES TIMEOUT 60)
+# A dozen scratch checkouts, each with a `cmake -P` and a `make` to ask: 5 s
+# on an unloaded machine, 27 s measured on a busy one, and every full-tier
+# container job runs the whole body. Three minutes leaves room for a cold or
+# contended runner without letting a hung git sit until the job's own limit.
+set_tests_properties(release-version PROPERTIES TIMEOUT 180)
 
 # FindBTBB.cmake must refuse a libbtbb that does not have the functions these
 # tools call, naming them and the pinned commit, instead of letting the build
