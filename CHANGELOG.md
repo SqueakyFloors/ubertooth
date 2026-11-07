@@ -643,51 +643,18 @@ Behavior the tools share.
 
 #### The bootloader
 
-- A bootloader can be installed over USB. In earlier releases a new bootloader
-  reached a board only over the serial programming interface or JTAG, because a
-  bootloader refuses USB writes to its own region, so the bootloader fixes in
-  this release reached only boards someone had reflashed that way.
-  `make -C firmware bl_update` builds an image that carries a bootloader, and
-  `ubertooth-dfu --update-bootloader -d bl_update.dfu` installs it: the host
-  prints the hash the new bootloader will report, the image programs the region
-  and reads it back, and the board returns to DFU for your firmware, which
-  `ubertooth-util -B` then confirms. An interrupted write leaves the board
-  waiting in the part's own serial programmer, so keep a serial adapter to
-  hand; ubertooth-dfu(1), UPDATING THE BOOTLOADER has the procedure, the
-  refusals, and the one window that needs the programming entry pin too.
-  [#1056](https://github.com/SqueakyFloors/ubertooth/issues/1056)
-- The release improves the bootloader and the flashing path, and a board runs
-  this firmware on the bootloader it already carries: nothing here asks for a
-  new bootloader, and an image is written over USB the same way either way.
-  A bootloader built from this tree is installed with
-  `ubertooth-dfu --update-bootloader`, as above, or with a 3.3 V serial
-  programmer on the ISP connector or a JTAG probe, as
-  docs/source/programming.rst describes; what follows is what a board gains
-  once it carries one. Everything else in the release works whatever
-  bootloader a board carries; without one from this tree these are
-  unavailable:
-  - recovery over USB from an interrupted or incomplete firmware download. An
-    older bootloader jumps straight into whatever is at the start of the
-    application region, so a board that lost a download part way through
-    faults on every power-up until someone bridges the entry pin at the
-    bench; a board on this bootloader waits in DFU for the next
-    `ubertooth-dfu -d`.
-  - refusing to start an application whose first block was programmed only in
-    part, and one whose flash no longer adds up over the length the host
-    wrote: the vector checksum and the whole-image check. Both are read on the
-    board before it jumps.
-  - bounding a download, and a `-u` read-back, by the flash the part in front
-    of the bootloader actually has. A block with no flash behind it is refused
-    with `ERRADDRESS` rather than asking the part to program memory it has not
-    got, or faulting on the read and answering nothing until the board is
-    power-cycled; a part the built-in table cannot identify is bounded by the
-    sectors it reports having.
-  - the bootloader's own version and revision in `ubertooth-util -B`, where a
-    board as shipped reports only a hash of its bootloader.
-  [#242](https://github.com/SqueakyFloors/ubertooth/issues/242),
-  [#354](https://github.com/SqueakyFloors/ubertooth/issues/354),
-  [#439](https://github.com/SqueakyFloors/ubertooth/issues/439),
-  [#1056](https://github.com/SqueakyFloors/ubertooth/issues/1056)
+- **Install the bootloader over USB.** `make -C firmware bl_update` builds an
+  updater image, `ubertooth-dfu --update-bootloader -d bl_update.dfu`
+  installs it, and `ubertooth-util -B` confirms it. Keep a serial adapter to
+  hand: an interrupted bootloader write needs one. See ubertooth-dfu(1),
+  UPDATING THE BOOTLOADER.
+- **Updating is optional.** This release runs on whatever bootloader a board
+  has. With this release's bootloader, a board also recovers over USB from an
+  interrupted download, refuses to start a half-written or corrupt image,
+  keeps downloads and read-backs within the flash it has, and reports its own
+  version to `ubertooth-util -B`.
+
+([#1056](https://github.com/SqueakyFloors/ubertooth/issues/1056), [#242](https://github.com/SqueakyFloors/ubertooth/issues/242), [#354](https://github.com/SqueakyFloors/ubertooth/issues/354), [#439](https://github.com/SqueakyFloors/ubertooth/issues/439))
 
 ### Libraries
 
