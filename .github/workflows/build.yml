@@ -1094,6 +1094,12 @@ jobs:
     # two cases apart: a branch with no firmware to build still skips this
     # job, and a branch that had firmware to build reports a failure, naming
     # the leg, when the build did not finish.
+    #
+    # `always()` also runs this job when the whole run was canceled, so a run
+    # a newer commit superseded ends red here rather than canceled. That is
+    # the price of the gate: a single canceled leg makes the run's own
+    # conclusion `cancelled` as well, so a condition that passed over a
+    # canceled run would pass over the case this is here for.
     needs: [changes, firmware]
     if: always() && needs.changes.outputs.firmware == 'true'
     runs-on: ubuntu-24.04

@@ -74,11 +74,11 @@ run starts. The `changes` job sees that each changed file is a Markdown file,
 under `docs/` or `.kiro/`, or a generated man page, and skips `host`,
 `host-installed-libubertooth`, `firmware` and `scripts`; `image-revision` and
 `dfu-package` skip with it, because there are no images to read. Those two
-read the `changes` job's answer rather than the firmware job's result: on a
-branch that did have firmware to build, a firmware job that did not finish,
-canceled or failed, makes both report a failure naming the leg instead of
-skipping, because a skipped required check reads as a run with nothing to
-check. The cheap
+decide whether to run from the `changes` job's answer, and then report the
+firmware job's result: on a branch that did have firmware to build, a firmware
+job that did not finish, canceled or failed, makes both report a failure
+naming the leg instead of skipping, because a skipped required check reads as
+a run with nothing to check. The cheap
 Linux checks (`issue-references`, `api-version`, `libbtbb-pin` and
 `doc-api-version`) run as they always do, and `Man pages` runs whenever
 `host/doc/`, where the man page sources live, changes. `install.sh`
