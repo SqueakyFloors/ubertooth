@@ -2,6 +2,12 @@
 
 ## 2020-12-R1+modern1
 
+Contents:
+
+- [Highlights](#highlights) · [Stability and lockups](#stability-and-lockups) · [Across all tools](#across-all-tools)
+- Tools: [ubertooth-util](#ubertooth-util) · [ubertooth-dfu](#ubertooth-dfu) · [ubertooth-btle](#ubertooth-btle) · [btle-extcap.py](#btle-extcappy) · [ubertooth-rx](#ubertooth-rx) · [ubertooth-afh](#ubertooth-afh) · [ubertooth-follow](#ubertooth-follow) · [ubertooth-scan](#ubertooth-scan) · [ubertooth-btbr](#ubertooth-btbr) · [ubertooth-specan](#ubertooth-specan) · [ubertooth-specan-ui](#ubertooth-specan-ui) · [ubertooth-dump](#ubertooth-dump) · [ubertooth-debug](#ubertooth-debug) · [ubertooth-ducky](#ubertooth-ducky) · [ubertooth-ego](#ubertooth-ego)
+- [Firmware](#firmware) · [Libraries](#libraries) · [Build and compatibility](#build-and-compatibility) · [Documentation](#documentation) · [Under the hood](#under-the-hood)
+
 ### Highlights
 
 The first release from this community fork, building on Great Scott Gadgets'
@@ -155,321 +161,6 @@ Behavior the tools share.
   GENERIC RADIO MODE. Options and output may change.
 
 ([#352](https://github.com/SqueakyFloors/ubertooth/issues/352))
-
-### ubertooth-btle
-
-#### New features
-
-- **Save and replay.** `ubertooth-btle -d <file>` saves the board's raw
-  records (the `ubertooth-rx -d` format), and `ubertooth-btle -R <file>`
-  decodes them again with no board. It is the only way to keep the connection
-  parameters promiscuous mode works out.
-- **Promiscuous mode finds Bluetooth 5 connections.** `ubertooth-btle -p`
-  recovers connections that hop with channel selection algorithm 2 and reports
-  the `Algorithm 2 event counter`. It does not learn the channel map, so a
-  connection using fewer than 37 channels is captured with gaps.
-- **Stream to Wireshark.** `ubertooth-btle -q -` and `ubertooth-btle -c -`
-  stream PCAP to standard output with diagnostics kept off it. Credit: Ryan
-  Govostes ([@rgov](https://github.com/rgov))
-  ([upstream #362](https://github.com/greatscottgadgets/ubertooth/pull/362)).
-- **Script-visible change.** The CRC verify setting moves from `-v` to `-k`
-  (`ubertooth-btle -k` reads it, `-k 0` and `-k 1` set it), and `-v` is now
-  verbose with no value, as in every other tool. `ubertooth-btle -s A -t B`
-  advertises from A and follows B (before, the two shared one address), and `-s`
-  takes only a full address.
-- **Script-visible change.** `ubertooth-btle` refuses, before opening a board
-  and with exit 1, two capture modes at once, `-i`/`-I` without `-f` or `-p`,
-  `-A` or `-t` with `-p`, `-a` or `-s` with a capture mode, and a command line
-  with nothing to do. A capture whose board stops answering exits 1.
-
-([#745](https://github.com/SqueakyFloors/ubertooth/issues/745), [#1025](https://github.com/SqueakyFloors/ubertooth/issues/1025), [#7](https://github.com/SqueakyFloors/ubertooth/issues/7), [#542](https://github.com/SqueakyFloors/ubertooth/issues/542), [#804](https://github.com/SqueakyFloors/ubertooth/issues/804), [#1017](https://github.com/SqueakyFloors/ubertooth/issues/1017), [#383](https://github.com/SqueakyFloors/ubertooth/issues/383), [#779](https://github.com/SqueakyFloors/ubertooth/issues/779), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#237](https://github.com/SqueakyFloors/ubertooth/issues/237), [#299](https://github.com/SqueakyFloors/ubertooth/issues/299), [#309](https://github.com/SqueakyFloors/ubertooth/issues/309), [#308](https://github.com/SqueakyFloors/ubertooth/issues/308), [#330](https://github.com/SqueakyFloors/ubertooth/issues/330), [#346](https://github.com/SqueakyFloors/ubertooth/issues/346), [#347](https://github.com/SqueakyFloors/ubertooth/issues/347), [#258](https://github.com/SqueakyFloors/ubertooth/issues/258))
-
-#### Fixes
-
-- **Follow mode lost connections.** `ubertooth-btle -f` hopped only
-  with channel selection algorithm 1, so it caught about one event in ten of a
-  Bluetooth 5 connection. It also mistimed connection updates and transmit
-  windows, parked on one channel after a missed first event or an empty
-  channel map, jumped to another pair's connection, and stayed on a closed
-  connection until its timeout. It now captures about 2.5 times as many
-  packets.
-- **Promiscuous mode stopped short or reported wrong figures.**
-  `ubertooth-btle -p` often stalled at the access address on a busy
-  connection, never reported the access address it found, reported
-  connection intervals that were wrong (it now reports none rather than a
-  wrong one), locked onto the advertising address after an earlier `-t`, sent
-  its findings into a capture on standard output, and stopped capturing when a
-  packet was cut off part-way.
-- **Missing packets.** Packets over 50 bytes were cut short (payloads
-  up to 251 bytes now arrive whole), the first two packets of a session were
-  lost, `ubertooth-btle -f -k 1` dropped every data packet, a single failed
-  transfer or late USB poll ended a capture, dropped packets went unreported,
-  some advertising packets were recorded under a connection's address, and
-  `ubertooth-btle -a` or `-t none` left a filter set for later runs.
-- **Wrong signal and timing figures.** The `rssi=` figure is now the
-  packet's own level and matches the capture file (before, it could be off by 90 dB),
-  and reads `rssi=none` when the packet is too strong to measure. The PCAP
-  average RSSI, packet timestamps (before, 8 microseconds late), and `delta_t`
-  (before, short by whole clock periods) are now correct.
-- **Misleading messages.** A good Wireshark capture no longer ends in
-  `Error from extcap pipe`: undecodable packets are counted in one note, with
-  detail under `-v`, and no longer flood the terminal. `ubertooth-btle` warns
-  that `-i`, `-I`, `-j`, and `-J` do nothing yet, warns when a long PcapNG
-  capture runs out of room for connection parameters, validates `-a`, and
-  refuses a replay that would write into its own dump.
-
-([#836](https://github.com/SqueakyFloors/ubertooth/issues/836), [#571](https://github.com/SqueakyFloors/ubertooth/issues/571), [#625](https://github.com/SqueakyFloors/ubertooth/issues/625), [#774](https://github.com/SqueakyFloors/ubertooth/issues/774), [#660](https://github.com/SqueakyFloors/ubertooth/issues/660), [#933](https://github.com/SqueakyFloors/ubertooth/issues/933), [#1005](https://github.com/SqueakyFloors/ubertooth/issues/1005), [#1015](https://github.com/SqueakyFloors/ubertooth/issues/1015), [#824](https://github.com/SqueakyFloors/ubertooth/issues/824), [#825](https://github.com/SqueakyFloors/ubertooth/issues/825), [#713](https://github.com/SqueakyFloors/ubertooth/issues/713), [#659](https://github.com/SqueakyFloors/ubertooth/issues/659), [#614](https://github.com/SqueakyFloors/ubertooth/issues/614), [#819](https://github.com/SqueakyFloors/ubertooth/issues/819), [#4](https://github.com/SqueakyFloors/ubertooth/issues/4), [#546](https://github.com/SqueakyFloors/ubertooth/issues/546), [#434](https://github.com/SqueakyFloors/ubertooth/issues/434), [#657](https://github.com/SqueakyFloors/ubertooth/issues/657), [#823](https://github.com/SqueakyFloors/ubertooth/issues/823), [#838](https://github.com/SqueakyFloors/ubertooth/issues/838), [#710](https://github.com/SqueakyFloors/ubertooth/issues/710), [#547](https://github.com/SqueakyFloors/ubertooth/issues/547), [#38](https://github.com/SqueakyFloors/ubertooth/issues/38), [#859](https://github.com/SqueakyFloors/ubertooth/issues/859), [#1194](https://github.com/SqueakyFloors/ubertooth/issues/1194), [#570](https://github.com/SqueakyFloors/ubertooth/issues/570), [#662](https://github.com/SqueakyFloors/ubertooth/issues/662), [#974](https://github.com/SqueakyFloors/ubertooth/issues/974), [#602](https://github.com/SqueakyFloors/ubertooth/issues/602), [#1141](https://github.com/SqueakyFloors/ubertooth/issues/1141), [#771](https://github.com/SqueakyFloors/ubertooth/issues/771), [#871](https://github.com/SqueakyFloors/ubertooth/issues/871), [#171](https://github.com/SqueakyFloors/ubertooth/issues/171), [#265](https://github.com/SqueakyFloors/ubertooth/issues/265))
-
-### btle-extcap.py
-
-- **Each board is its own Wireshark interface.** Interfaces are named by the
-  board's serial, so re-plugging cannot move a capture to another board, and
-  several boards no longer list as `Ubertooth One 0:` repeated. A Wireshark
-  profile that saved an Ubertooth has to pick it again.
-- **Fixed: Ubertooth missing from Wireshark.** `btle-extcap.py` refused the
-  options Wireshark adds to its calls, so no Ubertooth appeared in the capture
-  list. `btle-extcap.py -h` also lists the options the script really takes.
-- **Fixed: failures reported as success.** A failing `ubertooth-util`, a
-  missing tool, or a closed standard output used to give an empty interface
-  list, exit 0, or a traceback. Each is now one `error:` line and exit 1.
-- **Fixed: capture filters silently ignored.** A capture filter typed for an
-  Ubertooth interface now turns Wireshark's filter box red and says to use a
-  display filter (before, the capture ran unfiltered).
-- **Script-visible change.** `btle-extcap.py --capture` exits only 0 or 1, and
-  stopping it with Ctrl-C, from Wireshark or `tshark`, exits 0.
-  `btle-extcap.py --extcap-interfaces` exits 1 if any board could not be
-  opened, so Wireshark lists no Ubertooths until that board is free. Unknown
-  options and calls with nothing to do get the same error wording as every
-  other tool.
-
-([#269](https://github.com/SqueakyFloors/ubertooth/issues/269), [#297](https://github.com/SqueakyFloors/ubertooth/issues/297), [#334](https://github.com/SqueakyFloors/ubertooth/issues/334), [#268](https://github.com/SqueakyFloors/ubertooth/issues/268), [#362](https://github.com/SqueakyFloors/ubertooth/issues/362), [#926](https://github.com/SqueakyFloors/ubertooth/issues/926), [#929](https://github.com/SqueakyFloors/ubertooth/issues/929), [#343](https://github.com/SqueakyFloors/ubertooth/issues/343), [#386](https://github.com/SqueakyFloors/ubertooth/issues/386), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#323](https://github.com/SqueakyFloors/ubertooth/issues/323))
-
-### ubertooth-rx
-
-#### New features
-
-- **Several boards at once.** `ubertooth-rx` reads up to eight boards in one
-  run, optionally each on its own channel (for example `ubertooth-rx -U
-  0,1,2,3 -c 10,30,50,70 -l e9c5ba`), so it hears as many packets as it has
-  boards. The boards pool the channels the piconet is heard on, and pass on
-  its UAP once two of them agree; each recovers the clock itself.
-- **Script-visible change.** `ubertooth-rx -z` prints its `Survey Results`
-  heading on standard error, so a saved survey holds only addresses. A replay
-  (`ubertooth-rx -i`) refuses `-c` and `-t` instead of ignoring them, and
-  `ubertooth-rx -h` lists `-s` as the default channel sweep rather than as
-  deprecated.
-
-([#783](https://github.com/SqueakyFloors/ubertooth/issues/783), [#21](https://github.com/SqueakyFloors/ubertooth/issues/21), [#745](https://github.com/SqueakyFloors/ubertooth/issues/745))
-
-#### Fixes
-
-- **Piconets that adapt their hopping could not be followed.**
-  `ubertooth-rx -l <lap> -u <uap>` never locked onto the clock of such a
-  piconet, which is what current controllers do. With the updated libbtbb it
-  finds the clock and follows.
-- **Stuck on a wrong clock.** A follow on a wrong clock used to decode
-  nothing for the rest of the run. `ubertooth-rx` now warns and searches
-  again when the clock proves wrong or nothing is heard for a minute, keeping
-  the address part it found and any UAP given with `-u`.
-- **Long packets crashed or decoded garbage.** A packet longer than
-  one 400-microsecond bank was decoded from zeros, and `ubertooth-rx -l` crashed with
-  `double free or corruption` after about 36 packets. A capture at a high `-e`
-  now reports somewhat fewer packets, all of them real.
-- **Wrong data in capture records.** Records now carry the packet's
-  real header (before, 18 zero bits until the follow began), the recovered
-  UAP (including on the packet that settled it and in `ubertooth-rx -z`
-  surveys), and the right clock (before, some packets were placed about seven
-  minutes ahead). Per-packet times track the run (before, a 15-second follow
-  could span 191 seconds), and a packet too strong to measure reads `s=none
-  snr=none`. `ubertooth-scan` no longer places packets a slot late.
-- **Replays and empty files.** `ubertooth-rx -i` reports the host time
-  stored in the capture rather than the replay's, and exits 1 with an error
-  for an unreadable file or a cut-off last record (before, exit 0). A run
-  refused before it captures anything leaves no empty capture file behind.
-
-([#968](https://github.com/SqueakyFloors/ubertooth/issues/968), [#771](https://github.com/SqueakyFloors/ubertooth/issues/771), [#903](https://github.com/SqueakyFloors/ubertooth/issues/903), [#666](https://github.com/SqueakyFloors/ubertooth/issues/666), [#792](https://github.com/SqueakyFloors/ubertooth/issues/792), [#778](https://github.com/SqueakyFloors/ubertooth/issues/778), [#767](https://github.com/SqueakyFloors/ubertooth/issues/767), [#842](https://github.com/SqueakyFloors/ubertooth/issues/842), [#664](https://github.com/SqueakyFloors/ubertooth/issues/664), [#1182](https://github.com/SqueakyFloors/ubertooth/issues/1182), [#1162](https://github.com/SqueakyFloors/ubertooth/issues/1162), [#202](https://github.com/SqueakyFloors/ubertooth/issues/202), [#203](https://github.com/SqueakyFloors/ubertooth/issues/203), [#993](https://github.com/SqueakyFloors/ubertooth/issues/993), [#1013](https://github.com/SqueakyFloors/ubertooth/issues/1013))
-
-### ubertooth-afh
-
-- **Script-visible change.** `ubertooth-afh -a` is removed.
-- **Script-visible change.** The removal threshold `ubertooth-afh -m` now
-  defaults to 800 packets (before, 5), so a full-band map holds at 79 of 79;
-  a channel the piconet gives up takes 800 packets to leave the map.
-- **Fixed: wrong channel maps.** `ubertooth-afh` reported only a handful of
-  the channels a full-band piconet uses, marked the two band-edge channels
-  used without hearing them, and could park on one channel and report only
-  that.
-- **Fixed: failures that looked like results.** When the board refuses the
-  band sweep, `ubertooth-afh` exits 1 instead of printing a one-channel map,
-  and `ubertooth-btle` likewise names the setup request the board refused.
-  `ubertooth-afh -t` exits 2 when detection hears nothing, instead of
-  monitoring an all-zero map, and stops on the first Ctrl-C.
-
-([#21](https://github.com/SqueakyFloors/ubertooth/issues/21), [#194](https://github.com/SqueakyFloors/ubertooth/issues/194), [#756](https://github.com/SqueakyFloors/ubertooth/issues/756), [#238](https://github.com/SqueakyFloors/ubertooth/issues/238), [#379](https://github.com/SqueakyFloors/ubertooth/issues/379), [#187](https://github.com/SqueakyFloors/ubertooth/issues/187), [#521](https://github.com/SqueakyFloors/ubertooth/issues/521))
-
-### ubertooth-follow
-
-- **Name the target by its full address.** `ubertooth-follow -t <BD_ADDR>`
-  follows any target, not only one whose address begins `00:00`, and gives
-  the LAP and UAP to follow. A failed connection after `-l` and `-u` asks for
-  `-t` instead.
-- **Script-visible change.** `ubertooth-follow -a` (follow with an AFH map)
-  needs `-t`, and `-l` without `-u`, or `-u` without `-l`, is refused (before,
-  it followed the local adapter instead). Progress goes to standard error.
-- **Fixed: hopping on the wrong channels.** AFH hopping sat on 2402 MHz; a
-  board left in another mode, or by a killed tool, stayed on one channel or
-  hopped all 79; and `ubertooth-follow -w` compensated half the delay it
-  named. A new AFH map takes effect at once, an unreadable map or one with
-  fewer than 20 channels is refused, and a follow without a map clears an
-  earlier run's.
-- **Fixed: following without what was asked for.** When the board refused the
-  target's address or the clock reset, `ubertooth-follow` followed anyway; it
-  now stops and says which. A UAP you gave is kept after a wrong clock instead
-  of being worked out again from the air.
-- **Fixed: timestamps and empty files.** Packet times could be hours out
-  after a packet caught around the clock reset, and a run refused before it
-  captured anything left an empty capture file.
-
-([#316](https://github.com/SqueakyFloors/ubertooth/issues/316), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#529](https://github.com/SqueakyFloors/ubertooth/issues/529), [#540](https://github.com/SqueakyFloors/ubertooth/issues/540), [#34](https://github.com/SqueakyFloors/ubertooth/issues/34), [#44](https://github.com/SqueakyFloors/ubertooth/issues/44), [#261](https://github.com/SqueakyFloors/ubertooth/issues/261), [#788](https://github.com/SqueakyFloors/ubertooth/issues/788), [#672](https://github.com/SqueakyFloors/ubertooth/issues/672), [#504](https://github.com/SqueakyFloors/ubertooth/issues/504), [#745](https://github.com/SqueakyFloors/ubertooth/issues/745), [#494](https://github.com/SqueakyFloors/ubertooth/issues/494), [#995](https://github.com/SqueakyFloors/ubertooth/issues/995))
-
-### ubertooth-scan
-
-- **Script-visible change.** `ubertooth-scan` keeps its headings, `-x`
-  progress, and failures on standard error, so saved or piped output holds
-  only results. A refused inquiry, or a device that will not complete the
-  `ubertooth-scan -x` report, is named and exits 1 (before, exit 0).
-- **Fixed: wrong or stuck device names.** `ubertooth-scan` could print one
-  device's name against another's address, and a device that answered and
-  then went silent held the scan forever. Unreadable names now print as
-  `[unknown]` and the scan carries on.
-- **Fixed: newer manufacturers unnamed.** `ubertooth-scan -x` reported a
-  device from a recently registered company as `Manufacturer: not assigned`;
-  it now knows four times as many company identifiers.
-
-([#323](https://github.com/SqueakyFloors/ubertooth/issues/323), [#1172](https://github.com/SqueakyFloors/ubertooth/issues/1172), [#1090](https://github.com/SqueakyFloors/ubertooth/issues/1090), [#745](https://github.com/SqueakyFloors/ubertooth/issues/745))
-
-### ubertooth-btbr
-
-#### New features
-
-- **Send chosen packet types.** With a connection up, the `ubertooth-btbr`
-  command `tx <format> [<length>] [<count>] [<hex>]` sends one packet of a
-  chosen type (AUX1, DV, HV, EV, or DM and DH at any length), for testing a
-  Classic decoder against packets real stacks rarely send. See
-  ubertooth-btbr(1), TRANSMITTING CHOSEN PACKET TYPES.
-- **Choose a board.** `ubertooth-btbr -U <index|serial>` picks one of several
-  boards. With several attached and no `-U`, it lists them and opens none
-  (before, it opened whichever came first). `ubertooth-btbr -h` prints usage.
-- **More of a session is visible.** `ubertooth-btbr` prints the LMP packets a
-  connection decodes, says why a peer hung up (`Peer detached: reason 0x13,
-  the peer's user ended the connection`), and names the LMP power-control
-  packets correctly.
-- **Script-visible change.** A session's output is a clean packet log:
-  packets and inquiry responses go to standard output, one line each with the
-  time in front (`13:54:02 RX LMP ...`). The prompt, help, progress, and
-  plain `warning:` and `error:` lines go to standard error, with no color
-  codes when redirected.
-- **Script-visible change.** `ubertooth-btbr -h` exits 0, and unknown prompt
-  words, short addresses, and out-of-range `-f` (0-63) and `-b` (0-3) values
-  are refused. A session exits 1 when it loses the board, leaves it held, or
-  loses its standard output.
-
-([#736](https://github.com/SqueakyFloors/ubertooth/issues/736), [#642](https://github.com/SqueakyFloors/ubertooth/issues/642), [#410](https://github.com/SqueakyFloors/ubertooth/issues/410), [#735](https://github.com/SqueakyFloors/ubertooth/issues/735), [#951](https://github.com/SqueakyFloors/ubertooth/issues/951), [#950](https://github.com/SqueakyFloors/ubertooth/issues/950), [#800](https://github.com/SqueakyFloors/ubertooth/issues/800), [#874](https://github.com/SqueakyFloors/ubertooth/issues/874), [#943](https://github.com/SqueakyFloors/ubertooth/issues/943), [#908](https://github.com/SqueakyFloors/ubertooth/issues/908), [#1075](https://github.com/SqueakyFloors/ubertooth/issues/1075), [#1142](https://github.com/SqueakyFloors/ubertooth/issues/1142), [#737](https://github.com/SqueakyFloors/ubertooth/issues/737), [#920](https://github.com/SqueakyFloors/ubertooth/issues/920), [#959](https://github.com/SqueakyFloors/ubertooth/issues/959))
-
-#### Fixes
-
-- **Connections to real devices dropped.** A connection was cut after exactly
-  30 seconds, a request `ubertooth-btbr` did not handle or a refused opening
-  request left the link to time out, and a declined connection was held until
-  link supervision ended it.
-- **Two Ubertooths could not connect to each other.** A board in `page_scan` missed about
-  half of all pages and gave up after one lost page response, `page` and
-  `page_scan` reported connections that were never made, and a dropped
-  transmit slot cost the link a repeat or put its hopping out of step. Two
-  boards now page each other, and `l2ping` between them gets a reply.
-- **Corrupt packets.** Received payloads of 247 bytes or more failed their
-  checksum, transmits of 77 bytes or more went out corrupt, and headers from
-  other piconets were accepted.
-- **Crashes and hangs.** Short or malformed LMP packets, unreadable board
-  messages, cut-off inquiry responses, and non-ASCII device names ended the
-  session. Ctrl-C now returns to the `bt>` prompt, a board still running
-  `bluetooth_rxtx` is named instead of hanging, a board in use by another
-  program is reported as such, and `-V` and `-h` work without the Python
-  `libusb1` package.
-
-([#942](https://github.com/SqueakyFloors/ubertooth/issues/942), [#949](https://github.com/SqueakyFloors/ubertooth/issues/949), [#957](https://github.com/SqueakyFloors/ubertooth/issues/957), [#1074](https://github.com/SqueakyFloors/ubertooth/issues/1074), [#807](https://github.com/SqueakyFloors/ubertooth/issues/807), [#1156](https://github.com/SqueakyFloors/ubertooth/issues/1156), [#1168](https://github.com/SqueakyFloors/ubertooth/issues/1168), [#1166](https://github.com/SqueakyFloors/ubertooth/issues/1166), [#1191](https://github.com/SqueakyFloors/ubertooth/issues/1191), [#667](https://github.com/SqueakyFloors/ubertooth/issues/667), [#668](https://github.com/SqueakyFloors/ubertooth/issues/668), [#706](https://github.com/SqueakyFloors/ubertooth/issues/706), [#1036](https://github.com/SqueakyFloors/ubertooth/issues/1036), [#960](https://github.com/SqueakyFloors/ubertooth/issues/960), [#971](https://github.com/SqueakyFloors/ubertooth/issues/971), [#978](https://github.com/SqueakyFloors/ubertooth/issues/978), [#988](https://github.com/SqueakyFloors/ubertooth/issues/988), [#1](https://github.com/SqueakyFloors/ubertooth/issues/1), [#418](https://github.com/SqueakyFloors/ubertooth/issues/418), [#552](https://github.com/SqueakyFloors/ubertooth/issues/552), [#898](https://github.com/SqueakyFloors/ubertooth/issues/898), [#701](https://github.com/SqueakyFloors/ubertooth/issues/701))
-
-### ubertooth-specan
-
-- **Script-visible change.** `ubertooth-specan -d` chooses only where the
-  samples go, and `-g` or `-G` how they are written, so `ubertooth-specan -g
-  -d out.dat` writes gnuplot text to the file (before, the file stayed empty).
-  `-d -` streams to standard output but refuses a terminal, and any other
-  value, even one starting with `-`, is a file name.
-- **`ubertooth-specan -v` works.** It prints the board, the sweep, where the
-  samples go, and a summary once a second, on standard error (before, it did
-  nothing).
-- **Fixed: sweeps measured through the wrong settings.** A sweep after
-  another mode used that mode's radio front-end settings and could include
-  samples left over from an earlier run; it now starts from a clean board.
-  `ubertooth-specan -l` and `-u` must be valid, ordered frequencies in the
-  band.
-- **Fixed: unclear errors.** A `-d` file that cannot be written stops the
-  sweep and names the failure (for example, no space left on device), and a
-  bad option gets the same error wording as every other tool. Every tool also
-  stops the board cleanly on SIGHUP and SIGALRM.
-
-([#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#231](https://github.com/SqueakyFloors/ubertooth/issues/231), [#259](https://github.com/SqueakyFloors/ubertooth/issues/259), [#510](https://github.com/SqueakyFloors/ubertooth/issues/510), [#471](https://github.com/SqueakyFloors/ubertooth/issues/471), [#173](https://github.com/SqueakyFloors/ubertooth/issues/173), [#37](https://github.com/SqueakyFloors/ubertooth/issues/37), [#655](https://github.com/SqueakyFloors/ubertooth/issues/655), [#338](https://github.com/SqueakyFloors/ubertooth/issues/338))
-
-### ubertooth-specan-ui
-
-- **BLE channel labels.** Press `n` in `ubertooth-specan-ui` to label the axis
-  and markers with BLE channel numbers, with the advertising channels 37, 38,
-  and 39 always named, and `n` again for megahertz. Credit: Emmanuel Blot
-  ([@eblot](https://github.com/eblot)).
-- **Average trace.** A slowly smoothed average of the max-hold trace is drawn
-  as a cyan dotted line labeled "Avg: N dBm". Credit: Sirio Balmelli
-  ([@siriobalmelli](https://github.com/siriobalmelli)).
-- **Easier to use.** Keys are shown on screen (press `h`), frequencies are
-  labeled in whole MHz, marker labels no longer linger, the plot is slightly
-  wider than the scanned range, and there is a man page.
-- **Script-visible change.** `ubertooth-specan-ui` refuses an unknown option
-  or stray argument with exit 1 (before, it ignored it and swept). A missing
-  `numpy` or Qt binding, or a bad `-l` or `-u` value, gets one `error:` line
-  instead of a traceback.
-- **Fixed: nothing plotted.** `ubertooth-specan-ui` passed arguments
-  `ubertooth-specan` rejected, so it drew nothing. Its `-U` now takes an index
-  or serial, pressing `C` before data arrives no longer crashes it, and
-  `ubertooth-specan-ui --wifi 14` sits at 2484 MHz (before, 2482).
-
-([#76](https://github.com/SqueakyFloors/ubertooth/issues/76), [#745](https://github.com/SqueakyFloors/ubertooth/issues/745), [#75](https://github.com/SqueakyFloors/ubertooth/issues/75), [#125](https://github.com/SqueakyFloors/ubertooth/issues/125), [#126](https://github.com/SqueakyFloors/ubertooth/issues/126), [#934](https://github.com/SqueakyFloors/ubertooth/issues/934), [#124](https://github.com/SqueakyFloors/ubertooth/issues/124), [#673](https://github.com/SqueakyFloors/ubertooth/issues/673))
-
-### ubertooth-dump
-
-- **Script-visible change.** `ubertooth-dump` refuses to write its symbol
-  stream to a terminal, with or without `-d -`, and the refusal names what it
-  would write (binary data, or the `-b` bitstream).
-- **Fixed: dumps in the wrong modulation.** When the board refused the
-  modulation `ubertooth-dump -c` or `-l` asked for, the dump ran anyway in
-  whatever modulation the board was left in and exited 0. It now stops with an
-  error and exit 1.
-
-([#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#945](https://github.com/SqueakyFloors/ubertooth/issues/945))
-
-### ubertooth-debug
-
-- **Fixed: wrong register values.** `ubertooth-debug` read fourteen CC2400
-  fields with too narrow a mask and two from a neighbor's bits; every field
-  now shows its whole value, and register `0x15` answers to its own name,
-  `%MDMTST1`.
-- **Fixed: unclear failures.** `ubertooth-debug` names a board running the
-  `btbr` image instead of failing on the first read, names each register read
-  that fails, and exits 0 only when every read succeeds (before, it exited
-  with the last register's value). `ubertooth-debug -r` states the range it
-  accepts and quotes the item it refused, and a `%name` works anywhere in a
-  list or range.
-
-([#671](https://github.com/SqueakyFloors/ubertooth/issues/671), [#808](https://github.com/SqueakyFloors/ubertooth/issues/808), [#164](https://github.com/SqueakyFloors/ubertooth/issues/164), [#235](https://github.com/SqueakyFloors/ubertooth/issues/235))
 
 ### ubertooth-util
 
@@ -829,6 +520,321 @@ Behavior the tools share.
   the part and the flash it has, while the board is still running its
   application; a part it cannot identify is reported as unchecked.
   [#281](https://github.com/SqueakyFloors/ubertooth/issues/281)
+
+### ubertooth-btle
+
+#### New features
+
+- **Save and replay.** `ubertooth-btle -d <file>` saves the board's raw
+  records (the `ubertooth-rx -d` format), and `ubertooth-btle -R <file>`
+  decodes them again with no board. It is the only way to keep the connection
+  parameters promiscuous mode works out.
+- **Promiscuous mode finds Bluetooth 5 connections.** `ubertooth-btle -p`
+  recovers connections that hop with channel selection algorithm 2 and reports
+  the `Algorithm 2 event counter`. It does not learn the channel map, so a
+  connection using fewer than 37 channels is captured with gaps.
+- **Stream to Wireshark.** `ubertooth-btle -q -` and `ubertooth-btle -c -`
+  stream PCAP to standard output with diagnostics kept off it. Credit: Ryan
+  Govostes ([@rgov](https://github.com/rgov))
+  ([upstream #362](https://github.com/greatscottgadgets/ubertooth/pull/362)).
+- **Script-visible change.** The CRC verify setting moves from `-v` to `-k`
+  (`ubertooth-btle -k` reads it, `-k 0` and `-k 1` set it), and `-v` is now
+  verbose with no value, as in every other tool. `ubertooth-btle -s A -t B`
+  advertises from A and follows B (before, the two shared one address), and `-s`
+  takes only a full address.
+- **Script-visible change.** `ubertooth-btle` refuses, before opening a board
+  and with exit 1, two capture modes at once, `-i`/`-I` without `-f` or `-p`,
+  `-A` or `-t` with `-p`, `-a` or `-s` with a capture mode, and a command line
+  with nothing to do. A capture whose board stops answering exits 1.
+
+([#745](https://github.com/SqueakyFloors/ubertooth/issues/745), [#1025](https://github.com/SqueakyFloors/ubertooth/issues/1025), [#7](https://github.com/SqueakyFloors/ubertooth/issues/7), [#542](https://github.com/SqueakyFloors/ubertooth/issues/542), [#804](https://github.com/SqueakyFloors/ubertooth/issues/804), [#1017](https://github.com/SqueakyFloors/ubertooth/issues/1017), [#383](https://github.com/SqueakyFloors/ubertooth/issues/383), [#779](https://github.com/SqueakyFloors/ubertooth/issues/779), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#237](https://github.com/SqueakyFloors/ubertooth/issues/237), [#299](https://github.com/SqueakyFloors/ubertooth/issues/299), [#309](https://github.com/SqueakyFloors/ubertooth/issues/309), [#308](https://github.com/SqueakyFloors/ubertooth/issues/308), [#330](https://github.com/SqueakyFloors/ubertooth/issues/330), [#346](https://github.com/SqueakyFloors/ubertooth/issues/346), [#347](https://github.com/SqueakyFloors/ubertooth/issues/347), [#258](https://github.com/SqueakyFloors/ubertooth/issues/258))
+
+#### Fixes
+
+- **Follow mode lost connections.** `ubertooth-btle -f` hopped only
+  with channel selection algorithm 1, so it caught about one event in ten of a
+  Bluetooth 5 connection. It also mistimed connection updates and transmit
+  windows, parked on one channel after a missed first event or an empty
+  channel map, jumped to another pair's connection, and stayed on a closed
+  connection until its timeout. It now captures about 2.5 times as many
+  packets.
+- **Promiscuous mode stopped short or reported wrong figures.**
+  `ubertooth-btle -p` often stalled at the access address on a busy
+  connection, never reported the access address it found, reported
+  connection intervals that were wrong (it now reports none rather than a
+  wrong one), locked onto the advertising address after an earlier `-t`, sent
+  its findings into a capture on standard output, and stopped capturing when a
+  packet was cut off part-way.
+- **Missing packets.** Packets over 50 bytes were cut short (payloads
+  up to 251 bytes now arrive whole), the first two packets of a session were
+  lost, `ubertooth-btle -f -k 1` dropped every data packet, a single failed
+  transfer or late USB poll ended a capture, dropped packets went unreported,
+  some advertising packets were recorded under a connection's address, and
+  `ubertooth-btle -a` or `-t none` left a filter set for later runs.
+- **Wrong signal and timing figures.** The `rssi=` figure is now the
+  packet's own level and matches the capture file (before, it could be off by 90 dB),
+  and reads `rssi=none` when the packet is too strong to measure. The PCAP
+  average RSSI, packet timestamps (before, 8 microseconds late), and `delta_t`
+  (before, short by whole clock periods) are now correct.
+- **Misleading messages.** A good Wireshark capture no longer ends in
+  `Error from extcap pipe`: undecodable packets are counted in one note, with
+  detail under `-v`, and no longer flood the terminal. `ubertooth-btle` warns
+  that `-i`, `-I`, `-j`, and `-J` do nothing yet, warns when a long PcapNG
+  capture runs out of room for connection parameters, validates `-a`, and
+  refuses a replay that would write into its own dump.
+
+([#836](https://github.com/SqueakyFloors/ubertooth/issues/836), [#571](https://github.com/SqueakyFloors/ubertooth/issues/571), [#625](https://github.com/SqueakyFloors/ubertooth/issues/625), [#774](https://github.com/SqueakyFloors/ubertooth/issues/774), [#660](https://github.com/SqueakyFloors/ubertooth/issues/660), [#933](https://github.com/SqueakyFloors/ubertooth/issues/933), [#1005](https://github.com/SqueakyFloors/ubertooth/issues/1005), [#1015](https://github.com/SqueakyFloors/ubertooth/issues/1015), [#824](https://github.com/SqueakyFloors/ubertooth/issues/824), [#825](https://github.com/SqueakyFloors/ubertooth/issues/825), [#713](https://github.com/SqueakyFloors/ubertooth/issues/713), [#659](https://github.com/SqueakyFloors/ubertooth/issues/659), [#614](https://github.com/SqueakyFloors/ubertooth/issues/614), [#819](https://github.com/SqueakyFloors/ubertooth/issues/819), [#4](https://github.com/SqueakyFloors/ubertooth/issues/4), [#546](https://github.com/SqueakyFloors/ubertooth/issues/546), [#434](https://github.com/SqueakyFloors/ubertooth/issues/434), [#657](https://github.com/SqueakyFloors/ubertooth/issues/657), [#823](https://github.com/SqueakyFloors/ubertooth/issues/823), [#838](https://github.com/SqueakyFloors/ubertooth/issues/838), [#710](https://github.com/SqueakyFloors/ubertooth/issues/710), [#547](https://github.com/SqueakyFloors/ubertooth/issues/547), [#38](https://github.com/SqueakyFloors/ubertooth/issues/38), [#859](https://github.com/SqueakyFloors/ubertooth/issues/859), [#1194](https://github.com/SqueakyFloors/ubertooth/issues/1194), [#570](https://github.com/SqueakyFloors/ubertooth/issues/570), [#662](https://github.com/SqueakyFloors/ubertooth/issues/662), [#974](https://github.com/SqueakyFloors/ubertooth/issues/974), [#602](https://github.com/SqueakyFloors/ubertooth/issues/602), [#1141](https://github.com/SqueakyFloors/ubertooth/issues/1141), [#771](https://github.com/SqueakyFloors/ubertooth/issues/771), [#871](https://github.com/SqueakyFloors/ubertooth/issues/871), [#171](https://github.com/SqueakyFloors/ubertooth/issues/171), [#265](https://github.com/SqueakyFloors/ubertooth/issues/265))
+
+### btle-extcap.py
+
+- **Each board is its own Wireshark interface.** Interfaces are named by the
+  board's serial, so re-plugging cannot move a capture to another board, and
+  several boards no longer list as `Ubertooth One 0:` repeated. A Wireshark
+  profile that saved an Ubertooth has to pick it again.
+- **Fixed: Ubertooth missing from Wireshark.** `btle-extcap.py` refused the
+  options Wireshark adds to its calls, so no Ubertooth appeared in the capture
+  list. `btle-extcap.py -h` also lists the options the script really takes.
+- **Fixed: failures reported as success.** A failing `ubertooth-util`, a
+  missing tool, or a closed standard output used to give an empty interface
+  list, exit 0, or a traceback. Each is now one `error:` line and exit 1.
+- **Fixed: capture filters silently ignored.** A capture filter typed for an
+  Ubertooth interface now turns Wireshark's filter box red and says to use a
+  display filter (before, the capture ran unfiltered).
+- **Script-visible change.** `btle-extcap.py --capture` exits only 0 or 1, and
+  stopping it with Ctrl-C, from Wireshark or `tshark`, exits 0.
+  `btle-extcap.py --extcap-interfaces` exits 1 if any board could not be
+  opened, so Wireshark lists no Ubertooths until that board is free. Unknown
+  options and calls with nothing to do get the same error wording as every
+  other tool.
+
+([#269](https://github.com/SqueakyFloors/ubertooth/issues/269), [#297](https://github.com/SqueakyFloors/ubertooth/issues/297), [#334](https://github.com/SqueakyFloors/ubertooth/issues/334), [#268](https://github.com/SqueakyFloors/ubertooth/issues/268), [#362](https://github.com/SqueakyFloors/ubertooth/issues/362), [#926](https://github.com/SqueakyFloors/ubertooth/issues/926), [#929](https://github.com/SqueakyFloors/ubertooth/issues/929), [#343](https://github.com/SqueakyFloors/ubertooth/issues/343), [#386](https://github.com/SqueakyFloors/ubertooth/issues/386), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#323](https://github.com/SqueakyFloors/ubertooth/issues/323))
+
+### ubertooth-rx
+
+#### New features
+
+- **Several boards at once.** `ubertooth-rx` reads up to eight boards in one
+  run, optionally each on its own channel (for example `ubertooth-rx -U
+  0,1,2,3 -c 10,30,50,70 -l e9c5ba`), so it hears as many packets as it has
+  boards. The boards pool the channels the piconet is heard on, and pass on
+  its UAP once two of them agree; each recovers the clock itself.
+- **Script-visible change.** `ubertooth-rx -z` prints its `Survey Results`
+  heading on standard error, so a saved survey holds only addresses. A replay
+  (`ubertooth-rx -i`) refuses `-c` and `-t` instead of ignoring them, and
+  `ubertooth-rx -h` lists `-s` as the default channel sweep rather than as
+  deprecated.
+
+([#783](https://github.com/SqueakyFloors/ubertooth/issues/783), [#21](https://github.com/SqueakyFloors/ubertooth/issues/21), [#745](https://github.com/SqueakyFloors/ubertooth/issues/745))
+
+#### Fixes
+
+- **Piconets that adapt their hopping could not be followed.**
+  `ubertooth-rx -l <lap> -u <uap>` never locked onto the clock of such a
+  piconet, which is what current controllers do. With the updated libbtbb it
+  finds the clock and follows.
+- **Stuck on a wrong clock.** A follow on a wrong clock used to decode
+  nothing for the rest of the run. `ubertooth-rx` now warns and searches
+  again when the clock proves wrong or nothing is heard for a minute, keeping
+  the address part it found and any UAP given with `-u`.
+- **Long packets crashed or decoded garbage.** A packet longer than
+  one 400-microsecond bank was decoded from zeros, and `ubertooth-rx -l` crashed with
+  `double free or corruption` after about 36 packets. A capture at a high `-e`
+  now reports somewhat fewer packets, all of them real.
+- **Wrong data in capture records.** Records now carry the packet's
+  real header (before, 18 zero bits until the follow began), the recovered
+  UAP (including on the packet that settled it and in `ubertooth-rx -z`
+  surveys), and the right clock (before, some packets were placed about seven
+  minutes ahead). Per-packet times track the run (before, a 15-second follow
+  could span 191 seconds), and a packet too strong to measure reads `s=none
+  snr=none`. `ubertooth-scan` no longer places packets a slot late.
+- **Replays and empty files.** `ubertooth-rx -i` reports the host time
+  stored in the capture rather than the replay's, and exits 1 with an error
+  for an unreadable file or a cut-off last record (before, exit 0). A run
+  refused before it captures anything leaves no empty capture file behind.
+
+([#968](https://github.com/SqueakyFloors/ubertooth/issues/968), [#771](https://github.com/SqueakyFloors/ubertooth/issues/771), [#903](https://github.com/SqueakyFloors/ubertooth/issues/903), [#666](https://github.com/SqueakyFloors/ubertooth/issues/666), [#792](https://github.com/SqueakyFloors/ubertooth/issues/792), [#778](https://github.com/SqueakyFloors/ubertooth/issues/778), [#767](https://github.com/SqueakyFloors/ubertooth/issues/767), [#842](https://github.com/SqueakyFloors/ubertooth/issues/842), [#664](https://github.com/SqueakyFloors/ubertooth/issues/664), [#1182](https://github.com/SqueakyFloors/ubertooth/issues/1182), [#1162](https://github.com/SqueakyFloors/ubertooth/issues/1162), [#202](https://github.com/SqueakyFloors/ubertooth/issues/202), [#203](https://github.com/SqueakyFloors/ubertooth/issues/203), [#993](https://github.com/SqueakyFloors/ubertooth/issues/993), [#1013](https://github.com/SqueakyFloors/ubertooth/issues/1013))
+
+### ubertooth-afh
+
+- **Script-visible change.** `ubertooth-afh -a` is removed.
+- **Script-visible change.** The removal threshold `ubertooth-afh -m` now
+  defaults to 800 packets (before, 5), so a full-band map holds at 79 of 79;
+  a channel the piconet gives up takes 800 packets to leave the map.
+- **Fixed: wrong channel maps.** `ubertooth-afh` reported only a handful of
+  the channels a full-band piconet uses, marked the two band-edge channels
+  used without hearing them, and could park on one channel and report only
+  that.
+- **Fixed: failures that looked like results.** When the board refuses the
+  band sweep, `ubertooth-afh` exits 1 instead of printing a one-channel map,
+  and `ubertooth-btle` likewise names the setup request the board refused.
+  `ubertooth-afh -t` exits 2 when detection hears nothing, instead of
+  monitoring an all-zero map, and stops on the first Ctrl-C.
+
+([#21](https://github.com/SqueakyFloors/ubertooth/issues/21), [#194](https://github.com/SqueakyFloors/ubertooth/issues/194), [#756](https://github.com/SqueakyFloors/ubertooth/issues/756), [#238](https://github.com/SqueakyFloors/ubertooth/issues/238), [#379](https://github.com/SqueakyFloors/ubertooth/issues/379), [#187](https://github.com/SqueakyFloors/ubertooth/issues/187), [#521](https://github.com/SqueakyFloors/ubertooth/issues/521))
+
+### ubertooth-follow
+
+- **Name the target by its full address.** `ubertooth-follow -t <BD_ADDR>`
+  follows any target, not only one whose address begins `00:00`, and gives
+  the LAP and UAP to follow. A failed connection after `-l` and `-u` asks for
+  `-t` instead.
+- **Script-visible change.** `ubertooth-follow -a` (follow with an AFH map)
+  needs `-t`, and `-l` without `-u`, or `-u` without `-l`, is refused (before,
+  it followed the local adapter instead). Progress goes to standard error.
+- **Fixed: hopping on the wrong channels.** AFH hopping sat on 2402 MHz; a
+  board left in another mode, or by a killed tool, stayed on one channel or
+  hopped all 79; and `ubertooth-follow -w` compensated half the delay it
+  named. A new AFH map takes effect at once, an unreadable map or one with
+  fewer than 20 channels is refused, and a follow without a map clears an
+  earlier run's.
+- **Fixed: following without what was asked for.** When the board refused the
+  target's address or the clock reset, `ubertooth-follow` followed anyway; it
+  now stops and says which. A UAP you gave is kept after a wrong clock instead
+  of being worked out again from the air.
+- **Fixed: timestamps and empty files.** Packet times could be hours out
+  after a packet caught around the clock reset, and a run refused before it
+  captured anything left an empty capture file.
+
+([#316](https://github.com/SqueakyFloors/ubertooth/issues/316), [#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#529](https://github.com/SqueakyFloors/ubertooth/issues/529), [#540](https://github.com/SqueakyFloors/ubertooth/issues/540), [#34](https://github.com/SqueakyFloors/ubertooth/issues/34), [#44](https://github.com/SqueakyFloors/ubertooth/issues/44), [#261](https://github.com/SqueakyFloors/ubertooth/issues/261), [#788](https://github.com/SqueakyFloors/ubertooth/issues/788), [#672](https://github.com/SqueakyFloors/ubertooth/issues/672), [#504](https://github.com/SqueakyFloors/ubertooth/issues/504), [#745](https://github.com/SqueakyFloors/ubertooth/issues/745), [#494](https://github.com/SqueakyFloors/ubertooth/issues/494), [#995](https://github.com/SqueakyFloors/ubertooth/issues/995))
+
+### ubertooth-scan
+
+- **Script-visible change.** `ubertooth-scan` keeps its headings, `-x`
+  progress, and failures on standard error, so saved or piped output holds
+  only results. A refused inquiry, or a device that will not complete the
+  `ubertooth-scan -x` report, is named and exits 1 (before, exit 0).
+- **Fixed: wrong or stuck device names.** `ubertooth-scan` could print one
+  device's name against another's address, and a device that answered and
+  then went silent held the scan forever. Unreadable names now print as
+  `[unknown]` and the scan carries on.
+- **Fixed: newer manufacturers unnamed.** `ubertooth-scan -x` reported a
+  device from a recently registered company as `Manufacturer: not assigned`;
+  it now knows four times as many company identifiers.
+
+([#323](https://github.com/SqueakyFloors/ubertooth/issues/323), [#1172](https://github.com/SqueakyFloors/ubertooth/issues/1172), [#1090](https://github.com/SqueakyFloors/ubertooth/issues/1090), [#745](https://github.com/SqueakyFloors/ubertooth/issues/745))
+
+### ubertooth-btbr
+
+#### New features
+
+- **Send chosen packet types.** With a connection up, the `ubertooth-btbr`
+  command `tx <format> [<length>] [<count>] [<hex>]` sends one packet of a
+  chosen type (AUX1, DV, HV, EV, or DM and DH at any length), for testing a
+  Classic decoder against packets real stacks rarely send. See
+  ubertooth-btbr(1), TRANSMITTING CHOSEN PACKET TYPES.
+- **Choose a board.** `ubertooth-btbr -U <index|serial>` picks one of several
+  boards. With several attached and no `-U`, it lists them and opens none
+  (before, it opened whichever came first). `ubertooth-btbr -h` prints usage.
+- **More of a session is visible.** `ubertooth-btbr` prints the LMP packets a
+  connection decodes, says why a peer hung up (`Peer detached: reason 0x13,
+  the peer's user ended the connection`), and names the LMP power-control
+  packets correctly.
+- **Script-visible change.** A session's output is a clean packet log:
+  packets and inquiry responses go to standard output, one line each with the
+  time in front (`13:54:02 RX LMP ...`). The prompt, help, progress, and
+  plain `warning:` and `error:` lines go to standard error, with no color
+  codes when redirected.
+- **Script-visible change.** `ubertooth-btbr -h` exits 0, and unknown prompt
+  words, short addresses, and out-of-range `-f` (0-63) and `-b` (0-3) values
+  are refused. A session exits 1 when it loses the board, leaves it held, or
+  loses its standard output.
+
+([#736](https://github.com/SqueakyFloors/ubertooth/issues/736), [#642](https://github.com/SqueakyFloors/ubertooth/issues/642), [#410](https://github.com/SqueakyFloors/ubertooth/issues/410), [#735](https://github.com/SqueakyFloors/ubertooth/issues/735), [#951](https://github.com/SqueakyFloors/ubertooth/issues/951), [#950](https://github.com/SqueakyFloors/ubertooth/issues/950), [#800](https://github.com/SqueakyFloors/ubertooth/issues/800), [#874](https://github.com/SqueakyFloors/ubertooth/issues/874), [#943](https://github.com/SqueakyFloors/ubertooth/issues/943), [#908](https://github.com/SqueakyFloors/ubertooth/issues/908), [#1075](https://github.com/SqueakyFloors/ubertooth/issues/1075), [#1142](https://github.com/SqueakyFloors/ubertooth/issues/1142), [#737](https://github.com/SqueakyFloors/ubertooth/issues/737), [#920](https://github.com/SqueakyFloors/ubertooth/issues/920), [#959](https://github.com/SqueakyFloors/ubertooth/issues/959))
+
+#### Fixes
+
+- **Connections to real devices dropped.** A connection was cut after exactly
+  30 seconds, a request `ubertooth-btbr` did not handle or a refused opening
+  request left the link to time out, and a declined connection was held until
+  link supervision ended it.
+- **Two Ubertooths could not connect to each other.** A board in `page_scan` missed about
+  half of all pages and gave up after one lost page response, `page` and
+  `page_scan` reported connections that were never made, and a dropped
+  transmit slot cost the link a repeat or put its hopping out of step. Two
+  boards now page each other, and `l2ping` between them gets a reply.
+- **Corrupt packets.** Received payloads of 247 bytes or more failed their
+  checksum, transmits of 77 bytes or more went out corrupt, and headers from
+  other piconets were accepted.
+- **Crashes and hangs.** Short or malformed LMP packets, unreadable board
+  messages, cut-off inquiry responses, and non-ASCII device names ended the
+  session. Ctrl-C now returns to the `bt>` prompt, a board still running
+  `bluetooth_rxtx` is named instead of hanging, a board in use by another
+  program is reported as such, and `-V` and `-h` work without the Python
+  `libusb1` package.
+
+([#942](https://github.com/SqueakyFloors/ubertooth/issues/942), [#949](https://github.com/SqueakyFloors/ubertooth/issues/949), [#957](https://github.com/SqueakyFloors/ubertooth/issues/957), [#1074](https://github.com/SqueakyFloors/ubertooth/issues/1074), [#807](https://github.com/SqueakyFloors/ubertooth/issues/807), [#1156](https://github.com/SqueakyFloors/ubertooth/issues/1156), [#1168](https://github.com/SqueakyFloors/ubertooth/issues/1168), [#1166](https://github.com/SqueakyFloors/ubertooth/issues/1166), [#1191](https://github.com/SqueakyFloors/ubertooth/issues/1191), [#667](https://github.com/SqueakyFloors/ubertooth/issues/667), [#668](https://github.com/SqueakyFloors/ubertooth/issues/668), [#706](https://github.com/SqueakyFloors/ubertooth/issues/706), [#1036](https://github.com/SqueakyFloors/ubertooth/issues/1036), [#960](https://github.com/SqueakyFloors/ubertooth/issues/960), [#971](https://github.com/SqueakyFloors/ubertooth/issues/971), [#978](https://github.com/SqueakyFloors/ubertooth/issues/978), [#988](https://github.com/SqueakyFloors/ubertooth/issues/988), [#1](https://github.com/SqueakyFloors/ubertooth/issues/1), [#418](https://github.com/SqueakyFloors/ubertooth/issues/418), [#552](https://github.com/SqueakyFloors/ubertooth/issues/552), [#898](https://github.com/SqueakyFloors/ubertooth/issues/898), [#701](https://github.com/SqueakyFloors/ubertooth/issues/701))
+
+### ubertooth-specan
+
+- **Script-visible change.** `ubertooth-specan -d` chooses only where the
+  samples go, and `-g` or `-G` how they are written, so `ubertooth-specan -g
+  -d out.dat` writes gnuplot text to the file (before, the file stayed empty).
+  `-d -` streams to standard output but refuses a terminal, and any other
+  value, even one starting with `-`, is a file name.
+- **`ubertooth-specan -v` works.** It prints the board, the sweep, where the
+  samples go, and a summary once a second, on standard error (before, it did
+  nothing).
+- **Fixed: sweeps measured through the wrong settings.** A sweep after
+  another mode used that mode's radio front-end settings and could include
+  samples left over from an earlier run; it now starts from a clean board.
+  `ubertooth-specan -l` and `-u` must be valid, ordered frequencies in the
+  band.
+- **Fixed: unclear errors.** A `-d` file that cannot be written stops the
+  sweep and names the failure (for example, no space left on device), and a
+  bad option gets the same error wording as every other tool. Every tool also
+  stops the board cleanly on SIGHUP and SIGALRM.
+
+([#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#231](https://github.com/SqueakyFloors/ubertooth/issues/231), [#259](https://github.com/SqueakyFloors/ubertooth/issues/259), [#510](https://github.com/SqueakyFloors/ubertooth/issues/510), [#471](https://github.com/SqueakyFloors/ubertooth/issues/471), [#173](https://github.com/SqueakyFloors/ubertooth/issues/173), [#37](https://github.com/SqueakyFloors/ubertooth/issues/37), [#655](https://github.com/SqueakyFloors/ubertooth/issues/655), [#338](https://github.com/SqueakyFloors/ubertooth/issues/338))
+
+### ubertooth-specan-ui
+
+- **BLE channel labels.** Press `n` in `ubertooth-specan-ui` to label the axis
+  and markers with BLE channel numbers, with the advertising channels 37, 38,
+  and 39 always named, and `n` again for megahertz. Credit: Emmanuel Blot
+  ([@eblot](https://github.com/eblot)).
+- **Average trace.** A slowly smoothed average of the max-hold trace is drawn
+  as a cyan dotted line labeled "Avg: N dBm". Credit: Sirio Balmelli
+  ([@siriobalmelli](https://github.com/siriobalmelli)).
+- **Easier to use.** Keys are shown on screen (press `h`), frequencies are
+  labeled in whole MHz, marker labels no longer linger, the plot is slightly
+  wider than the scanned range, and there is a man page.
+- **Script-visible change.** `ubertooth-specan-ui` refuses an unknown option
+  or stray argument with exit 1 (before, it ignored it and swept). A missing
+  `numpy` or Qt binding, or a bad `-l` or `-u` value, gets one `error:` line
+  instead of a traceback.
+- **Fixed: nothing plotted.** `ubertooth-specan-ui` passed arguments
+  `ubertooth-specan` rejected, so it drew nothing. Its `-U` now takes an index
+  or serial, pressing `C` before data arrives no longer crashes it, and
+  `ubertooth-specan-ui --wifi 14` sits at 2484 MHz (before, 2482).
+
+([#76](https://github.com/SqueakyFloors/ubertooth/issues/76), [#745](https://github.com/SqueakyFloors/ubertooth/issues/745), [#75](https://github.com/SqueakyFloors/ubertooth/issues/75), [#125](https://github.com/SqueakyFloors/ubertooth/issues/125), [#126](https://github.com/SqueakyFloors/ubertooth/issues/126), [#934](https://github.com/SqueakyFloors/ubertooth/issues/934), [#124](https://github.com/SqueakyFloors/ubertooth/issues/124), [#673](https://github.com/SqueakyFloors/ubertooth/issues/673))
+
+### ubertooth-dump
+
+- **Script-visible change.** `ubertooth-dump` refuses to write its symbol
+  stream to a terminal, with or without `-d -`, and the refusal names what it
+  would write (binary data, or the `-b` bitstream).
+- **Fixed: dumps in the wrong modulation.** When the board refused the
+  modulation `ubertooth-dump -c` or `-l` asked for, the dump ran anyway in
+  whatever modulation the board was left in and exited 0. It now stops with an
+  error and exit 1.
+
+([#481](https://github.com/SqueakyFloors/ubertooth/issues/481), [#945](https://github.com/SqueakyFloors/ubertooth/issues/945))
+
+### ubertooth-debug
+
+- **Fixed: wrong register values.** `ubertooth-debug` read fourteen CC2400
+  fields with too narrow a mask and two from a neighbor's bits; every field
+  now shows its whole value, and register `0x15` answers to its own name,
+  `%MDMTST1`.
+- **Fixed: unclear failures.** `ubertooth-debug` names a board running the
+  `btbr` image instead of failing on the first read, names each register read
+  that fails, and exits 0 only when every read succeeds (before, it exited
+  with the last register's value). `ubertooth-debug -r` states the range it
+  accepts and quotes the item it refused, and a `%name` works anywhere in a
+  list or range.
+
+([#671](https://github.com/SqueakyFloors/ubertooth/issues/671), [#808](https://github.com/SqueakyFloors/ubertooth/issues/808), [#164](https://github.com/SqueakyFloors/ubertooth/issues/164), [#235](https://github.com/SqueakyFloors/ubertooth/issues/235))
 
 ### ubertooth-ducky
 
