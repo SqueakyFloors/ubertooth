@@ -296,11 +296,10 @@ void dfu_image_describe_failure(const struct dfu_image_report *report,
  * down permanently, so the host must not ask for more than the part has.
  *
  * A bootloader built from this tree refuses such a request itself, bounded by
- * the same figures (firmware/bootloader/flash.h). But a board carries
- * whatever bootloader was flashed on it, and older ones answer REQ_UPLOAD
- * from any address below 512 KiB, whatever part they run on. For those
- * boards, the host asking for no more than the part has is the only
- * protection there is.
+ * the same figures (firmware/bootloader/flash.h), but a board carries
+ * whatever bootloader was flashed on it and older ones answer REQ_UPLOAD from
+ * any address below 512 KiB, whatever part they run on. For those boards the
+ * host's own bound is the only protection there is.
  *
  * The part identification number says how much that is. It is an
  * In-Application Programming value the application reports

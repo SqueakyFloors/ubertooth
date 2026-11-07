@@ -487,18 +487,12 @@ static void close_dfu_device(libusb_device_handle *devh, int claimed)
 #define DETACH_REOPEN_INTERVAL_MS 100
 
 /* How long the detach waits for the DFU device to go away before it calls the
- * board still stuck in the bootloader. A board that reset left the bus within
- * 180 ms of the request failing on the macOS host this was measured on, so
- * this budget is about five times what it takes; the wait is only ever spent
- * in full when the detach really did fail. Too short a budget would bring
- * back the failure this is here to fix, so it is generous on purpose.
- *
- * A request the bootloader completes before resetting rides the same budget,
- * and its window starts later than the measured one: the board is still
- * answering when the transfer returns, where a failed transfer was already
- * racing the reset. The measurement has not been repeated there, because the
- * macOS host it was taken on never completes the request. Five times the
- * measured departure is meant to cover that too. */
+ * board still stuck in the bootloader. A board that resets leaves the bus
+ * within a couple of hundred milliseconds, so this budget is several times
+ * what it takes, and generous on purpose: too short a budget brings back the
+ * failure it is here to fix, while the wait is only ever spent in full when
+ * the detach really did fail. A request the bootloader completes before
+ * resetting rides the same budget, and its window starts later. */
 #define DETACH_GONE_POLLS 20
 #define DETACH_GONE_INTERVAL_MS 50
 
@@ -607,14 +601,14 @@ struct dfu_runtime_context {
  *
  * It is the same cause as the read-back bound: asking for flash the part has
  * not got. On a bootloader from this tree both paths end the same way, with
- * ERRADDRESS before the part is touched. On an older one they do not: a read
- * past the end is a bus fault that takes the bootloader down until the board
- * is power-cycled, while a write past the end stops part-way through the
- * application.
+ * ERRADDRESS before the part is touched, so this bound exists for the older
+ * ones -- where a read past the end is a bus fault that takes the bootloader
+ * down until the board is power-cycled, and a write past the end stops
+ * part-way through the application.
  *
- * The part identification number says how much flash there is; it is readable
- * only while the board still runs its application, which is where this is
- * called from, so a refusal costs the user nothing.
+ * The part identification number says how much flash there is, and it is
+ * readable only while the board still runs its application, which is where
+ * this is called from.
  *
  * Returns 1 when the image is refused, having said why. A part this host
  * cannot identify gives no figure to check against, so that warns and lets
@@ -1533,11 +1527,11 @@ static int send_image_block(libusb_device_handle* devh, FILE* downfile,
  *
  * The region's first block holds the vector table: the initial stack pointer
  * and the reset vector that decide where a board goes when it is powered up.
- * Written first, as it used to be, it is in place for the whole of the
- * transfer, so a download that stops -- a cable pulled, a board that leaves
- * the bus, a host that dies -- leaves a board that starts an application
- * missing the rest of itself. It faults on every power-up from then on, and
- * only bridging the bootloader entry pin at the bench brings it back.
+ * Were it written first, it would be in place for the whole of the transfer,
+ * so a download that stops -- a cable pulled, a board that leaves the bus, a
+ * host that dies -- would leave a board that starts an application missing
+ * the rest of itself. It faults on every power-up from then on, and only
+ * bridging the bootloader entry pin at the bench brings it back.
  *
  * So the vector table goes away first and is written last:
  *
@@ -1559,17 +1553,15 @@ static int send_image_block(libusb_device_handle* devh, FILE* downfile,
  * to keep working with the bootloader already on the board.
  *
  * An interruption after the vector table and before the end of that 4 KiB
- * sector leaves a startable vector table in front of a sector that is only
- * partly written, and the checksum over the table says nothing about it. The
- * image check block is what closes that: it goes into the flash in the same
- * program as the vector table, and the length and checksum in it cover every
- * byte of the image, so a board can tell whether the rest of that sector
- * arrived. Everything else -- all of a download bar its last few blocks --
- * leaves a board whose bootloader finds nothing to start and waits in DFU for
- * another image.
+ * sector leaves a startable vector table in front of a half-written sector,
+ * and the checksum over the table says nothing about it. The image check
+ * block closes that: it goes into the flash in the same program as the vector
+ * table, and its length and checksum cover every byte of the image, so a
+ * board can tell whether the rest of that sector arrived. Everything else -- all of a download bar its last few blocks -- leaves a
+ * board whose bootloader finds nothing to start and waits in DFU.
  *
- * All of this needs a bootloader from this tree on the board. One carrying an
- * earlier bootloader jumps into whatever it finds, as it always did.
+ * All of this needs a bootloader from this tree on the board; an earlier one
+ * jumps into whatever it finds.
  */
 /* Step 3 writes SECTOR_SIZE worth of blocks and relies on that being the
  * whole of the sector the region starts in, so that the erase its first block
@@ -1889,9 +1881,9 @@ static FILE* open_output_temp(const char* target, char** temp_name) {
 		free(name);
 		return NULL;
 	}
-	/* mkstemp() creates the file private to this user. Overwriting a file
-	 * used to keep its permissions and creating one used to take the umask,
-	 * so do the same here before it is renamed into place. */
+	/* mkstemp() creates the file private to this user, so the permissions a
+	 * plain open would have given it -- the target's own when overwriting,
+	 * the umask when creating -- are applied here before the rename. */
 	if (stat(target, &target_state) == 0) {
 		mode = target_state.st_mode & 07777;
 	} else {
@@ -2026,18 +2018,15 @@ static int plan_upload(struct dfu_runtime_context *runtime)
  *
  * getopt does not take long options, and the getopt the tools carry for
  * platforms without a GNU one does not answer getopt_long the way glibc does,
- * so each word is taken out of the command line here instead, before getopt
- * sees it. Neither word has a value of its own, each has to be written out in
- * full, and anything else beginning with "--" still reaches getopt and is
- * reported by opt_report_bad_option() with the whole word quoted, as it
- * always was.
+ * so each word is taken out of the command line here, before getopt sees it.
+ * Neither word has a value of its own, each has to be written out in full,
+ * and anything else beginning with "--" still reaches getopt.
  *
- * The one thing a user could notice is that this scan runs before getopt and
- * so does not know which options take a value: written where a value belongs,
- * as in "-U --update-bootloader", the word is taken out and the option then
- * consumes whatever follows. That command line is refused either way, because
- * no board has that serial and the file name is left over as a stray word, so
- * it costs an unhelpful message rather than a wrong action.
+ * The trap: this scan runs before getopt and so does not know which options
+ * take a value, so written where a value belongs, as in
+ * "-U --update-bootloader", the word is taken out and the option consumes
+ * whatever follows. That command line is refused either way, so it costs an
+ * unhelpful message rather than a wrong action.
  *
  * Returns 1 when the word was there, and removes every copy of it from argv
  * so that getopt sees the rest of the command line as if it had not been
@@ -2472,11 +2461,11 @@ int main(int argc, char **argv) {
 		}
 		switch(opt) {
 		/* -d, -u and -s are named here and acted on once the whole
-		 * command line has been accepted: the signed file used to be
-		 * created, and the temporary upload file opened, inside this
-		 * loop, so a stray word later on left one behind or reported
-		 * a missing file instead of the stray word. A repeated option
-		 * takes the last name. */
+		 * command line has been accepted. Creating the signed file or
+		 * opening the temporary upload file inside this loop would let a
+		 * stray word later on leave one behind, or report a missing file
+		 * instead of the stray word. A repeated option takes the last
+		 * name. */
 		case 'd':
 			downfile_name = optarg;
 			functions |= FUNC_DOWNLOAD;
@@ -2581,8 +2570,8 @@ int main(int argc, char **argv) {
 		goto end_without_device;
 	}
 
-	/* No function is no work: the tool used to exit 0 having touched
-	 * nothing and said nothing, so a mistyped command looked like a
+	/* No function is no work, and it is an error: exiting 0 having touched
+	 * nothing and said nothing would make a mistyped command look like a
 	 * firmware update that had worked. */
 	if (functions == 0) {
 		fputs("error: nothing to do: give -d to write an image, -u to read"
@@ -3026,9 +3015,9 @@ int main(int argc, char **argv) {
 			goto cleanup;
 		}
 		/* The result, so standard output: what the board now holds, where
-		 * that was read, and what the user has to do next. A run that could
-		 * not read the region says neither more nor less than it used to,
-		 * and sends the reader to `ubertooth-util -B` for the answer. */
+		 * that was read, and what the user has to do next. A run that
+		 * could not read the region sends the reader to
+		 * `ubertooth-util -B` for the answer. */
 		if (r == BL_INSTALL_HELD)
 			/* The board has what was asked for, which is the result, but
 			 * this run is not shown to have put it there. */
