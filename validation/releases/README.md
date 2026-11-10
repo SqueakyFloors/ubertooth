@@ -1,7 +1,10 @@
 # Release validation evidence
 
-One folder per release, named after its tag: `2026-11-RC1/`, `2026-11-R1/`.
-Development (`-DEVn`) tags get none. Each folder holds three files:
+One folder per tested tag, named after that tag: `2026-11-DEV2/`,
+`2026-11-RC1/`, `2026-11-R1/`. A development snapshot may publish an
+incomplete summary while qualification is in progress; it says **Not yet
+qualified** and names every missing gate. Release candidates and releases
+carry the complete three-file bundle. Each folder holds:
 
 | File | Contents |
 |---|---|
