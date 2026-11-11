@@ -35,17 +35,18 @@
 #                     until it is put back, so without either option a
 #                     terminal is asked and a script keeps it.
 #   --with-firmware   also build the firmware images (needs arm-none-eabi-gcc)
-#   --flash           also flash bluetooth_rxtx to an attached Ubertooth
-#                     (implies --with-firmware; STATE-CHANGING)
 #   --flash-device <index|serial|all>
-#                     flash a specific Ubertooth (implies --flash); use "all"
-#                     to flash every attached device. Recommended when more
-#                     than one device is attached.
+#                     build and flash bluetooth_rxtx to an attached Ubertooth
+#                     (implies --with-firmware; STATE-CHANGING). With one board
+#                     attached the selector is optional; with several, use an
+#                     index, serial, or "all". --flash is an alias.
 #   --update-bootloader
-#                     also install the bootloader this tree builds, on the
-#                     board --flash-device names, which this option requires
-#                     (implies --flash and --with-firmware; STATE-CHANGING).
-#                     A board that already has that bootloader is left alone.
+#                     also install the bootloader this tree builds
+#                     (implies --flash-device and --with-firmware;
+#                     STATE-CHANGING).
+#                     With one board attached, --flash-device is optional;
+#                     with several, it is required. A board that already has
+#                     that bootloader is left alone.
 #                     Boards are done one at a time, each finished and read
 #                     back before the next, and bluetooth_rxtx goes back on
 #                     after each. Keep a serial programmer to hand: an
@@ -63,6 +64,7 @@
 #   --prefix <path>   install prefix (default: /usr/local on Linux, the
 #                     Homebrew prefix on macOS)
 #   --skip-deps       do not install system packages; assume they are present
+#   --force           rebuild and reinstall even if already up to date
 #   --no-sudo         print the commands that need root instead of running them
 #                     (dry-run for the privileged steps)
 #   -h, --help        show this help
@@ -95,6 +97,7 @@ LIBBTBB_REF="d356e9da7fb03969371aa14d603a8aad2f0ef198"
 NO_SUDO=0
 PREFIX=""
 SKIP_DEPS=0
+FORCE=0
 # Set by -h, answered after the whole command line has parsed (see below).
 HELP=0
 
@@ -107,6 +110,47 @@ die() { err "$*"; exit 1; }
 # Progress, not a result: the script writes nothing to standard output,
 # so "./install.sh > log" still shows what it is doing.
 info() { echo "==> $*" >&2; }
+
+# The version string this tree would build, in the format ubertooth-util -V
+# reports: TAG+AHEAD (e.g. 2026-11-DEV2+11). Empty if git cannot answer.
+tree_version() {
+	local desc
+	desc="$(git -C "$REPO_ROOT" describe --tags \
+		--match '[0-9]*-[0-9]*-R[0-9]*' \
+		--match '[0-9]*-[0-9]*-RC[0-9]*' \
+		--match '[0-9]*-[0-9]*-DEV[0-9]*' \
+		HEAD 2>/dev/null)" || return 1
+	# git describe: TAG-AHEAD-gHASH → TAG+AHEAD
+	printf '%s' "$desc" | sed 's/-\([0-9]*\)-g[0-9a-f]*$/+\1/'
+}
+
+# The host tools version the installed ubertooth-util reports, or empty.
+# The trailing * (dirty flag) is stripped: it means the build had uncommitted
+# changes, but the commit distance is the same.
+installed_host_version() {
+	local line
+	line="$("$1" -V 2>/dev/null | head -1)" || return 1
+	# "Host tools version: 2026-11-DEV2+11* (libbtbb ...)" → 2026-11-DEV2+11
+	printf '%s' "$line" | sed -n 's/^Host tools version: \([^ ]*\).*/\1/p' | sed 's/\*$//'
+}
+
+# The libbtbb ref recorded by the last install into this prefix, or empty.
+installed_libbtbb_ref() {
+	local record="$1"
+	[ -f "$record" ] || return 1
+	# "# libbtbb <ref> from <url>" → <ref>
+	sed -n 's/^# libbtbb \([^ ]*\) from .*/\1/p' "$record" | head -1
+}
+
+# The firmware version a specific board reports, or empty.
+# The trailing * (dirty flag) is stripped, as in installed_host_version.
+installed_fw_version() {
+	local line
+	line="$("$1" -U "$2" -v 2>/dev/null)" || return 1
+	# "Firmware version: bluetooth_rxtx 2026-11-DEV2+11* (API:...)" → 2026-11-DEV2+11
+	printf '%s' "$line" | sed -n 's/^Firmware version: [^ ]* \([^ ]*\).*/\1/p' | sed 's/\*$//'
+}
+
 # The Python tools need Python 3.8 or newer (host/python/cmake/UbertoothPythonFloor.cmake).
 require_python() {
 	local version
@@ -234,8 +278,13 @@ record_installed() { # <name> <build dir> [description]
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--with-firmware) WITH_FIRMWARE=1 ;;
-		--flash) FLASH=1; WITH_FIRMWARE=1 ;;
-		--flash-device) shift; FLASH_DEVICE="${1:-}"; FLASH=1; WITH_FIRMWARE=1; [ -n "$FLASH_DEVICE" ] || die "option '--flash-device' requires a value" ;;
+		--flash|--flash-device)
+			FLASH=1; WITH_FIRMWARE=1
+			# Optional argument: the next word, if it doesn't start with --.
+			if [ $# -gt 1 ] && case "$2" in --*) false ;; *) true ;; esac; then
+				shift; FLASH_DEVICE="$1"
+			fi
+			;;
 		--update-bootloader) UPDATE_BOOTLOADER=1; FLASH=1; WITH_FIRMWARE=1 ;;
 		--uninstall) UNINSTALL=1 ;;
 		--keep-libbtbb)
@@ -249,6 +298,7 @@ while [ $# -gt 0 ]; do
 		--libbtbb-ref) shift; LIBBTBB_REF="${1:-}"; LIBBTBB_DEFAULTS=0; [ -n "$LIBBTBB_REF" ] || die "option '--libbtbb-ref' requires a value" ;;
 		--prefix) shift; PREFIX="${1:-}"; [ -n "$PREFIX" ] || die "option '--prefix' requires a value" ;;
 		--skip-deps) SKIP_DEPS=1 ;;
+		--force) FORCE=1 ;;
 		--no-sudo) NO_SUDO=1 ;;
 		-h|--help) HELP=1 ;;
 		--)
@@ -298,7 +348,7 @@ fi
 # --no-sudo prints the privileged steps instead of running them, so both apply
 # to either job.
 if [ "$UNINSTALL" -eq 1 ]; then
-	[ "$WITH_FIRMWARE" -eq 0 ] || die "--uninstall cannot be combined with --with-firmware, --flash, --flash-device, or --update-bootloader"
+	[ "$WITH_FIRMWARE" -eq 0 ] || die "--uninstall cannot be combined with --with-firmware, --flash-device, or --update-bootloader"
 	[ -z "$VENV" ] || die "--uninstall cannot be combined with --venv"
 	[ "$SKIP_DEPS" -eq 0 ] || die "--uninstall cannot be combined with --skip-deps"
 	[ "$LIBBTBB_DEFAULTS" -eq 1 ] || die "--uninstall cannot be combined with --libbtbb-url or --libbtbb-ref; it removes the libbtbb that was installed"
@@ -311,7 +361,24 @@ fi
 # with one board attached today and two tomorrow would otherwise write a
 # different board each time.
 if [ "$UPDATE_BOOTLOADER" -eq 1 ] && [ -z "$FLASH_DEVICE" ]; then
-	die "--update-bootloader needs --flash-device <index|serial|all> to say which board to install the bootloader on"
+	# With one board attached, resolve it the same way --flash-device does
+	# rather than forcing the user to name the sole device.
+	if command -v ubertooth-util >/dev/null 2>&1; then
+		_bl_devices="$(list_devices "$(command -v ubertooth-util)")"
+		_bl_n="$(printf '%s\n' "$_bl_devices" | grep -c . || true)"
+		if [ "$_bl_n" -eq 1 ]; then
+			read -r _bl_idx _bl_serial <<< "$_bl_devices"
+			if [ "$_bl_serial" != "?" ]; then
+				FLASH_DEVICE="$_bl_serial"
+			else
+				FLASH_DEVICE="$_bl_idx"
+			fi
+		else
+			die "--update-bootloader needs --flash-device <index|serial|all> when more than one board is attached"
+		fi
+	else
+		die "--update-bootloader needs --flash-device <index|serial|all> (ubertooth-util not yet installed to auto-detect)"
+	fi
 fi
 
 # --- platform check -------------------------------------------------------
@@ -617,30 +684,33 @@ update_bootloader_on() { # <dfu> <util> <bl_update.dfu> <firmware.dfu> <serial>
 	local dfu="$1" util="$2" blimg="$3" img="$4" serial="$5"
 	local answer="$WORK/bl-update.out" outcome bootloader
 
-	info "Installing the bootloader on $serial"
-	info "  keep a serial programmer to hand: a write that is interrupted leaves the board needing one"
-	# The answer is kept, because which of the two things happened is read out
-	# of it below, and shown in full straight after. Written to the file
-	# rather than piped through tee: the whole update takes a few seconds, so
-	# streaming it gains nothing, and a pipeline's status cannot tell a copy
-	# that could not be written from a bootloader write that failed. Nothing
-	# here closes this tool's output early.
+	# Run the update quietly; only announce if something is actually written.
 	if ! "$dfu" --update-bootloader -d "$blimg" -U "$serial" </dev/null > "$answer" 2>&1; then
+		info "Installing the bootloader on $serial"
+		info "  keep a serial programmer to hand: a write that is interrupted leaves the board needing one"
 		cat "$answer" >&2
 		err "installing the bootloader on $serial failed"
 		die "the firmware was not put back on this board; see ubertooth-dfu(1), UPDATING THE BOOTLOADER for what an interrupted write leaves behind and how a serial programmer recovers it"
 	fi
-	cat "$answer" >&2
-	# The one line that says the board was left alone. Both outcomes exit 0,
-	# and neither is a distinct status, so this line is what tells them apart.
-	# The tool and this script are in one tree, and the tool's own tests pin
-	# that wording, so the two cannot drift apart unnoticed.
 	if grep -q 'already has this bootloader' "$answer"; then
 		outcome="already had this bootloader, nothing written"
-		info "  $serial still runs its firmware; flashing bluetooth_rxtx anyway, as a --flash run would"
-		"$dfu" -U "$serial" -d "$img" -r </dev/null >&2 ||
-			die "the bootloader on $serial was left as it was, and flashing the firmware failed"
+		# The board still runs its firmware — only reflash if the version
+		# is different (or --force).
+		local _tree_ver _fw_ver
+		_tree_ver="$(tree_version 2>/dev/null || true)"
+		_fw_ver="$(installed_fw_version "$util" "$serial" 2>/dev/null || true)"
+		if [ "$FORCE" -eq 0 ] && [ -n "$_tree_ver" ] && [ "$_fw_ver" = "$_tree_ver" ]; then
+			info "  $serial firmware already at $_tree_ver; skipping"
+		else
+			info "  $serial still runs its firmware; flashing bluetooth_rxtx"
+			"$dfu" -U "$serial" -d "$img" -r </dev/null >&2 ||
+				die "the bootloader on $serial was left as it was, and flashing the firmware failed"
+		fi
 	else
+		# The bootloader was actually written — show the announcement and DFU output.
+		info "Installing the bootloader on $serial"
+		info "  keep a serial programmer to hand: a write that is interrupted leaves the board needing one"
+		cat "$answer" >&2
 		outcome="bootloader installed"
 		info "  $serial is in DFU with the updater in its application region; flashing bluetooth_rxtx back"
 		# A failure here leaves the board in DFU holding the updater, which
@@ -655,16 +725,27 @@ update_bootloader_on() { # <dfu> <util> <bl_update.dfu> <firmware.dfu> <serial>
 	# its firmware as well.
 	wait_for_board "$util" "$serial" ||
 		die "$serial has not answered since the flash, so no further board is touched; check it with ubertooth-util -U $serial -V, and if it is in the DFU bootloader, 'ubertooth-dfu -d firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r' with no -U reaches it"
-	# Read off the board, not assumed: -V reports the host tools and the
-	# firmware the board runs, -B which bootloader it has. Their answers go to
-	# standard error with the rest of this script's output.
+	# Read off the board after a real write; skip the readback when nothing
+	# was written — the board is unchanged and the output is just noise.
+	if [ "$outcome" = "already had this bootloader, nothing written" ]; then
+		bootloader="$("$util" -U "$serial" -B 2>/dev/null || true)"
+		case "$bootloader" in
+			*Bootloader:*)
+				info "Board $serial: $outcome"
+				info "  $bootloader" ;;
+		esac
+		return 0
+	fi
 	"$util" -U "$serial" -V >&2 || warn "$serial did not answer ubertooth-util -V"
 	# Taken from what it printed, not from its status: -B exits 1 when part of
 	# its answer is missing and still prints the hash, which is the line to
 	# show rather than throw away.
 	bootloader="$("$util" -U "$serial" -B || true)"
 	case "$bootloader" in
-		*Bootloader:*) info "$serial: $outcome. $bootloader" ;;
+		*Bootloader:*)
+				info ""
+			info "Board $serial: $outcome"
+			info "  $bootloader" ;;
 		*) warn "$serial: $outcome, but ubertooth-util -B would not say which bootloader it has" ;;
 	esac
 }
@@ -681,264 +762,263 @@ flash_firmware() {
 		die "ubertooth-dfu/ubertooth-util not found on PATH; build the host tools first"
 	fi
 
-	info "Building firmware (bluetooth_rxtx)"
-	PATH="$(dirname "$dfu"):$PATH" make -C "$REPO_ROOT/firmware/bluetooth_rxtx"
-	if [ "$UPDATE_BOOTLOADER" -eq 1 ]; then
-		# bl_update carries the 16 KiB of bootloader region to install, so
-		# building it builds the bootloader beside it. Its own directory
-		# rather than firmware/'s bl_update target, because that target stops
-		# at the .bin and the signed .dfu is what ubertooth-dfu writes.
-		info "Building firmware (bl_update, the bootloader updater)"
-		PATH="$(dirname "$dfu"):$PATH" make -C "$REPO_ROOT/firmware/bl_update"
-	fi
+	# The version the tree would build.
+	local tree_ver
+	tree_ver="$(tree_version 2>/dev/null || true)"
+
+	# Check whether a single device needs anything before building.
+	# Returns 0 (needs work) or 1 (all up to date).
+	device_needs_work() { # <util> <selector>
+		if [ "$FORCE" -eq 1 ] || [ -z "$tree_ver" ]; then
+			return 0
+		fi
+		local fw_ver
+		fw_ver="$(installed_fw_version "$1" "$2" 2>/dev/null || true)"
+		[ "$fw_ver" != "$tree_ver" ]
+	}
 
 	if [ "$FLASH" -ne 1 ]; then
+		# --with-firmware without --flash: just build.
+		if ! PATH="$(dirname "$dfu"):$PATH" make -C "$REPO_ROOT/firmware/bluetooth_rxtx" -s -q 2>/dev/null; then
+			info "Building firmware (bluetooth_rxtx)"
+			if ! PATH="$(dirname "$dfu"):$PATH" make -C "$REPO_ROOT/firmware/bluetooth_rxtx" -s >/dev/null 2>"$WORK/fw-build.err"; then
+				cat "$WORK/fw-build.err" >&2
+				die "firmware build failed"
+			fi
+		fi
+		if [ "$UPDATE_BOOTLOADER" -eq 1 ]; then
+			if ! PATH="$(dirname "$dfu"):$PATH" make -C "$REPO_ROOT/firmware/bl_update" -s -q 2>/dev/null; then
+				info "Building firmware (bl_update, the bootloader updater)"
+				if ! PATH="$(dirname "$dfu"):$PATH" make -C "$REPO_ROOT/firmware/bl_update" -s >/dev/null 2>"$WORK/bl-build.err"; then
+					cat "$WORK/bl-build.err" >&2
+					die "bootloader updater build failed"
+				fi
+			fi
+		fi
 		return 0
 	fi
 
-	# Reached with any selector, --flash-device <serial> included, and here
-	# too a device that is busy or wedged makes each read wait.
-	info "Looking for the Ubertooth to flash"
+	# --- Resolve which devices to flash and check if any need work ---
 	devices="$(list_devices "$util")"
 	n="$(printf '%s\n' "$devices" | grep -c . || true)"
-	# Checked before the first write rather than when the flash with no -U
-	# finds two boards in DFU, which would be after this run had already cost
-	# a board its application region.
 	if [ "$UPDATE_BOOTLOADER" -eq 1 ] && dfu_board_waiting "$util"; then
-		die "a board is waiting in the DFU bootloader; finish or recover that flash first, because installing a bootloader leaves a board there too and ubertooth-dfu will not choose between two"
+		die "a board is waiting in the DFU bootloader; finish or recover that flash first"
 	fi
+
+	# Build the list of serials to flash and check versions up front.
+	local targets=() need_flash=0 need_bootloader=0
 	if [ "$FLASH_DEVICE" = "all" ]; then
 		[ "$n" -gt 0 ] || die "no Ubertooth found to flash"
-		# Never skip a board silently: refuse if any device cannot be read.
 		if printf '%s\n' "$devices" | grep -q ' ?$'; then
 			die "$(multi_device_msg "$devices")"$'\n'"a device could not be read; flash each readable one with --flash-device <index|serial>"
 		fi
-		info "Flashing all $n attached Ubertooths"
 		while read -r index serial; do
-			if [ "$UPDATE_BOOTLOADER" -eq 1 ]; then
-				info "  board $index of $n"
-				update_bootloader_on "$dfu" "$util" "$blimg" "$img" "$serial"
-			else
-				info "  flashing $index: $serial"
-				"$dfu" -U "$serial" -d "$img" -r </dev/null
+			targets+=("$serial")
+			if device_needs_work "$util" "$serial"; then
+				need_flash=1
 			fi
 		done <<< "$devices"
 	elif [ -n "$FLASH_DEVICE" ]; then
-		# The serial, even when the user selected by index: an index is a
-		# position in the list of boards running their firmware, and a
-		# bootloader install takes a board out of that list and brings it
-		# back, so --update-bootloader needs the serial rather than the
-		# position. It is what the messages name either way.
 		sel_serial="$FLASH_DEVICE"
 		if printf '%s' "$FLASH_DEVICE" | grep -qE '^[0-9]+$'; then
 			sel_serial="$(printf '%s\n' "$devices" | awk -v i="$FLASH_DEVICE" '$1 == i { print $2 }')"
 			[ -n "$sel_serial" ] || sel_serial="?"
 		fi
 		if [ "$UPDATE_BOOTLOADER" -eq 1 ]; then
-			[ "$sel_serial" != "?" ] ||
-				die "the serial of Ubertooth index $FLASH_DEVICE could not be read, and --update-bootloader needs it: name the board by serial instead"
-			update_bootloader_on "$dfu" "$util" "$blimg" "$img" "$sel_serial"
-		else
-			if [ "$sel_serial" != "$FLASH_DEVICE" ] && [ "$sel_serial" != "?" ]; then
-				info "Flashing bluetooth_rxtx to Ubertooth index $FLASH_DEVICE (serial $sel_serial)"
-			elif [ "$sel_serial" = "?" ]; then
-				info "Flashing bluetooth_rxtx to Ubertooth index $FLASH_DEVICE"
-			else
-				info "Flashing bluetooth_rxtx to Ubertooth serial $FLASH_DEVICE"
-			fi
-			"$dfu" -U "$FLASH_DEVICE" -d "$img" -r
+			[ "$sel_serial" != "?" ] || die "the serial of Ubertooth index $FLASH_DEVICE could not be read, and --update-bootloader needs it"
+		fi
+		targets+=("$FLASH_DEVICE")
+		if device_needs_work "$util" "$FLASH_DEVICE"; then
+			need_flash=1
 		fi
 	else
-		if [ "$n" -eq 0 ]; then
-			die "no Ubertooth found to flash"
-		elif [ "$n" -gt 1 ]; then
-			die "$(multi_device_msg "$devices")"
-		fi
+		[ "$n" -gt 0 ] || die "no Ubertooth found to flash"
+		[ "$n" -le 1 ] || die "$(multi_device_msg "$devices")"
 		read -r index serial <<< "$devices"
-		[ "$serial" != "?" ] || die "the attached Ubertooth could not be read; check it with ubertooth-util -s"
-		info "Flashing bluetooth_rxtx to Ubertooth $serial"
-		"$dfu" -U "$serial" -d "$img" -r
+		[ "$serial" != "?" ] || die "the attached Ubertooth could not be read"
+		targets+=("$serial")
+		if device_needs_work "$util" "$serial"; then
+			need_flash=1
+		fi
+	fi
+
+	# The bootloader check is cheap (one USB read), so always let it decide.
+	[ "$UPDATE_BOOTLOADER" -eq 1 ] && need_bootloader=1
+
+	# --- Nothing to do? Say so and return. ---
+	if [ "$need_flash" -eq 0 ] && [ "$need_bootloader" -eq 0 ]; then
+		info "All devices already at $tree_ver; nothing to flash (use --force to reflash)"
+		return 0
+	fi
+
+	# --- Build only what is needed ---
+	# The .dfu file may already exist from a previous build at this version.
+	if [ "$need_flash" -eq 1 ] || [ ! -f "$img" ]; then
+		info "Building firmware (bluetooth_rxtx)"
+		if ! PATH="$(dirname "$dfu"):$PATH" make -C "$REPO_ROOT/firmware/bluetooth_rxtx" -s >/dev/null 2>"$WORK/fw-build.err"; then
+			cat "$WORK/fw-build.err" >&2
+			die "firmware build failed"
+		fi
+	fi
+	if [ "$need_bootloader" -eq 1 ] && [ ! -f "$blimg" ]; then
+		info "Building firmware (bl_update, the bootloader updater)"
+		if ! PATH="$(dirname "$dfu"):$PATH" make -C "$REPO_ROOT/firmware/bl_update" -s >/dev/null 2>"$WORK/bl-build.err"; then
+			cat "$WORK/bl-build.err" >&2
+			die "bootloader updater build failed"
+		fi
+	fi
+
+	# --- Flash each target ---
+	for serial in "${targets[@]}"; do
+		if [ "$UPDATE_BOOTLOADER" -eq 1 ]; then
+			update_bootloader_on "$dfu" "$util" "$blimg" "$img" "$serial"
+		elif device_needs_work "$util" "$serial"; then
+			info "Flashing bluetooth_rxtx to Ubertooth $serial"
+			"$dfu" -U "$serial" -d "$img" -r </dev/null
+		else
+			info "Ubertooth $serial already at $tree_ver; skipping"
+		fi
+	done
+}
+
+# =========================================================================
+# Step functions — each is one phase of the install, called from main below.
+# =========================================================================
+
+step_flash_preflight() {
+	# Resolve/validate the flash target up front so an ambiguous situation
+	# (multiple devices, no selector) aborts immediately instead of after a
+	# full build. Only possible if ubertooth-util is already installed.
+	[ "$FLASH" -eq 1 ] && command -v ubertooth-util >/dev/null 2>&1 || return 0
+	if [ "$FLASH_DEVICE" != "all" ] && [ -z "$FLASH_DEVICE" ]; then
+		info "Checking which Ubertooth to flash"
+		local devices n
+		devices="$(list_devices "$(command -v ubertooth-util)")"
+		n="$(printf '%s\n' "$devices" | grep -c . || true)"
+		[ "$n" -le 1 ] || die "$(multi_device_msg "$devices")"
 	fi
 }
 
-# --- 0. flash pre-flight (fail fast, BEFORE any build work) ---------------
-# Resolve/validate the flash target up front so an ambiguous situation
-# (multiple devices, no selector) aborts immediately instead of after a full
-# build. Only possible if ubertooth-util is already installed.
-if [ "$FLASH" -eq 1 ] && command -v ubertooth-util >/dev/null 2>&1; then
-	if [ "$FLASH_DEVICE" != "all" ] && [ -z "$FLASH_DEVICE" ]; then
-		# list_devices runs ubertooth-util twice (-s and -N), and a device
-		# that is busy or wedged makes each read wait, so say so first.
-		info "Checking which Ubertooth to flash"
-		_devices="$(list_devices "$(command -v ubertooth-util)")"
-		_n="$(printf '%s\n' "$_devices" | grep -c . || true)"
-		[ "$_n" -le 1 ] || die "$(multi_device_msg "$_devices")"
-	fi
-fi
+step_firmware_toolchain_deps() {
+	[ "$WITH_FIRMWARE" -eq 1 ] && [ "$SKIP_DEPS" -eq 0 ] || return 0
 
-# --- 1. firmware toolchain deps (only what flashing needs, installed early) -
-#
-# --update-bootloader needs one package more than the rest: bl_update carries
-# the bootloader's binary, so building it builds the bootloader, and that is
-# the one image written in C++. It is asked for only for that option, so an
-# ordinary firmware build still installs no ARM C++ runtime. Both names are in
-# REQUIREMENTS.md; the macOS cask carries its own.
-BL_PACKAGES_DEBIAN=""
-BL_PACKAGES_FEDORA=""
-if [ "$UPDATE_BOOTLOADER" -eq 1 ]; then
-	BL_PACKAGES_DEBIAN="libstdc++-arm-none-eabi-newlib"
-	BL_PACKAGES_FEDORA="arm-none-eabi-gcc-cs-c++"
-fi
-if [ "$WITH_FIRMWARE" -eq 1 ] && [ "$SKIP_DEPS" -eq 0 ]; then
+	# --update-bootloader needs the ARM C++ runtime for the bootloader build.
+	local bl_packages_debian="" bl_packages_fedora=""
+	if [ "$UPDATE_BOOTLOADER" -eq 1 ]; then
+		bl_packages_debian="libstdc++-arm-none-eabi-newlib"
+		bl_packages_fedora="arm-none-eabi-gcc-cs-c++"
+	fi
+
 	if [ "$PLATFORM" = debian ]; then
 		info "Installing firmware toolchain (apt)"
 		as_root apt-get update -qq
-		# shellcheck disable=SC2086  # unquoted on purpose: empty means no extra package
-		as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi dfu-util make $BL_PACKAGES_DEBIAN
+		# shellcheck disable=SC2086
+		as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y \
+			gcc-arm-none-eabi libnewlib-arm-none-eabi dfu-util make $bl_packages_debian
 	elif [ "$PLATFORM" = fedora ]; then
-		# Fedora's ARM cross-compiler keeps the "-cs" of the CodeSourcery
-		# release it started from; arm-none-eabi-newlib is the C library the
-		# firmware links. REQUIREMENTS.md lists both.
 		info "Installing firmware toolchain (dnf)"
-		# shellcheck disable=SC2086  # unquoted on purpose: empty means no extra package
-		as_root dnf install -y arm-none-eabi-gcc-cs arm-none-eabi-newlib dfu-util make $BL_PACKAGES_FEDORA
+		# shellcheck disable=SC2086
+		as_root dnf install -y \
+			arm-none-eabi-gcc-cs arm-none-eabi-newlib dfu-util make $bl_packages_fedora
 	else
 		info "Installing firmware toolchain (Homebrew)"
 		brew_install dfu-util
-		# Any arm-none-eabi-gcc with a C library will do (Homebrew's formula has
-		# none); installing the cask over an existing one would conflict.
 		if ! printf '#include <string.h>\n' | \
 				arm-none-eabi-gcc -x c -c - -o /dev/null >/dev/null 2>&1; then
 			command -v arm-none-eabi-gcc >/dev/null 2>&1 && \
 				die "arm-none-eabi-gcc cannot compile firmware (no C library?); install the gcc-arm-embedded cask instead"
 			brew install --cask gcc-arm-embedded
 		fi
-		# The cask carries the ARM C++ runtime, which only --update-bootloader
-		# needs, so a hand-installed toolchain that passed the check above can
-		# still be short of it. Said here rather than left to the bootloader's
-		# own build, which would fail several minutes later on a missing
-		# header.
 		if [ "$UPDATE_BOOTLOADER" -eq 1 ] && \
 				! printf '#include <cstring>\n' | \
 				arm-none-eabi-g++ -x c++ -c - -o /dev/null >/dev/null 2>&1; then
-			die "arm-none-eabi-g++ cannot compile the bootloader (no ARM C++ runtime?), which --update-bootloader builds; install the gcc-arm-embedded cask, which carries it"
+			die "arm-none-eabi-g++ cannot compile the bootloader (no ARM C++ runtime?); install the gcc-arm-embedded cask"
 		fi
 	fi
-fi
+}
 
-# --- 2. firmware build + flash FIRST (fail fast on a bad device) ----------
-# Only if the host tools (ubertooth-dfu) already exist; on a fresh machine they
-# are built below first, then we flash.
-FLASHED=0
-if [ "$WITH_FIRMWARE" -eq 1 ] && command -v ubertooth-dfu >/dev/null 2>&1; then
-	flash_firmware
-	FLASHED=1
-fi
-
-# --- 3. system dependencies (host build) ----------------------------------
-if [ "$SKIP_DEPS" -eq 1 ]; then
-	info "Skipping system dependencies (--skip-deps)"
-elif [ "$PLATFORM" = debian ]; then
-	info "Installing system dependencies (apt)"
-	as_root apt-get update -qq
-	as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y \
-		cmake build-essential pkg-config libusb-1.0-0-dev libbluetooth-dev \
-		libfftw3-dev python3 python3-venv python3-usb1 git
-elif [ "$PLATFORM" = fedora ]; then
-	# The same dependencies under Fedora's names (REQUIREMENTS.md lists them
-	# side by side). Three differences from the apt list are worth knowing:
-	# the compilers are separate packages rather than one build-essential,
-	# "python3 -m venv" works with the stock python3 because its wheels come
-	# with it, and the ubtbr USB binding is python3-libusb1 here.
-	info "Installing system dependencies (dnf)"
-	as_root dnf install -y \
-		cmake gcc gcc-c++ make pkgconf-pkg-config libusb1-devel \
-		bluez-libs-devel fftw-devel python3 python3-pip python3-libusb1 git
-else
-	info "Installing system dependencies (Homebrew)"
-	brew_install cmake pkg-config libusb fftw
-fi
-
-# --- 4. Python interpreter / venv ----------------------------------------
-# On Linux python3 may only exist after the package step above.
-PYTHON="${PYTHON3:-$(command -v python3 || echo python3)}"
-require_python "$PYTHON"
-if [ -n "$VENV" ]; then
-	info "Creating/using Python venv at $VENV"
-	[ -d "$VENV" ] || "$PYTHON" -m venv "$VENV"
-	# shellcheck disable=SC1091
-	PYTHON="$VENV/bin/python"
-	"$PYTHON" -m pip install --quiet --upgrade pip
-fi
-info "Installing Python runtime deps for specan_ui and ubtbr"
-PIP_DEPS=(numpy qtpy pyside6)
-PY_DEPS_WARNING=""
-# Linux gets the ubtbr USB binding from the distribution (python3-usb1 on
-# Debian/Ubuntu, python3-libusb1 on Fedora), so only macOS pip-installs it.
-[ "$PLATFORM" = macos ] && PIP_DEPS+=(libusb1==3.4.0)
-case "$PLATFORM" in
-	debian) GUI_DEPS_HINT="install python3-numpy python3-qtpy python3-pyqt5 (apt) or use --venv" ;;
-	fedora) GUI_DEPS_HINT="install python3-numpy python3-QtPy python3-pyside6 (dnf) or use --venv" ;;
-	*) GUI_DEPS_HINT="re-run with --venv <path> (recommended on macOS)" ;;
-esac
-if [ -n "$VENV" ]; then
-	VENV_DEPS=("${PIP_DEPS[@]}")
-	on_linux && VENV_DEPS+=(libusb1==3.4.0)
-	if ! "$PYTHON" -m pip install --quiet "${VENV_DEPS[@]}"; then
-		PY_DEPS_WARNING="could not pip-install Python runtime deps into the venv $VENV"
-		warn "$PY_DEPS_WARNING"
+step_system_deps() {
+	if [ "$SKIP_DEPS" -eq 1 ]; then
+		info "Skipping system dependencies (--skip-deps)"
+		return 0
 	fi
-elif ! "$PYTHON" -m pip install --quiet "${PIP_DEPS[@]}" 2>/dev/null; then
-	# Homebrew's Python is externally managed and upgrades replace it, so do not
-	# force packages into it on macOS; a venv is the supported route there.
-	if on_linux; then
-		"$PYTHON" -m pip install --quiet --break-system-packages "${PIP_DEPS[@]}" 2>/dev/null || \
-			PY_DEPS_WARNING="could not pip-install GUI deps; $GUI_DEPS_HINT"
+	if [ "$PLATFORM" = debian ]; then
+		info "Installing system dependencies (apt)"
+		as_root apt-get update -qq
+		as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y \
+			cmake build-essential pkg-config libusb-1.0-0-dev libbluetooth-dev \
+			libfftw3-dev python3 python3-venv python3-usb1 git
+	elif [ "$PLATFORM" = fedora ]; then
+		info "Installing system dependencies (dnf)"
+		as_root dnf install -y \
+			cmake gcc gcc-c++ make pkgconf-pkg-config libusb1-devel \
+			bluez-libs-devel fftw-devel python3 python3-pip python3-libusb1 git
 	else
-		PY_DEPS_WARNING="could not pip-install GUI deps; $GUI_DEPS_HINT"
+		info "Installing system dependencies (Homebrew)"
+		brew_install cmake pkg-config libusb fftw
 	fi
-	[ -z "$PY_DEPS_WARNING" ] || warn "$PY_DEPS_WARNING"
-fi
+}
 
-# --- 5. libbtbb -----------------------------------------------------------
-info "Building libbtbb ($LIBBTBB_REF from $LIBBTBB_URL)"
-git clone --quiet "$LIBBTBB_URL" "$WORK/libbtbb"
-git -C "$WORK/libbtbb" checkout --quiet "$LIBBTBB_REF"
-# ENABLE_PYTHON=OFF skips libbtbb's pcaptools: the Ubertooth tools link only
-# the C library, and the Python tools would pip-install a package into PREFIX
-# that nothing here uses.
-cmake -S "$WORK/libbtbb" -B "$WORK/libbtbb/build" -DENABLE_PYTHON=OFF \
-	-DCMAKE_INSTALL_PREFIX="$PREFIX" >/dev/null
-cmake --build "$WORK/libbtbb/build" -j"$JOBS" >/dev/null
-as_installer cmake --install "$WORK/libbtbb/build" >/dev/null
-record_installed libbtbb "$WORK/libbtbb/build" "libbtbb $LIBBTBB_REF from $LIBBTBB_URL"
-on_linux && as_root ldconfig
+step_python_deps() {
+	# On Linux python3 may only exist after the package step above.
+	PYTHON="${PYTHON3:-$(command -v python3 || echo python3)}"
+	require_python "$PYTHON"
+	if [ -n "$VENV" ]; then
+		info "Creating/using Python venv at $VENV"
+		[ -d "$VENV" ] || "$PYTHON" -m venv "$VENV"
+		PYTHON="$VENV/bin/python"
+		"$PYTHON" -m pip install --quiet --upgrade pip
+	fi
+	info "Installing Python runtime deps for specan_ui and ubtbr"
+	local pip_deps=(numpy qtpy pyside6)
+	PY_DEPS_WARNING=""
+	[ "$PLATFORM" = macos ] && pip_deps+=(libusb1==3.4.0)
+	local gui_deps_hint
+	case "$PLATFORM" in
+		debian) gui_deps_hint="install python3-numpy python3-qtpy python3-pyqt5 (apt) or use --venv" ;;
+		fedora) gui_deps_hint="install python3-numpy python3-QtPy python3-pyside6 (dnf) or use --venv" ;;
+		*) gui_deps_hint="re-run with --venv <path> (recommended on macOS)" ;;
+	esac
+	if [ -n "$VENV" ]; then
+		local venv_deps=("${pip_deps[@]}")
+		on_linux && venv_deps+=(libusb1==3.4.0)
+		if ! "$PYTHON" -m pip install --quiet "${venv_deps[@]}"; then
+			PY_DEPS_WARNING="could not pip-install Python runtime deps into the venv $VENV"
+			warn "$PY_DEPS_WARNING"
+		fi
+	elif ! "$PYTHON" -m pip install --quiet "${pip_deps[@]}" 2>/dev/null; then
+		if on_linux; then
+			"$PYTHON" -m pip install --quiet --break-system-packages "${pip_deps[@]}" 2>/dev/null || \
+				PY_DEPS_WARNING="could not pip-install GUI deps; $gui_deps_hint"
+		else
+			PY_DEPS_WARNING="could not pip-install GUI deps; $gui_deps_hint"
+		fi
+		[ -z "$PY_DEPS_WARNING" ] || warn "$PY_DEPS_WARNING"
+	fi
+}
 
-# Which directory under PREFIX libbtbb put its library in. That is the one the
-# system keeps libraries in: lib64 on a 64-bit Fedora, RHEL or SUSE, a
-# multiarch lib/<triplet> where the prefix is /usr on Debian or Ubuntu, and lib
-# on macOS and for other prefixes. So it is read from the install rather than
-# assumed, and whatever libbtbb --libbtbb-ref built is answered for.
-# libbtbb.pc goes in a pkgconfig directory inside it, and the install manifest
-# names every file the install wrote.
-BTBB_LIBDIR="$(sed -n 's#/pkgconfig/libbtbb\.pc$##p' \
-	"$WORK/libbtbb/build/install_manifest.txt" 2>/dev/null | head -n 1)"
-if [ -z "$BTBB_LIBDIR" ]; then
-	BTBB_LIBDIR="$PREFIX/lib"
-	warn "the libbtbb install did not record a libbtbb.pc, so the tools are built for a libbtbb in $BTBB_LIBDIR"
-fi
+step_libbtbb() {
+	if [ "$FORCE" -eq 0 ]; then
+		local installed_ref
+		installed_ref="$(installed_libbtbb_ref "$RECORD_DIR/libbtbb-files" 2>/dev/null || true)"
+		if [ -n "$installed_ref" ] && [ "$installed_ref" = "$LIBBTBB_REF" ]; then
+			info "libbtbb $LIBBTBB_REF is already installed; skipping (use --force to rebuild)"
+			return 0
+		fi
+	fi
+	info "Building libbtbb ($LIBBTBB_REF from $LIBBTBB_URL)"
+	git clone --quiet "$LIBBTBB_URL" "$WORK/libbtbb"
+	git -C "$WORK/libbtbb" checkout --quiet "$LIBBTBB_REF"
+	cmake -S "$WORK/libbtbb" -B "$WORK/libbtbb/build" -DENABLE_PYTHON=OFF \
+		-DCMAKE_INSTALL_PREFIX="$PREFIX" >/dev/null
+	cmake --build "$WORK/libbtbb/build" -j"$JOBS" >/dev/null
+	as_installer cmake --install "$WORK/libbtbb/build" >/dev/null
+	record_installed libbtbb "$WORK/libbtbb/build" "libbtbb $LIBBTBB_REF from $LIBBTBB_URL"
+	on_linux && as_root ldconfig || true
+}
 
-# --- 6. host tools --------------------------------------------------------
-# The installed tools find libubertooth and libbtbb under PREFIX through their
-# run path, so a non-default prefix works without ldconfig or DYLD settings.
-# The directories each library really went into come first and plain lib is the
-# fallback after them, because a library the system keeps in lib64 has to be
-# found there rather than in a copy an earlier install left in lib. libbtbb's
-# directory is the one its install wrote to, read above; libubertooth's is
-# added after the configure step below, which is what works it out.
-#
 # Each directory once, in the order they are to be searched.
-join_rpath() { # <directory>...
+join_rpath() {
 	local joined="" dir
 	for dir in "$@"; do
 		case ";$joined;" in *";$dir;"*) continue ;; esac
@@ -946,155 +1026,134 @@ join_rpath() { # <directory>...
 	done
 	printf '%s' "$joined"
 }
-RPATH="$(join_rpath "$BTBB_LIBDIR" "$PREFIX/lib")"
-CMAKE_ARGS=(
-	"-DCMAKE_INSTALL_PREFIX=$PREFIX"
-	"-DCMAKE_PREFIX_PATH=$PREFIX"
-	"-DCMAKE_INSTALL_RPATH=$RPATH"
-)
-# The configure step asks pkg-config for libbtbb, which answers for the
-# install just made - its directories, not a guess at them - so a libbtbb in
-# lib64 or a multiarch directory is found there like any other. An existing
-# setting is kept after it, so a libbtbb the user pointed at stays reachable
-# while this one is looked at first.
-export PKG_CONFIG_PATH="$BTBB_LIBDIR/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
-if on_linux; then
-	info "Building Ubertooth host tools (REQUIRE_ALL=ON)"
-	CMAKE_ARGS+=(-DREQUIRE_ALL=ON)
-else
-	# No BlueZ on macOS, so REQUIRE_ALL is not used. Nothing to add for
-	# Homebrew's libusb headers either: the build takes their directory from
-	# libusb itself.
-	info "Building Ubertooth host tools"
-fi
-# Always passed, empty when the caller set no CFLAGS: CMake seeds its own C
-# flags from CFLAGS only when a build directory is configured for the first
-# time, and this script reuses one, so a run that left this out would build
-# with whatever an earlier run's CFLAGS put in the cache.
-CMAKE_ARGS+=("-DCMAKE_C_FLAGS=${CFLAGS:-}")
-# Build the Python tools for the interpreter that got the runtime deps.
-CMAKE_ARGS+=("-DPython3_EXECUTABLE=$(command -v "$PYTHON")")
-# Forget a libbtbb or a libusb found by an earlier configure so this run's
-# install is used. libusb for the same reason the build no longer passes an
-# include flag for it: its directories come from the configure step now, and a
-# cached one from before a brew upgrade names a version that is gone.
-cmake -S "$REPO_ROOT/host" -B "$REPO_ROOT/host/build" \
-	-U 'LIBBTBB_*' -U 'LIBUSB_*' "${CMAKE_ARGS[@]}"
 
-# Which directory libubertooth itself is going into. The configure step asks
-# CMake for the one this system keeps libraries in, the same question libbtbb's
-# install answered above, so the two are normally the same directory. It goes
-# at the front of the run path, which needs the configure step repeated where
-# that changes the path, because a run path is written into the tools as they
-# are linked.
-#
-# UBERTOOTH_INSTALL_LIBDIR is the build's own answer, written to its cache for
-# this: it is CMAKE_INSTALL_LIBDIR, or what LIB_SUFFIX asked for instead. The
-# entry's type is not matched, so the read does not rest on which type the
-# entry carries: a cached value has the type whichever side put it there gave
-# it, and only the value is wanted here.
-UBERTOOTH_LIBDIR="$(sed -n 's/^UBERTOOTH_INSTALL_LIBDIR:[^=]*=//p' \
-	"$REPO_ROOT/host/build/CMakeCache.txt" 2>/dev/null | head -n 1)"
-case "$UBERTOOTH_LIBDIR" in
-	'')
-		UBERTOOTH_LIBDIR="$PREFIX/lib"
-		warn "the host build did not record a library directory, so the tools are built for a libubertooth in $UBERTOOTH_LIBDIR"
-		;;
-	/*) ;;
-	*) UBERTOOTH_LIBDIR="$PREFIX/$UBERTOOTH_LIBDIR" ;;
-esac
-WANTED_RPATH="$(join_rpath "$UBERTOOTH_LIBDIR" "$BTBB_LIBDIR" "$PREFIX/lib")"
-if [ "$WANTED_RPATH" != "$RPATH" ]; then
-	RPATH="$WANTED_RPATH"
-	info "Setting the installed tools' run path to $RPATH"
-	cmake -S "$REPO_ROOT/host" -B "$REPO_ROOT/host/build" \
-		"-DCMAKE_INSTALL_RPATH=$RPATH"
-fi
-# An install of an earlier version of these tools put libubertooth in
-# $PREFIX/lib, where this one may no longer be installing it. The run path
-# above finds the new one first, but a copy of the old one left on the system
-# is worth saying out loud, because anything else that loads libubertooth by
-# name can still find it.
-if [ "$UBERTOOTH_LIBDIR" != "$PREFIX/lib" ] &&
-   ls "$PREFIX"/lib/libubertooth.* >/dev/null 2>&1; then
-	warn "an earlier install left libubertooth in $PREFIX/lib; this one installs it to $UBERTOOTH_LIBDIR, so remove the old files when nothing needs them"
-fi
-
-cmake --build "$REPO_ROOT/host/build" -j"$JOBS"
-as_installer cmake --install "$REPO_ROOT/host/build"
-record_installed host "$REPO_ROOT/host/build"
-if on_linux; then
-	as_root ldconfig
-	info "udev rules installed with the host tools (unplug/replug the Ubertooth)"
-fi
-
-# --- 7. firmware flash (deferred case: fresh install built tools just now) -
-if [ "$WITH_FIRMWARE" -eq 1 ] && [ "$FLASHED" -eq 0 ]; then
-	flash_firmware
-fi
-
-# --- 8. say what was installed and which libbtbb it uses -------------------
-# A machine can have a distribution or Homebrew libbtbb beside this one, and
-# which one a tool loads is decided by its link path, not by what was built
-# last. So the tools just installed are asked, rather than this script
-# repeating what it built: a warning from them that they loaded a libbtbb
-# other than the one they were built against is the one thing the user has to
-# see here.
-#
-# Reported, not enforced: the install has already succeeded at this point, and
-# a mixed machine is something to tell the user about rather than a reason to
-# fail. A build of the host tools against the wrong libbtbb is refused earlier,
-# by the configure step.
-if [ ! -x "$PREFIX/bin/ubertooth-util" ]; then
-	# --no-sudo prints the steps that need root instead of running them, so
-	# there is nothing installed to ask.
-	info "Not checking which libbtbb is in use: $PREFIX/bin/ubertooth-util is not installed"
-else
-	# -V answers the host part from the tool itself, so no Ubertooth need be
-	# attached. It exits 1 when a board is attached and cannot be read, and
-	# prints the host line all the same, so what it printed is what decides
-	# here and its exit status is not looked at.
-	#
-	# Both streams are read: the version is on standard output, and the one
-	# line that matters here -- the tools loaded a libbtbb other than the one
-	# they were built against -- is a warning, so it is on standard error
-	# with every other warning. The tool says which directory each is in.
-	#
-	# Then only those two lines are kept. The rest of the answer describes
-	# the boards attached, which this section is not about, and a board the
-	# freshly installed udev rule does not cover yet would report a denial
-	# here that reads like a failed install.
-	BTBB_ANSWER="$("$PREFIX/bin/ubertooth-util" -V 2>&1 || true)"
-	BTBB_IN_USE="$(printf '%s\n' "$BTBB_ANSWER" \
-		| grep -e '^Host tools version: ' -e 'libbtbb was loaded from ' \
-		|| true)"
-	case "$BTBB_IN_USE" in
-		*"Host tools version: "*) UTIL_ANSWERED=1 ;;
-		*) UTIL_ANSWERED=0 ;;
-	esac
-	if [ "$UTIL_ANSWERED" -eq 0 ]; then
-		warn "the installed ubertooth-util would not run, so which libbtbb it uses is unknown"
-		# Why it would not run, which the tool has already said.
-		printf '%s\n' "$BTBB_ANSWER" >&2
-	else
-		# The lines below are the tool's own, quoted as it printed
-		# them rather than given the script's "==> " prefix.
-		info "What the installed tools report:"
-		printf '%s\n' "$BTBB_IN_USE" >&2
-		case "$BTBB_IN_USE" in
-			*"libbtbb was loaded from "*)
-				warn "the tools load a libbtbb other than the one they were built against, named in the line above; remove the other install if packets decode oddly" ;;
-		esac
+# Resolve where libbtbb's library landed: from the build manifest if it was
+# just built, otherwise from pkg-config, falling back to PREFIX/lib.
+resolve_btbb_libdir() {
+	BTBB_LIBDIR="$(sed -n 's#/pkgconfig/libbtbb\.pc$##p' \
+		"$WORK/libbtbb/build/install_manifest.txt" 2>/dev/null | head -n 1 || true)"
+	if [ -z "$BTBB_LIBDIR" ]; then
+		BTBB_LIBDIR="$(pkg-config --variable=libdir libbtbb 2>/dev/null || true)"
 	fi
-fi
+	if [ -z "$BTBB_LIBDIR" ]; then
+		BTBB_LIBDIR="$PREFIX/lib"
+		warn "could not determine where libbtbb is installed; assuming $BTBB_LIBDIR"
+	fi
+}
 
-if [ -n "$PY_DEPS_WARNING" ]; then
-	info "Done, but the Python tools (ubertooth-specan-ui, ubtbr) will not run: $PY_DEPS_WARNING"
-	info "Try: ubertooth-util -V"
-else
-	info "Done. Try: ubertooth-util -V   (and: ubertooth-specan-ui)"
-fi
-case ":$ORIG_PATH:" in
-	*":$PREFIX/bin:"*) ;;
-	*) info "Add $PREFIX/bin to your PATH to run the installed tools" ;;
-esac
+step_host_tools() {
+	resolve_btbb_libdir
+
+	if [ "$FORCE" -eq 0 ] && command -v ubertooth-util >/dev/null 2>&1; then
+		local tv iv
+		tv="$(tree_version 2>/dev/null || true)"
+		iv="$(installed_host_version ubertooth-util 2>/dev/null || true)"
+		if [ -n "$tv" ] && [ -n "$iv" ] && [ "$tv" = "$iv" ]; then
+			info "Host tools $iv are already installed; skipping (use --force to rebuild)"
+			return 0
+		fi
+	fi
+
+	local RPATH CMAKE_ARGS
+	RPATH="$(join_rpath "$BTBB_LIBDIR" "$PREFIX/lib")"
+	CMAKE_ARGS=(
+		"-DCMAKE_INSTALL_PREFIX=$PREFIX"
+		"-DCMAKE_PREFIX_PATH=$PREFIX"
+		"-DCMAKE_INSTALL_RPATH=$RPATH"
+	)
+	export PKG_CONFIG_PATH="$BTBB_LIBDIR/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+	if on_linux; then
+		info "Building Ubertooth host tools (REQUIRE_ALL=ON)"
+		CMAKE_ARGS+=(-DREQUIRE_ALL=ON)
+	else
+		info "Building Ubertooth host tools"
+	fi
+	CMAKE_ARGS+=("-DCMAKE_C_FLAGS=${CFLAGS:-}")
+	CMAKE_ARGS+=("-DPython3_EXECUTABLE=$(command -v "$PYTHON")")
+	cmake -S "$REPO_ROOT/host" -B "$REPO_ROOT/host/build" \
+		-U 'LIBBTBB_*' -U 'LIBUSB_*' "${CMAKE_ARGS[@]}"
+
+	# Resolve libubertooth's install directory and adjust the rpath if needed.
+	local UBERTOOTH_LIBDIR WANTED_RPATH
+	UBERTOOTH_LIBDIR="$(sed -n 's/^UBERTOOTH_INSTALL_LIBDIR:[^=]*=//p' \
+		"$REPO_ROOT/host/build/CMakeCache.txt" 2>/dev/null | head -n 1)"
+	case "$UBERTOOTH_LIBDIR" in
+		'') UBERTOOTH_LIBDIR="$PREFIX/lib" ;;
+		/*) ;;
+		*) UBERTOOTH_LIBDIR="$PREFIX/$UBERTOOTH_LIBDIR" ;;
+	esac
+	WANTED_RPATH="$(join_rpath "$UBERTOOTH_LIBDIR" "$BTBB_LIBDIR" "$PREFIX/lib")"
+	if [ "$WANTED_RPATH" != "$RPATH" ]; then
+		info "Setting the installed tools' run path to $WANTED_RPATH"
+		cmake -S "$REPO_ROOT/host" -B "$REPO_ROOT/host/build" \
+			"-DCMAKE_INSTALL_RPATH=$WANTED_RPATH"
+	fi
+	if [ "$UBERTOOTH_LIBDIR" != "$PREFIX/lib" ] &&
+	   ls "$PREFIX"/lib/libubertooth.* >/dev/null 2>&1; then
+		warn "an earlier install left libubertooth in $PREFIX/lib; this one installs to $UBERTOOTH_LIBDIR"
+	fi
+
+	cmake --build "$REPO_ROOT/host/build" -j"$JOBS"
+	as_installer cmake --install "$REPO_ROOT/host/build"
+	record_installed host "$REPO_ROOT/host/build"
+	if on_linux; then
+		as_root ldconfig
+		info "udev rules installed with the host tools (unplug/replug the Ubertooth)"
+	fi
+}
+
+step_firmware_flash() {
+	[ "$WITH_FIRMWARE" -eq 1 ] || return 0
+	flash_firmware
+}
+
+step_summary() {
+	if [ ! -x "$PREFIX/bin/ubertooth-util" ]; then
+		info "Not checking which libbtbb is in use: $PREFIX/bin/ubertooth-util is not installed"
+	else
+		local BTBB_ANSWER BTBB_IN_USE UTIL_ANSWERED
+		BTBB_ANSWER="$("$PREFIX/bin/ubertooth-util" -V 2>&1 || true)"
+		BTBB_IN_USE="$(printf '%s\n' "$BTBB_ANSWER" \
+			| grep -e '^Host tools version: ' -e 'libbtbb was loaded from ' \
+			|| true)"
+		case "$BTBB_IN_USE" in
+			*"Host tools version: "*) UTIL_ANSWERED=1 ;;
+			*) UTIL_ANSWERED=0 ;;
+		esac
+		if [ "$UTIL_ANSWERED" -eq 0 ]; then
+			warn "the installed ubertooth-util would not run, so which libbtbb it uses is unknown"
+			printf '%s\n' "$BTBB_ANSWER" >&2
+		else
+			info "Installed versions:"
+			printf '  %s\n' "$BTBB_IN_USE" >&2
+			case "$BTBB_IN_USE" in
+				*"libbtbb was loaded from "*)
+					warn "the tools load a libbtbb other than the one they were built against" ;;
+			esac
+		fi
+	fi
+
+	if [ -n "$PY_DEPS_WARNING" ]; then
+		info "Done, but the Python tools (ubertooth-specan-ui, ubtbr) will not run: $PY_DEPS_WARNING"
+		info "Try: ubertooth-util -V"
+	else
+		info "Done. Try: ubertooth-util -V"
+	fi
+	case ":$ORIG_PATH:" in
+		*":$PREFIX/bin:"*) ;;
+		*) info "Add $PREFIX/bin to your PATH to run the installed tools" ;;
+	esac
+}
+
+# =========================================================================
+# Main flow
+# =========================================================================
+
+step_flash_preflight
+step_firmware_toolchain_deps
+step_system_deps
+step_python_deps
+step_libbtbb
+step_host_tools
+step_firmware_flash
+step_summary
