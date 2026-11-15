@@ -860,10 +860,9 @@ int main(int argc, char *argv[])
 		 * the refusal below names that one and not whichever this tool
 		 * happens to act on first. -U and -h are the two -V uses: -U scopes
 		 * its report, and -h prints its usage text beside the version.
-		 * getopt's own two answers ('?' and ':') end the command in the
-		 * default case below, so neither is a conflict to report. */
-		if (version_conflict == 0 && opt != 'U' && opt != 'h' &&
-		    opt != 'V' && opt != '?' && opt != ':')
+		 * getopt's own two answers are excluded for the reader's sake; the
+		 * default case below returns before this is ever read. */
+		if (version_conflict == 0 && strchr("UhV?:", opt) == NULL)
 			version_conflict = opt;
 		switch(opt) {
 		case 'U':

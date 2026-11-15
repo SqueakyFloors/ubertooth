@@ -2742,8 +2742,10 @@ MU_TEST(help_version_and_count_exit_zero_without_a_device)
  *
  * Every option the tool has is here except the two -V uses: -U, which scopes
  * its report, and -h, whose usage text is printed beside the version. The
- * command-line matrix checks that this set is still the whole option string
- * (its option table is compared against the tool's own getopt string).
+ * command-line matrix generates the same pairs from its own option table for
+ * this tool, and that table is compared against the tool's getopt string, so
+ * an option added to the tool is covered there whether or not it is added
+ * here.
  */
 MU_TEST(version_refuses_every_option_it_would_suppress)
 {
@@ -2857,6 +2859,18 @@ MU_TEST(a_bad_command_line_outranks_the_version_conflict)
 	reset_fake();
 	r = RUN("-V", "-Z");
 	assert_refused_untouched(r, "error: unrecognized option '-Z'\n");
+
+	/* The matrix cannot reach these two: it never doubles an option that
+	 * ends the command, and the -c/-C clash needs a value on each. */
+	reset_fake();
+	r = RUN("-V", "-U", "0", "-U", "1");
+	assert_refused_untouched(r, "error: option '-U' given more than once\n");
+
+	reset_fake();
+	r = RUN("-V", "-c", "2440", "-C", "24");
+	assert_refused_untouched(r, "error: -C cannot be combined with -c; they "
+	                         "are the same channel setting written two "
+	                         "ways\n");
 }
 
 /* ---- -N combines with the rest of the command line -------------------- */

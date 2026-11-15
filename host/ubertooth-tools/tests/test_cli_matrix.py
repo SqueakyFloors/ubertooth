@@ -678,14 +678,20 @@ def check_the_spec_lists_every_option():
     # A "report_rejects" entry names the report option and the few options it
     # uses, so every name in it has to be one the tool has, and the report
     # option has to be one that ends the command: a misspelled name would
-    # quietly stop generating the cases it is there to generate.
-    for tool, contract in sorted(SPEC["tools"].items()):
+    # quietly stop generating the cases it is there to generate. The error
+    # line is checked for taking exactly one option name, because a second
+    # one, or none, would otherwise come back as a TypeError from the case
+    # generator rather than as a problem with a name on it.    for tool, contract in sorted(SPEC["tools"].items()):
         rejects = contract.get("report_rejects")
         if rejects is None:
             continue
         its_options = contract.get("options", {})
-        report = rejects["report"]
-        if its_options.get(report, {}).get("role") != "report":
+        report = rejects.get("report")
+        if report is None:
+            problems.append((SPEC_IDS_CASE,
+                             "the %s report_rejects does not say which "
+                             "option it is about" % tool))
+        elif its_options.get(report, {}).get("role") != "report":
             problems.append((SPEC_IDS_CASE,
                              "the %s report_rejects names %s, which is not "
                              "one of its options with the \"report\" role"
@@ -695,6 +701,12 @@ def check_the_spec_lists_every_option():
                 problems.append((SPEC_IDS_CASE,
                                  "the %s report_rejects keeps %s, which it "
                                  "does not have" % (tool, name)))
+        line = rejects.get("error", "")
+        if line.count("%") != 1 or "%s" not in line:
+            problems.append((SPEC_IDS_CASE,
+                             "the %s report_rejects error line has to take "
+                             "the suppressed option once, as %%s, and "
+                             "nothing else: %r" % (tool, line)))
     # A pair rule names each side either by role or by the option itself, so
     # a side naming a role or an option that none of the options the rule
     # applies to has is a rule that can never match. A global rule applies to

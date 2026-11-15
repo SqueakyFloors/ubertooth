@@ -2,11 +2,12 @@
 
 ## SYNOPSIS
 
-    ubertooth-util [-V] [-v] [-I] [-d [0-1]] [-l [0-1]]
+    ubertooth-util [-v] [-I] [-d [0-1]] [-l [0-1]]
     [-S] [-r] [-U <index|serial|all>] [-a [0-7]] [-c [2402-2480]] [-C [0-78]]
     [-q [20-120]] [-t] [-z [-128..127]] [-e] [-m] [-n [seconds]] [-i] [-b]
     [-B] [-p] [-s]
     [-w] [-N] [-x] [-h]
+    ubertooth-util -V [-U <index|serial|all>] [-h]
 
 ## DESCRIPTION
 
@@ -161,8 +162,9 @@ Common options:
    ends the command, so run them as separate commands`, exit 1, no version
    printed and no device opened. Where several such options are written, the
    first one is the one named. The refusal comes once the whole command line
-   has parsed, so a bad option value, a stray word or an option given twice is
-   reported instead
+   has parsed, so any problem the option parser finds first is reported
+   instead: a bad option value, a stray word, an option given twice, or the
+   `-c`/`-C` clash
  - `-v` :
    get the image and revision the firmware was built from, as the
    `Firmware version:` line alone; exits non-zero if the read fails.
@@ -207,9 +209,9 @@ Common options:
    report the read-only queries `-b`, `-v`, `-p` and `-s` for every
    attached Ubertooth; refused with any other option, `-N` excepted, and
    refused with no query to list, `-N` included: a count is not something the
-   listing can show. `-h` ends the command before any of that, as it does
-   before every other option, and `-V` reports every attached board itself,
-   which is also what it does with no `-U` at all. See SELECTING A DEVICE.
+   listing can show. `-h` ends the command before any of that, and `-V`
+   reports every attached board itself, which is also what it does with no
+   `-U` at all. See SELECTING A DEVICE.
  - `-N` :
    print the number of attached Ubertooths, as a single decimal number on
    standard output, then run the rest of the command. The number comes from
@@ -230,8 +232,7 @@ Common options:
    before anything runs (two modes, `-z` with a mode, `-V` with an option it
    does not use, `-U all` with an option
    it does not support, a bad option value, an unknown option or a stray word)
-   prints no count, and `-h` ends the command before it, as it does
-   before every other option.
+   prints no count, and `-h` ends the command before it.
 
 Radio options:
 
@@ -315,7 +316,9 @@ Miscellaneous:
  - `-h` :
    print the usage text on standard output. It takes effect once the whole
    command line has parsed, so a bad option value, a stray word or an option
-   given twice is still reported. It exits 0, except beside a `-V` that could
+   given twice is still reported, as is a `-V` on the same line with an
+   option `-V` does not take (`-h -b -V` is that refusal, and prints no usage
+   text). It exits 0, except beside a `-V` that could
    not read a board, whose status the command then carries.
 
 ## WATCHDOG
@@ -1035,8 +1038,9 @@ written named:
 That covers every report, setter, mode and action this tool has, `-B` and
 `-N` included: each would be dropped in silence otherwise, which is what
 `-V -b` and `-b -V` used to do while exiting 0. The check comes once the
-whole command line has parsed, so a bad option value, a stray word or an
-option given twice is reported in its place.
+whole command line has parsed, so any problem the option parser finds first
+is reported in its place: a bad option value, a stray word, an option given
+twice, or the `-c`/`-C` clash below.
 
 `-c` and `-C` are the same channel setting written two ways, so a command line
 that gives a value to both names two channels for one setting and is refused
