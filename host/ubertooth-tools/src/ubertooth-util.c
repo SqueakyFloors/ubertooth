@@ -796,6 +796,11 @@ int main(int argc, char *argv[])
 	 * both (see below). -V reads the board, so it has a result of its own
 	 * where -h cannot fail. */
 	int do_help, do_version, version_status;
+	/* The first option written that -V would end the command before, as its
+	 * letter, or 0 where there is none. -V consumes only -U, which scopes
+	 * its report, and is printed beside -h; everything else would be
+	 * dropped without a word, so the pair is refused. */
+	int version_conflict = 0;
 	/* -c or -C, whichever named the channel: they are the same setting
 	 * written two ways, so a command line may give only one of them. */
 	int channel_option = 0;
@@ -851,6 +856,15 @@ int main(int argc, char *argv[])
 		 * no device: -U on its own asks nothing of the board it selects. */
 		if (opt != 'N' && opt != 'U')
 			operations_besides_count = 1;
+		/* The first option -V would suppress, kept as the user wrote it so
+		 * the refusal below names that one and not whichever this tool
+		 * happens to act on first. -U and -h are the two -V uses: -U scopes
+		 * its report, and -h prints its usage text beside the version.
+		 * getopt's own two answers ('?' and ':') end the command in the
+		 * default case below, so neither is a conflict to report. */
+		if (version_conflict == 0 && opt != 'U' && opt != 'h' &&
+		    opt != 'V' && opt != '?' && opt != ':')
+			version_conflict = opt;
 		switch(opt) {
 		case 'U':
 			ubertooth_device = optarg;
@@ -1002,6 +1016,19 @@ int main(int argc, char *argv[])
 	 * silently while the rest of the command still runs. */
 	if (opt_check_no_operands(argc, argv) < 0)
 		return 1;
+
+	/* An option -V would end the command before is refused rather than
+	 * dropped: -V -b and -b -V used to print the version, exit 0 and say
+	 * nothing of the board ID that was asked for and never read. Refused
+	 * here, so no version is printed, no device is opened and nothing on
+	 * the board is set or started. Checked after the loop above, so a bad
+	 * option value or a stray word is still the thing reported. */
+	if (do_version && version_conflict != 0) {
+		fprintf(stderr, "error: -V cannot be combined with -%c; -V prints "
+		        "the version and ends the command, so run them as separate "
+		        "commands\n", version_conflict);
+		return 1;
+	}
 
 	/* -h and -V end the command before anything else, but only once the
 	 * whole command line has parsed: an invalid option value or a stray
