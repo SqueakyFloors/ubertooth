@@ -231,7 +231,7 @@ used silently. The first fork release takes 2.00, to mark that its host tools
 and firmware only work with each other.
 
 The bootloader is not covered by that number. It reports a fixed `bcdDevice`
-of 1.00, no host tool checks it, and `./install.sh --flash` writes the
+of 1.00, no host tool checks it, and `./install.sh --flash-device` writes the
 application only, so a change to the bootloader reaches a board only when
 someone flashes it deliberately. A bump that moves bootloader behaviour
 therefore marks the change in the tree rather than anything a host can read
@@ -241,7 +241,7 @@ The number still does not pin down a commit, since every commit that does not
 bump it shares the number before it, which is why the firmware revision shown
 by `ubertooth-util -v` beside the API version is what identifies a build. Host
 tools and firmware built from the same commit always match, so after pulling,
-rebuild and reflash both from the same commit (`./install.sh --flash`).
+rebuild and reflash both from the same commit (`./install.sh --flash-device`).
 
 The firmware keeps its largest buffers in the part's second RAM bank (AHB
 SRAM, at `0x2007C000`), so the microcontroller has to have that bank. The
