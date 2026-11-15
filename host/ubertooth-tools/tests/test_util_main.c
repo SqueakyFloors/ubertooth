@@ -2287,7 +2287,9 @@ MU_TEST(stray_arguments_are_rejected_before_any_device_action)
 	assert_refused_untouched(r, "error: unexpected argument 'stray'\n");
 	mu_assert(strstr(r.out, "command line utility") == NULL, "no usage printed");
 
-	/* -h still wins over other options, and -V ends the command too */
+	/* -h still wins over other options; -V refuses them instead, so the
+	 * board ID it would have dropped is reported as a conflict (the whole
+	 * set is in version_refuses_every_option_it_would_suppress below). */
 	reset_fake();
 	r = RUN("-x", "-h");
 	mu_assert_int_eq(0, r.rc);
@@ -2296,9 +2298,9 @@ MU_TEST(stray_arguments_are_rejected_before_any_device_action)
 	mu_assert_int_eq(0, fake.xmas_calls);
 	reset_fake();
 	r = RUN("-b", "-V");
-	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, VERSION_ANSWER) == 0, "the version answer only");
-	mu_assert(strstr(r.out, BOARD_LINE) == NULL, "and nothing -b asked for");
+	assert_refused_untouched(r, "error: -V cannot be combined with -b; -V "
+	                         "prints the version and ends the command, so run "
+	                         "them as separate commands\n");
 
 	/* -h beside -V prints both, the version first and the usage text last,
 	 * whichever order they were written in. The first one used to win and
@@ -2718,7 +2720,7 @@ MU_TEST(help_version_and_count_exit_zero_without_a_device)
 	mu_assert(strcmp(r.out, "3\n") == 0, "device count, once");
 	mu_assert_int_eq(0, fake.start_calls);
 
-	/* -h and -V end the command before the count */
+	/* -h ends the command before the count */
 	reset_fake();
 	fake.device_count = 3;
 	r = RUN("-N", "-h");
@@ -2727,13 +2729,134 @@ MU_TEST(help_version_and_count_exit_zero_without_a_device)
 	mu_assert(strstr(r.out, "3\n") == NULL, "no count");
 	mu_assert_int_eq(0, fake.count_calls);
 
-	/* -V counts the boards itself, to report each one, so it prints its own
-	 * answer and no count line. */
+	/* -V is refused beside the count rather than ending the command before
+	 * it: -N asks for a number that -V would never print. See
+	 * version_refuses_every_option_it_would_suppress below. */
+}
+
+/*
+ * -V answers and ends the command, so every other option on the line would
+ * be dropped without a word: -V -b and -b -V used to print the version, exit
+ * 0, and never read the board ID. Each pair is refused instead, in either
+ * order, before any version is printed and before a device is opened.
+ *
+ * Every option the tool has is here except the two -V uses: -U, which scopes
+ * its report, and -h, whose usage text is printed beside the version. The
+ * command-line matrix checks that this set is still the whole option string
+ * (its option table is compared against the tool's own getopt string).
+ */
+MU_TEST(version_refuses_every_option_it_would_suppress)
+{
+	/* Each option on its own, in the bare form, and then the ones that take
+	 * a value written with one: a setter given a value must not reach the
+	 * board either. */
+	static const char *const suppressed[] = {
+		"-v", "-I", "-d", "-l", "-S", "-r", "-a", "-c", "-C", "-q", "-t",
+		"-z", "-e", "-m", "-n", "-i", "-b", "-B", "-p", "-w", "-s", "-x",
+		"-N",
+		"-a7", "-c2440", "-C24", "-d0", "-l1", "-n5", "-q85", "-z-90",
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(suppressed) / sizeof(suppressed[0]); i++) {
+		const char *option = suppressed[i];
+		/* The message names the option, not the value glued to it. */
+		char expected[160];
+		struct run_result r;
+
+		snprintf(expected, sizeof(expected),
+		         "error: -V cannot be combined with -%c; -V prints the "
+		         "version and ends the command, so run them as separate "
+		         "commands\n", option[1]);
+
+		reset_fake();
+		r = RUN("-V", option);
+		assert_refused_untouched(r, expected);
+		mu_assert_int_eq(0, fake.count_calls);
+
+		/* The other order says the same thing: the option is named, and -V
+		 * is still the reason. */
+		reset_fake();
+		r = RUN(option, "-V");
+		assert_refused_untouched(r, expected);
+		mu_assert_int_eq(0, fake.count_calls);
+	}
+}
+
+/* The two options -V does use, and the ones that are not conflicts: a
+ * selector scopes the report, -h is printed beside it, and repeating -V says
+ * the same thing twice. */
+MU_TEST(version_keeps_the_options_it_uses)
+{
+	struct run_result r;
+
 	reset_fake();
-	fake.device_count = 1;
-	r = RUN("-N", "-V");
+	r = RUN("-V", "-U", "0");
 	mu_assert_int_eq(0, r.rc);
 	mu_assert(strcmp(r.out, VERSION_ANSWER) == 0, r.out);
+
+	reset_fake();
+	r = RUN("-U", "all", "-V");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, VERSION_ANSWER) == 0, r.out);
+
+	reset_fake();
+	r = RUN("-V", "-V");
+	mu_assert_int_eq(0, r.rc);
+	mu_assert(strcmp(r.out, VERSION_ANSWER) == 0, r.out);
+}
+
+/*
+ * The refusal names the first option written that -V does not use, so the
+ * line points at what the user typed rather than at whichever option this
+ * tool happens to act on first. -h beside it is not what is refused.
+ */
+MU_TEST(the_version_conflict_names_the_first_option_written)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-b", "-s", "-V");
+	assert_refused_untouched(r, "error: -V cannot be combined with -b; -V "
+	                         "prints the version and ends the command, so run "
+	                         "them as separate commands\n");
+
+	reset_fake();
+	r = RUN("-V", "-s", "-b");
+	assert_refused_untouched(r, "error: -V cannot be combined with -s; -V "
+	                         "prints the version and ends the command, so run "
+	                         "them as separate commands\n");
+
+	reset_fake();
+	r = RUN("-V", "-h", "-b");
+	assert_refused_untouched(r, "error: -V cannot be combined with -b; -V "
+	                         "prints the version and ends the command, so run "
+	                         "them as separate commands\n");
+	mu_assert(strstr(r.out, "command line utility") == NULL,
+	          "no usage text for a refused command line");
+}
+
+/*
+ * A command line the option parser will not take is still what gets
+ * reported: the conflict is checked once the whole line has parsed, as -V
+ * itself is.
+ */
+MU_TEST(a_bad_command_line_outranks_the_version_conflict)
+{
+	struct run_result r;
+
+	reset_fake();
+	r = RUN("-V", "-c", "2401");
+	assert_refused_untouched(r,
+	        "error: frequency must be 2402-2480 MHz (got 2401)\n");
+
+	reset_fake();
+	r = RUN("-b", "-V", "stray");
+	assert_refused_untouched(r, "error: unexpected argument 'stray'\n");
+
+	reset_fake();
+	r = RUN("-V", "-Z");
+	assert_refused_untouched(r, "error: unrecognized option '-Z'\n");
 }
 
 /* ---- -N combines with the rest of the command line -------------------- */
@@ -4087,6 +4210,10 @@ int main(void)
 	MU_RUN(squelch_with_a_mode_option_is_refused);
 	MU_RUN(invalid_arguments_are_rejected_before_opening_the_device);
 	MU_RUN(help_version_and_count_exit_zero_without_a_device);
+	MU_RUN(version_refuses_every_option_it_would_suppress);
+	MU_RUN(version_keeps_the_options_it_uses);
+	MU_RUN(the_version_conflict_names_the_first_option_written);
+	MU_RUN(a_bad_command_line_outranks_the_version_conflict);
 	MU_RUN(number_prints_the_count_first_and_the_rest_still_runs);
 	MU_RUN(number_combines_with_the_multi_device_listings);
 	MU_RUN(number_leaves_the_exit_status_to_the_rest_of_the_command);
