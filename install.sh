@@ -67,9 +67,10 @@
 #                     Homebrew prefix on macOS)
 #   --skip-deps       do not install system packages; assume they are present
 #   --force           rebuild and reinstall this tree even if it is already up
-#                     to date. System packages are left alone: one that is
-#                     installed is as current as the package manager can make
-#                     it, so --force refreshes no package indexes.
+#                     to date. System packages are left alone: a package that
+#                     is installed is installed, and upgrading it is the
+#                     package manager's business rather than this script's, so
+#                     --force refreshes no package indexes.
 #   --no-sudo         print the commands that need root instead of running them
 #                     (dry-run for the privileged steps)
 #   -h, --help        show this help
@@ -283,8 +284,9 @@ debian_missing_packages() {
 # indexes first and only if any are. A machine that already has them gets no
 # apt command at all, which is what a re-run normally is: an index refresh
 # and an install with nothing to do each cost seconds of network and disk,
-# and a --force run, which rebuilds this tree, has no reason to pay for them
-# either -- a package that is installed is as current as apt can make it.
+# and a --force run has no reason to pay for them either. --force rebuilds
+# this tree; upgrading a package that is installed is the package manager's
+# business, and a user who wants that runs apt.
 #
 # Takes the progress line to print while installing, the one to print when
 # they are all there, and then the packages.

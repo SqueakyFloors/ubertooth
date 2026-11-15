@@ -401,8 +401,8 @@ assert run.queries == [], run.queries
 assert "==> Skipping system dependencies (--skip-deps)" in run.stderr, run
 
 # --force rebuilds this tree; it is not a reason to refresh package indexes.
-# A package that is installed is as current as apt can make it, and a user who
-# wants newer packages upgrades them with apt itself.
+# Upgrading a package that is installed is the package manager's business, and
+# a user who wants that runs apt.
 run = run_with_fakes(["--force"], ["apt-get"], ALL_INSTALLED)
 assert run.apt_commands() == [], run
 
