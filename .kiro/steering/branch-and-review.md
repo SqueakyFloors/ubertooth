@@ -238,7 +238,7 @@ breaks older host tools**, plus once at each release (maintainer, 2026-10-29).
   files from the branch; branch protection is where that is answered.
 - Host tools and firmware built from the same commit always match, so after
   pulling, rebuild and reflash both from the same commit
-  (`./install.sh --flash`).
+  (`./install.sh --flash-device`).
 
 ## Changelog discipline
 

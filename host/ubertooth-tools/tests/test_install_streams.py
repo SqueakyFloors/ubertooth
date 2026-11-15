@@ -40,14 +40,17 @@ SCRIPT = sys.argv[1]
 SCRIPT_DIR = os.path.dirname(os.path.abspath(SCRIPT))
 
 
-def run(arguments):
+def run(arguments, path=None):
     # The script is bash (its shebang, "set -o pipefail", $'\n'), so it is run
     # as bash rather than through /bin/sh, which is dash on Debian and Ubuntu
     # and stops at the "set" line before reading any argument.
+    environment = dict(os.environ)
+    if path is not None:
+        environment["PATH"] = path
     return subprocess.run(["bash", SCRIPT] + list(arguments),
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           universal_newlines=True, timeout=60,
-                          cwd=SCRIPT_DIR)
+                          cwd=SCRIPT_DIR, env=environment)
 
 
 # --help: the header comment on standard output, exit 0
@@ -113,24 +116,34 @@ for line in lines[2 + len(block):]:
 # than options the script is missing, and are reported as such.
 REFUSALS = {
     "--bogus": "error: unrecognized option '--bogus'\n",
-    "--flash-device": "error: option '--flash-device' requires a value\n",
+    # One spelling writes to a board, and it is --flash-device, so any other
+    # spelling of it is an option the script does not know, like any other.
+    "--flash": "error: unrecognized option '--flash'\n",
     "--prefix": "error: option '--prefix' requires a value\n",
     "--venv": "error: option '--venv' requires a value\n",
     "--libbtbb-url": "error: option '--libbtbb-url' requires a value\n",
     "--libbtbb-ref": "error: option '--libbtbb-ref' requires a value\n",
     "extra": "error: unexpected argument 'extra'\n",
     "-": "error: unexpected argument '-'\n",
-    # Installing a bootloader costs a board its application region, so the
-    # board is named rather than found.
-    "--update-bootloader":
-        "error: --update-bootloader needs --flash-device <index|serial|all> "
-        "to say which board to install the bootloader on\n",
 }
 for argument, line in REFUSALS.items():
     result = run([argument])
     assert result.returncode == 1, (argument, result)
     assert result.stdout == "", (argument, result)
     assert result.stderr == line, (argument, result)
+
+# Installing a bootloader costs a board its application region, so the board
+# is named rather than found, unless exactly one is attached and the installed
+# ubertooth-util can say which. With no ubertooth-util to ask, the run is
+# refused and says so. The PATH holds neither the Ubertooth tools (which
+# install into /usr/local or the Homebrew prefix) nor the fakes further down,
+# so which answer this gets does not depend on the machine it runs on.
+result = run(["--update-bootloader"], path="/usr/bin:/bin")
+assert result.returncode == 1, result
+assert result.stdout == "", result
+assert result.stderr == ("error: --update-bootloader needs --flash-device "
+                         "<index|serial|all> (ubertooth-util not yet "
+                         "installed to auto-detect)\n"), result
 
 # -h on its own is what the user asked for: the help on standard output,
 # nothing on standard error, exit 0, the same as --help.
@@ -160,7 +173,7 @@ result = run(["--uninstall", "--update-bootloader"])
 assert result.returncode == 1, result
 assert result.stdout == "", result
 assert result.stderr == ("error: --uninstall cannot be combined with "
-                         "--with-firmware, --flash, --flash-device, or "
+                         "--with-firmware, --flash-device, or "
                          "--update-bootloader\n"), result
 
 # A lone "--" ends the options and leaves nothing behind it, so the run goes
@@ -217,7 +230,7 @@ FAKES = {
                       ' a board is in the DFU bootloader, so no tool but'
                       ' ubertooth-dfu can open it" >&2 ;;'
                       ' esac; exit 0',
-    # Reached only by a --flash run, which needs both of these on PATH.
+    # Reached only by a --flash-device run, which needs both of these on PATH.
     # FAKE_BL_CURRENT makes the bootloader update answer as it does for a board
     # that already has the bootloader the image carries, which is the one line
     # that tells that outcome from a board that was written; FAKE_BL_FAILS
@@ -323,10 +336,12 @@ in_order(lines, ["==> Checking Homebrew for an ubertooth or libbtbb",
                  "ran: brew list --formula --versions ubertooth"])
 
 # So is each read of the device list that resolves the flash target: the one
-# in the pre-flight check, which a --flash with no selector goes through, and
-# the one before the flash itself, which every --flash run reaches. The two
-# announcements differ, so one of them cannot stand in for both.
-status, lines, stdout = run_with_fakes(["--flash", "--skip-deps"])
+# in the pre-flight check, which a --flash-device with no selector goes
+# through, and the one before the flash itself, which every --flash-device run
+# reaches. The two announcements differ, so one of them cannot stand in for
+# both. The selector is left off here, which the script takes as "the one
+# board that is attached" rather than as a missing value.
+status, lines, stdout = run_with_fakes(["--flash-device", "--skip-deps"])
 assert status != 0, lines
 assert stdout == "", stdout
 in_order(lines, ["==> Checking which Ubertooth to flash",
@@ -339,9 +354,9 @@ in_order(lines, ["==> Checking which Ubertooth to flash",
 # as an index.
 #
 # Standard output carries what ubertooth-dfu answered and nothing of the
-# script's own: a plain --flash run hands the board over to that tool, and its
-# result is the tool's to report. (A --update-bootloader run keeps even that
-# with the rest of its output; see the cases at the end of this file.)
+# script's own: a plain --flash-device run hands the board over to that tool,
+# and its result is the tool's to report. (A --update-bootloader run keeps even
+# that with the rest of its output; see the cases at the end of this file.)
 serial = "ab" * 16
 status, lines, stdout = run_with_fakes(
     ["--flash-device", serial, "--skip-deps"])
@@ -365,7 +380,8 @@ print("install.sh: --help on stdout, refusals and progress on stderr, "
 # Nothing is built or written: the images come from a fake make and the boards
 # from a fake ubertooth-dfu.
 #
-# Standard output stays empty throughout, unlike the plain --flash run above:
+# Standard output stays empty throughout, unlike the plain --flash-device run
+# above:
 # this option drives a procedure of several commands and reports one line per
 # board itself, so every tool's answer is kept beside that report rather than
 # leaving a board's result split across the two streams.

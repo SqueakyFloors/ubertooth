@@ -5,7 +5,8 @@ name: install.sh
 # (or this workflow) changes, to keep them fast; every push to main runs it, so
 # a host build change that breaks install.sh is caught on the merge. The weekly
 # schedule, a published release and a manual run also run it. Firmware is
-# opt-in (--with-firmware / --flash), so it is neither built nor flashed here.
+# opt-in (--with-firmware / --flash-device), so it is neither built nor
+# flashed here.
 on:
   push:
     branches: [main]
@@ -141,7 +142,7 @@ jobs:
       shell: bash
       # The options that only make sense for one of the two jobs.
       run: |
-        for opts in "--uninstall --flash" "--uninstall --venv /tmp/v" \
+        for opts in "--uninstall --flash-device" "--uninstall --venv /tmp/v" \
                     "--uninstall --skip-deps" "--uninstall --libbtbb-ref HEAD" \
                     "--keep-libbtbb" "--uninstall --keep-libbtbb --remove-libbtbb"; do
           # Unquoted on purpose: each entry is a command line, not one option.

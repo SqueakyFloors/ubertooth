@@ -37,9 +37,12 @@
 #   --with-firmware   also build the firmware images (needs arm-none-eabi-gcc)
 #   --flash-device <index|serial|all>
 #                     build and flash bluetooth_rxtx to an attached Ubertooth
-#                     (implies --with-firmware; STATE-CHANGING). With one board
-#                     attached the selector is optional; with several, use an
-#                     index, serial, or "all". --flash is an alias.
+#                     (implies --with-firmware; STATE-CHANGING). This is the
+#                     only option that writes to a board: a run without it
+#                     installs the host tools and leaves every board alone.
+#                     With one readable board attached the selector may be
+#                     left off; with several it is required, as an index, a
+#                     full serial, or "all".
 #   --update-bootloader
 #                     also install the bootloader this tree builds
 #                     (implies --flash-device and --with-firmware;
@@ -278,7 +281,7 @@ record_installed() { # <name> <build dir> [description]
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--with-firmware) WITH_FIRMWARE=1 ;;
-		--flash|--flash-device)
+		--flash-device)
 			FLASH=1; WITH_FIRMWARE=1
 			# Optional argument: the next word, if it doesn't start with --.
 			if [ $# -gt 1 ] && case "$2" in --*) false ;; *) true ;; esac; then
@@ -778,7 +781,7 @@ flash_firmware() {
 	}
 
 	if [ "$FLASH" -ne 1 ]; then
-		# --with-firmware without --flash: just build.
+		# --with-firmware without --flash-device: just build.
 		if ! PATH="$(dirname "$dfu"):$PATH" make -C "$REPO_ROOT/firmware/bluetooth_rxtx" -s -q 2>/dev/null; then
 			info "Building firmware (bluetooth_rxtx)"
 			if ! PATH="$(dirname "$dfu"):$PATH" make -C "$REPO_ROOT/firmware/bluetooth_rxtx" -s >/dev/null 2>"$WORK/fw-build.err"; then
@@ -1014,7 +1017,9 @@ step_libbtbb() {
 	cmake --build "$WORK/libbtbb/build" -j"$JOBS" >/dev/null
 	as_installer cmake --install "$WORK/libbtbb/build" >/dev/null
 	record_installed libbtbb "$WORK/libbtbb/build" "libbtbb $LIBBTBB_REF from $LIBBTBB_URL"
-	on_linux && as_root ldconfig || true
+	if on_linux; then
+		as_root ldconfig || true
+	fi
 }
 
 # Each directory once, in the order they are to be searched.

@@ -683,8 +683,10 @@ Contents:
 - **One-command install.** `install.sh` installs from source on Debian and
   Ubuntu, Fedora, and macOS with Homebrew: virtual environments, `--prefix`,
   `--skip-deps`, udev rules, firmware builds, flashing chosen boards with
-  `--flash-device <index|serial|all>`, and installing the bootloader with
-  `--update-bootloader` (a board that already has it is left alone).
+  `--flash-device <index|serial|all>`, the one option that writes to a board,
+  whose selector may be left off when a single readable board is attached, and
+  installing the bootloader with `--update-bootloader` (a board that already
+  has it is left alone).
   `install.sh --uninstall` removes what it installed, keeping libbtbb unless
   asked. It refuses Python older than 3.8 up front, rejects bad options in the
   tools' wording, and `install.sh --help` prints only the usage.
