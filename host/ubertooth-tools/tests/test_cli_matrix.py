@@ -675,6 +675,38 @@ def check_the_spec_lists_every_option():
     for role in sorted(declared - carried):
         problems.append((SPEC_IDS_CASE,
                          "_roles has %r, which no option carries" % role))
+    # A "report_rejects" entry names the report option and the few options it
+    # uses, so every name in it has to be one the tool has, and the report
+    # option has to be one that ends the command: a misspelled name would
+    # quietly stop generating the cases it is there to generate. The error
+    # line is checked for taking exactly one option name, because a second
+    # one, or none, would otherwise come back as a TypeError from the case
+    # generator rather than as a problem with a name on it.    for tool, contract in sorted(SPEC["tools"].items()):
+        rejects = contract.get("report_rejects")
+        if rejects is None:
+            continue
+        its_options = contract.get("options", {})
+        report = rejects.get("report")
+        if report is None:
+            problems.append((SPEC_IDS_CASE,
+                             "the %s report_rejects does not say which "
+                             "option it is about" % tool))
+        elif its_options.get(report, {}).get("role") != "report":
+            problems.append((SPEC_IDS_CASE,
+                             "the %s report_rejects names %s, which is not "
+                             "one of its options with the \"report\" role"
+                             % (tool, report)))
+        for name in rejects.get("keeps", []):
+            if name not in its_options:
+                problems.append((SPEC_IDS_CASE,
+                                 "the %s report_rejects keeps %s, which it "
+                                 "does not have" % (tool, name)))
+        line = rejects.get("error", "")
+        if line.count("%") != 1 or "%s" not in line:
+            problems.append((SPEC_IDS_CASE,
+                             "the %s report_rejects error line has to take "
+                             "the suppressed option once, as %%s, and "
+                             "nothing else: %r" % (tool, line)))
     # A pair rule names each side either by role or by the option itself, so
     # a side naming a role or an option that none of the options the rule
     # applies to has is a rule that can never match. A global rule applies to
@@ -906,6 +938,12 @@ HELP_OPTIONS = [name for name, role in ROLES.items() if role == "help"]
 REPORT_OPTIONS = [name for name, role in ROLES.items() if role == "report"]
 WORK_OPTIONS = CONTRACT.get("work_options")
 REQUIRES_ALL = CONTRACT.get("requires_all")
+# The options a report option that ends the command does not consume, which it
+# would otherwise swallow in silence. Named once in the spec, as the report
+# option, the few it does use and the refusal; the cases come from the tool's
+# own option table, so an option added to the tool is covered without anything
+# being added here.
+REPORT_REJECTS = CONTRACT.get("report_rejects")
 
 
 def valid_value(name):
@@ -944,6 +982,27 @@ def explicit(arguments):
     return None
 
 
+def report_reject_case(given, arguments):
+    """The refusal for a report option standing beside one it would suppress.
+
+    `given` is the options on the command line, in the order they were
+    written: the message names the first one the report option does not use,
+    because that is the one the user would look for in the output.
+    """
+    if REPORT_REJECTS is None:
+        return None
+    report = REPORT_REJECTS["report"]
+    if report not in given:
+        return None
+    keeps = set(REPORT_REJECTS.get("keeps", [])) | {report}
+    dropped = [name for name in given if name not in keeps]
+    if not dropped:
+        return None
+    return Case(arguments, "refused",
+                error=REPORT_REJECTS["error"] % dropped[0],
+                source=REPORT_REJECTS.get("source"))
+
+
 def verdict_for_line(arguments):
     """The verdict for a command line, from the tool's own shape.
 
@@ -955,6 +1014,12 @@ def verdict_for_line(arguments):
     """
     given = [word for word in arguments if word.startswith("-")
              and word in OPTIONS]
+    # Before -h and -V answer: a command line that asks for something the
+    # report option would end the command before is refused, so neither
+    # answer is printed.
+    rejected = report_reject_case(given, arguments)
+    if rejected is not None:
+        return rejected
     for name in HELP_OPTIONS:
         if name in given:
             return Case(arguments, "help")
@@ -1007,7 +1072,11 @@ def pair_verdict(first, second, arguments):
     """
     # The rules that hold for every tool come first: an option that ends the
     # command outranks any combination rule, since the rest of the line never
-    # runs.
+    # runs. Ahead of them all is a report option standing beside one it does
+    # not use, which is refused instead of answering and dropping the other.
+    rejected = report_reject_case([first, second], arguments)
+    if rejected is not None:
+        return rejected
     rules = SPEC.get("_global_pair_rules", []) + CONTRACT.get("pair_rules", [])
     for rule in rules:
         for a, b in ((first, second), (second, first)):
