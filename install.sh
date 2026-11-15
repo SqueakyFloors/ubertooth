@@ -11,8 +11,14 @@
 # loudly. macOS needs no udev rules and has no BlueZ, so ubertooth-scan and
 # ubertooth-follow are not built there. Firmware build/flash is opt-in.
 #
-# When flashing is requested, the flash target is resolved and the firmware is
-# built and flashed FIRST (fail fast), before the longer host/libbtbb build.
+# When flashing is requested, which board to flash is worked out FIRST (fail
+# fast), before any dependency or build work. A run that cannot flash, because
+# no board is attached, a board could not be read, or several are attached and
+# nothing says which, is then refused in seconds rather than after the whole
+# build. The flash itself comes last, after the host tools this run installs,
+# because a bootloader update drives ubertooth-dfu through several steps and
+# has to drive the one this run built rather than whatever was installed
+# before it.
 #
 # This is the from-source "just works" path. It is NOT a replacement for distro
 # packaging (apt/dnf/brew). Idempotent: safe to re-run.
@@ -356,31 +362,6 @@ elif [ -n "$LIBBTBB_ACTION" ]; then
 	die "--keep-libbtbb and --remove-libbtbb only apply to --uninstall"
 fi
 
-# Installing a bootloader costs the board its application region and leaves it
-# in DFU, so the board it happens to has to be named rather than found: a run
-# with one board attached today and two tomorrow would otherwise write a
-# different board each time.
-if [ "$UPDATE_BOOTLOADER" -eq 1 ] && [ -z "$FLASH_DEVICE" ]; then
-	# With one board attached, resolve it the same way --flash-device does
-	# rather than forcing the user to name the sole device.
-	if command -v ubertooth-util >/dev/null 2>&1; then
-		_bl_devices="$(list_devices "$(command -v ubertooth-util)")"
-		_bl_n="$(printf '%s\n' "$_bl_devices" | grep -c . || true)"
-		if [ "$_bl_n" -eq 1 ]; then
-			read -r _bl_idx _bl_serial <<< "$_bl_devices"
-			if [ "$_bl_serial" != "?" ]; then
-				FLASH_DEVICE="$_bl_serial"
-			else
-				FLASH_DEVICE="$_bl_idx"
-			fi
-		else
-			die "--update-bootloader needs --flash-device <index|serial|all> when more than one board is attached"
-		fi
-	else
-		die "--update-bootloader needs --flash-device <index|serial|all> (ubertooth-util not yet installed to auto-detect)"
-	fi
-fi
-
 # --- platform check -------------------------------------------------------
 case "$(uname -s)" in
 	Linux)
@@ -684,18 +665,25 @@ update_bootloader_on() { # <dfu> <util> <bl_update.dfu> <firmware.dfu> <serial>
 	local dfu="$1" util="$2" blimg="$3" img="$4" serial="$5"
 	local answer="$WORK/bl-update.out" outcome bootloader
 
-	# Run the update quietly; only announce if something is actually written.
+	# Announced before the write, not after it: the warning that comes with
+	# it is the one a user needs in hand while the bootloader region is being
+	# written, which is also the moment an interruption costs them a serial
+	# programmer. A board that turns out to already have this bootloader is
+	# told so on the line below, so saying this first costs only that.
+	info "Installing the bootloader on $serial"
+	info "  keep a serial programmer to hand: a write that is interrupted leaves the board needing one"
+	# Kept rather than let through, so the one line that says whether
+	# anything was written can be read back out of it.
 	if ! "$dfu" --update-bootloader -d "$blimg" -U "$serial" </dev/null > "$answer" 2>&1; then
-		info "Installing the bootloader on $serial"
-		info "  keep a serial programmer to hand: a write that is interrupted leaves the board needing one"
 		cat "$answer" >&2
 		err "installing the bootloader on $serial failed"
 		die "the firmware was not put back on this board; see ubertooth-dfu(1), UPDATING THE BOOTLOADER for what an interrupted write leaves behind and how a serial programmer recovers it"
 	fi
+	cat "$answer" >&2
 	if grep -q 'already has this bootloader' "$answer"; then
 		outcome="already had this bootloader, nothing written"
-		# The board still runs its firmware — only reflash if the version
-		# is different (or --force).
+		# The board still runs its firmware, so it is reflashed only when
+		# the version differs (or --force).
 		local _tree_ver _fw_ver
 		_tree_ver="$(tree_version 2>/dev/null || true)"
 		_fw_ver="$(installed_fw_version "$util" "$serial" 2>/dev/null || true)"
@@ -707,10 +695,6 @@ update_bootloader_on() { # <dfu> <util> <bl_update.dfu> <firmware.dfu> <serial>
 				die "the bootloader on $serial was left as it was, and flashing the firmware failed"
 		fi
 	else
-		# The bootloader was actually written — show the announcement and DFU output.
-		info "Installing the bootloader on $serial"
-		info "  keep a serial programmer to hand: a write that is interrupted leaves the board needing one"
-		cat "$answer" >&2
 		outcome="bootloader installed"
 		info "  $serial is in DFU with the updater in its application region; flashing bluetooth_rxtx back"
 		# A failure here leaves the board in DFU holding the updater, which
@@ -743,17 +727,83 @@ update_bootloader_on() { # <dfu> <util> <bl_update.dfu> <firmware.dfu> <serial>
 	bootloader="$("$util" -U "$serial" -B || true)"
 	case "$bootloader" in
 		*Bootloader:*)
-				info ""
 			info "Board $serial: $outcome"
 			info "  $bootloader" ;;
 		*) warn "$serial: $outcome, but ubertooth-util -B would not say which bootloader it has" ;;
 	esac
 }
 
+# Work out which boards a flash run writes, and refuse a command line that
+# cannot work before anything is built or written. <util> is the
+# ubertooth-util to ask: the installed one in the pre-flight check, this run's
+# at the flash itself, so both answer from the same code.
+#
+# Sets FLASH_TARGETS to what -U is given for each board to flash. A target is
+# the board's serial wherever it could be read, even when the user chose by
+# index: an index is a position in the list of boards running their firmware,
+# and installing a bootloader takes a board out of that list and brings it
+# back.
+resolve_flash_targets() { # <util>
+	local util="$1" devices n index serial sel_serial
+	FLASH_TARGETS=()
+	devices="$(list_devices "$util")"
+	n="$(printf '%s\n' "$devices" | grep -c . || true)"
+	# Checked before the first write rather than when a flash with no -U
+	# finds two boards in DFU, which would be after this run had already cost
+	# a board its application region.
+	if [ "$UPDATE_BOOTLOADER" -eq 1 ] && dfu_board_waiting "$util"; then
+		die "a board is waiting in the DFU bootloader; finish or recover that flash first, because installing a bootloader leaves a board there too and ubertooth-dfu will not choose between two"
+	fi
+	if [ "$FLASH_DEVICE" = "all" ]; then
+		[ "$n" -gt 0 ] || die "--flash-device all: no Ubertooth is attached to flash"
+		# Never skip a board silently: refuse if any device cannot be read.
+		if printf '%s\n' "$devices" | grep -q ' ?$'; then
+			die "$(multi_device_msg "$devices")"$'\n'"a device could not be read; flash each readable one with --flash-device <index|serial>"
+		fi
+		while read -r index serial; do
+			[ -n "$index" ] || continue
+			FLASH_TARGETS+=("$serial")
+		done <<< "$devices"
+	elif [ -n "$FLASH_DEVICE" ]; then
+		sel_serial="$FLASH_DEVICE"
+		if printf '%s' "$FLASH_DEVICE" | grep -qE '^[0-9]+$'; then
+			sel_serial="$(printf '%s\n' "$devices" | awk -v i="$FLASH_DEVICE" '$1 == i { print $2 }')"
+			[ -n "$sel_serial" ] || sel_serial="?"
+		fi
+		if [ "$sel_serial" = "?" ]; then
+			# An index still reaches the board; only the bootloader
+			# install, which brings it back by serial, needs the serial.
+			[ "$UPDATE_BOOTLOADER" -eq 0 ] ||
+				die "the serial of Ubertooth index $FLASH_DEVICE could not be read, and --update-bootloader needs it: name the board by serial instead"
+			FLASH_TARGETS+=("$FLASH_DEVICE")
+		else
+			FLASH_TARGETS+=("$sel_serial")
+		fi
+	else
+		# No selector: with exactly one readable board attached there is
+		# nothing to choose between, so the sole board is the target. That
+		# holds for --update-bootloader too, which otherwise needs the board
+		# named: installing a bootloader costs that board its application
+		# region, so a run with one board attached today and two tomorrow
+		# must not quietly write a different board each time.
+		if [ "$n" -eq 0 ]; then
+			if dfu_board_waiting "$util"; then
+				die "no Ubertooth is running its firmware: a board is waiting in the DFU bootloader. Finish that flash first with 'ubertooth-dfu -d firmware/bluetooth_rxtx/bluetooth_rxtx.dfu -r'"
+			fi
+			die "no Ubertooth is attached to flash"
+		fi
+		[ "$n" -le 1 ] || die "$(multi_device_msg "$devices")"
+		read -r index serial <<< "$devices"
+		[ "$serial" != "?" ] || die "the attached Ubertooth could not be read; check it with ubertooth-util -s"
+		FLASH_TARGETS+=("$serial")
+	fi
+}
+
 # Build the firmware and flash the selected device(s). Uses whichever
-# ubertooth-dfu / ubertooth-util is on PATH (an existing install).
+# ubertooth-dfu / ubertooth-util is on PATH, which is this run's: the flash
+# step comes after the host tools are installed.
 flash_firmware() {
-	local dfu util img blimg devices n sel_serial index serial
+	local dfu util img blimg serial at total
 	dfu="$(command -v ubertooth-dfu || true)"
 	util="$(command -v ubertooth-util || true)"
 	img="$REPO_ROOT/firmware/bluetooth_rxtx/bluetooth_rxtx.dfu"
@@ -799,55 +849,29 @@ flash_firmware() {
 	fi
 
 	# --- Resolve which devices to flash and check if any need work ---
-	devices="$(list_devices "$util")"
-	n="$(printf '%s\n' "$devices" | grep -c . || true)"
-	if [ "$UPDATE_BOOTLOADER" -eq 1 ] && dfu_board_waiting "$util"; then
-		die "a board is waiting in the DFU bootloader; finish or recover that flash first"
-	fi
+	# Reached with any selector, --flash-device <serial> included, and here
+	# too a device that is busy or wedged makes each read wait.
+	info "Looking for the Ubertooth to flash"
+	resolve_flash_targets "$util"
+	total="${#FLASH_TARGETS[@]}"
 
-	# Build the list of serials to flash and check versions up front.
-	local targets=() need_flash=0 need_bootloader=0
-	if [ "$FLASH_DEVICE" = "all" ]; then
-		[ "$n" -gt 0 ] || die "no Ubertooth found to flash"
-		if printf '%s\n' "$devices" | grep -q ' ?$'; then
-			die "$(multi_device_msg "$devices")"$'\n'"a device could not be read; flash each readable one with --flash-device <index|serial>"
-		fi
-		while read -r index serial; do
-			targets+=("$serial")
-			if device_needs_work "$util" "$serial"; then
-				need_flash=1
-			fi
-		done <<< "$devices"
-	elif [ -n "$FLASH_DEVICE" ]; then
-		sel_serial="$FLASH_DEVICE"
-		if printf '%s' "$FLASH_DEVICE" | grep -qE '^[0-9]+$'; then
-			sel_serial="$(printf '%s\n' "$devices" | awk -v i="$FLASH_DEVICE" '$1 == i { print $2 }')"
-			[ -n "$sel_serial" ] || sel_serial="?"
-		fi
-		if [ "$UPDATE_BOOTLOADER" -eq 1 ]; then
-			[ "$sel_serial" != "?" ] || die "the serial of Ubertooth index $FLASH_DEVICE could not be read, and --update-bootloader needs it"
-		fi
-		targets+=("$FLASH_DEVICE")
-		if device_needs_work "$util" "$FLASH_DEVICE"; then
-			need_flash=1
-		fi
-	else
-		[ "$n" -gt 0 ] || die "no Ubertooth found to flash"
-		[ "$n" -le 1 ] || die "$(multi_device_msg "$devices")"
-		read -r index serial <<< "$devices"
-		[ "$serial" != "?" ] || die "the attached Ubertooth could not be read"
-		targets+=("$serial")
+	local need_flash=0 need_bootloader=0
+	for serial in "${FLASH_TARGETS[@]}"; do
 		if device_needs_work "$util" "$serial"; then
 			need_flash=1
 		fi
-	fi
+	done
 
 	# The bootloader check is cheap (one USB read), so always let it decide.
-	[ "$UPDATE_BOOTLOADER" -eq 1 ] && need_bootloader=1
+	[ "$UPDATE_BOOTLOADER" -eq 0 ] || need_bootloader=1
 
 	# --- Nothing to do? Say so and return. ---
 	if [ "$need_flash" -eq 0 ] && [ "$need_bootloader" -eq 0 ]; then
-		info "All devices already at $tree_ver; nothing to flash (use --force to reflash)"
+		if [ "$total" -gt 1 ]; then
+			info "All $total attached Ubertooths already at $tree_ver; nothing to flash (use --force to reflash)"
+		else
+			info "Ubertooth ${FLASH_TARGETS[0]} already at $tree_ver; nothing to flash (use --force to reflash)"
+		fi
 		return 0
 	fi
 
@@ -868,8 +892,13 @@ flash_firmware() {
 		fi
 	fi
 
-	# --- Flash each target ---
-	for serial in "${targets[@]}"; do
+	# --- Flash each target, saying which board each message is about ---
+	[ "$FLASH_DEVICE" != "all" ] || info "Flashing all $total attached Ubertooths"
+	at=0
+	for serial in "${FLASH_TARGETS[@]}"; do
+		# The index, as --flash-device takes it: the targets are in the
+		# order the boards were listed in.
+		[ "$total" -le 1 ] || info "  board $at of $total"
 		if [ "$UPDATE_BOOTLOADER" -eq 1 ]; then
 			update_bootloader_on "$dfu" "$util" "$blimg" "$img" "$serial"
 		elif device_needs_work "$util" "$serial"; then
@@ -878,6 +907,7 @@ flash_firmware() {
 		else
 			info "Ubertooth $serial already at $tree_ver; skipping"
 		fi
+		at=$((at+1))
 	done
 }
 
@@ -886,17 +916,30 @@ flash_firmware() {
 # =========================================================================
 
 step_flash_preflight() {
-	# Resolve/validate the flash target up front so an ambiguous situation
-	# (multiple devices, no selector) aborts immediately instead of after a
-	# full build. Only possible if ubertooth-util is already installed.
-	[ "$FLASH" -eq 1 ] && command -v ubertooth-util >/dev/null 2>&1 || return 0
-	if [ "$FLASH_DEVICE" != "all" ] && [ -z "$FLASH_DEVICE" ]; then
-		info "Checking which Ubertooth to flash"
-		local devices n
-		devices="$(list_devices "$(command -v ubertooth-util)")"
-		n="$(printf '%s\n' "$devices" | grep -c . || true)"
-		[ "$n" -le 1 ] || die "$(multi_device_msg "$devices")"
+	# Settle which board a flash run writes before any dependency or build
+	# work, so a command line that cannot flash is refused in seconds rather
+	# than after the whole build. The answer is thrown away: the flash step
+	# asks the same question again, with the tools this run installs.
+	[ "$FLASH" -eq 1 ] || return 0
+	local util count
+	util="$(command -v ubertooth-util || true)"
+	if [ -z "$util" ]; then
+		info "Not checking which Ubertooth to flash yet: ubertooth-util is not installed, so this run's own tools will do it"
+		return 0
 	fi
+	# Announced before the first device read, because a board that is busy or
+	# wedged makes each of them wait.
+	info "Checking which Ubertooth to flash"
+	# An installed ubertooth-util that will not answer would report no board
+	# at all, which would refuse a run that is fine. Its count is asked for
+	# first, so that case is told apart from a machine with nothing attached.
+	count="$("$util" -N 2>/dev/null || true)"
+	case "$count" in
+		''|*[!0-9]*)
+			info "The installed ubertooth-util would not say how many Ubertooths are attached, so this run's own tools will check"
+			return 0 ;;
+	esac
+	resolve_flash_targets "$util"
 }
 
 step_firmware_toolchain_deps() {
@@ -1014,7 +1057,9 @@ step_libbtbb() {
 	cmake --build "$WORK/libbtbb/build" -j"$JOBS" >/dev/null
 	as_installer cmake --install "$WORK/libbtbb/build" >/dev/null
 	record_installed libbtbb "$WORK/libbtbb/build" "libbtbb $LIBBTBB_REF from $LIBBTBB_URL"
-	on_linux && as_root ldconfig || true
+	if on_linux; then
+		as_root ldconfig || true
+	fi
 }
 
 # Each directory once, in the order they are to be searched.
