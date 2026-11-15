@@ -317,17 +317,21 @@ if(EXISTS "${UBERTOOTH_INSTALL_SH}")
 			${UBERTOOTH_INSTALL_SH}
 			${CMAKE_CURRENT_SOURCE_DIR}/../../doc/ubertooth-util.md)
 	set_tests_properties(install-devices PROPERTIES TIMEOUT 60)
-	# Which package manager install.sh reaches for, and the package names it
-	# asks each one for. The runs install nothing and touch no device: the
-	# privileged steps are printed rather than run (--no-sudo), and the
-	# platform, the package managers and the tools are faked.
+	# Which package manager install.sh reaches for, the package names it asks
+	# each one for, and how many commands it gives apt. The runs install
+	# nothing and touch no device: the platform, the package managers, dpkg
+	# and the tools are faked, and the privileged steps are printed rather
+	# than run (--no-sudo) except in the last few, where a fake sudo runs a
+	# fake apt that fails.
 	add_test(
 		NAME install-packages
 		COMMAND ${Python3_EXECUTABLE}
 			${CMAKE_CURRENT_SOURCE_DIR}/test_install_packages.py
 			${UBERTOOTH_INSTALL_SH}
 			${CMAKE_CURRENT_SOURCE_DIR}/../../../REQUIREMENTS.md)
-	set_tests_properties(install-packages PROPERTIES TIMEOUT 120)
+	# Two dozen runs of the script, about a second each on an idle machine
+	# and several times that on a loaded one.
+	set_tests_properties(install-packages PROPERTIES TIMEOUT 300)
 endif()
 
 # A program outside this tree, compiled and linked against an install of the

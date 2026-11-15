@@ -15,7 +15,9 @@
 # built and flashed FIRST (fail fast), before the longer host/libbtbb build.
 #
 # This is the from-source "just works" path. It is NOT a replacement for distro
-# packaging (apt/dnf/brew). Idempotent: safe to re-run.
+# packaging (apt/dnf/brew). Idempotent: safe to re-run, and a re-run with
+# nothing to change does nothing. On Debian/Ubuntu, a run whose packages are
+# all installed executes no apt command at all, not even an index refresh.
 #
 # Usage:
 #   ./install.sh [options]
@@ -64,7 +66,11 @@
 #   --prefix <path>   install prefix (default: /usr/local on Linux, the
 #                     Homebrew prefix on macOS)
 #   --skip-deps       do not install system packages; assume they are present
-#   --force           rebuild and reinstall even if already up to date
+#   --force           rebuild and reinstall this tree even if it is already up
+#                     to date. System packages are left alone: a package that
+#                     is installed is installed, and upgrading it is the
+#                     package manager's business rather than this script's, so
+#                     --force refreshes no package indexes.
 #   --no-sudo         print the commands that need root instead of running them
 #                     (dry-run for the privileged steps)
 #   -h, --help        show this help
@@ -227,6 +233,76 @@ brew_install() {
 	if [ "${#missing[@]}" -gt 0 ]; then
 		brew install "${missing[@]}"
 	fi
+}
+
+# Whether apt's package indexes have already been refreshed in this run.
+APT_UPDATED=0
+
+# Refresh apt's package indexes, once per run however often it is asked for.
+# Both dependency steps can have packages to install, and an --update-bootloader
+# run reaches both, so without this the same indexes are downloaded twice.
+apt_update_once() {
+	if [ "$APT_UPDATED" -eq 0 ]; then
+		as_root apt-get update -qq
+		APT_UPDATED=1
+	fi
+}
+
+# The packages of the given list that are not installed, in the order given,
+# as one space-separated line; empty when they are all there.
+#
+# Only "install ok installed" counts as installed: a package removed with its
+# configuration left behind, or unpacked and never configured, is one apt
+# still has work to do on. dpkg-query exits 1 for a name it has never heard
+# of, which is the ordinary "not installed" answer; a worse status than that
+# means the query itself failed, and so does dpkg-query not being here at all.
+# Then nothing is known about any of them, so the whole list is reported and
+# apt is left to work it out: answering "all present" would skip an install
+# the machine needs, which is the one mistake this must not make.
+debian_missing_packages() {
+	# Not named "missing": brew_install above has an array of that name, and
+	# the shell's locals are not scoped the way the linter reads them.
+	local package status rc absent=""
+	if ! command -v dpkg-query >/dev/null 2>&1; then
+		warn "dpkg-query is not here, so which packages are installed is unknown; installing them all"
+		echo "$*"
+		return 0
+	fi
+	for package in "$@"; do
+		status="$(dpkg-query -W -f='${Status}' "$package" 2>/dev/null)" && rc=0 || rc=$?
+		if [ "$rc" -gt 1 ]; then
+			warn "dpkg-query could not say which packages are installed; installing them all"
+			echo "$*"
+			return 0
+		fi
+		[ "$status" = "install ok installed" ] || absent="${absent:+$absent }$package"
+	done
+	printf '%s' "$absent"
+}
+
+# Install the packages of the given list that are missing, refreshing the
+# indexes first and only if any are. A machine that already has them gets no
+# apt command at all, which is what a re-run normally is: an index refresh
+# and an install with nothing to do each cost seconds of network and disk,
+# and a --force run has no reason to pay for them either. --force rebuilds
+# this tree; upgrading a package that is installed is the package manager's
+# business, and a user who wants that runs apt.
+#
+# Takes the progress line to print while installing, the one to print when
+# they are all there, and then the packages.
+apt_install_missing() {
+	local installing="$1" present="$2" absent
+	shift 2
+	absent="$(debian_missing_packages "$@")"
+	if [ -z "$absent" ]; then
+		info "$present"
+		return 0
+	fi
+	info "$installing: $absent"
+	apt_update_once
+	# Unquoted on purpose: a list of package names, which hold no spaces.
+	# shellcheck disable=SC2086
+	as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y $absent
 }
 
 # Run an install step into PREFIX: directly when PREFIX is writable on macOS
@@ -910,11 +986,12 @@ step_firmware_toolchain_deps() {
 	fi
 
 	if [ "$PLATFORM" = debian ]; then
-		info "Installing firmware toolchain (apt)"
-		as_root apt-get update -qq
+		# Unquoted on purpose: the bootloader's extra package, or nothing.
 		# shellcheck disable=SC2086
-		as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y \
-			gcc-arm-none-eabi libnewlib-arm-none-eabi dfu-util make $bl_packages_debian
+		apt_install_missing "Installing firmware toolchain (apt)" \
+			"Firmware toolchain already installed (apt); skipping" \
+			gcc-arm-none-eabi libnewlib-arm-none-eabi dfu-util make \
+			$bl_packages_debian
 	elif [ "$PLATFORM" = fedora ]; then
 		info "Installing firmware toolchain (dnf)"
 		# shellcheck disable=SC2086
@@ -943,9 +1020,8 @@ step_system_deps() {
 		return 0
 	fi
 	if [ "$PLATFORM" = debian ]; then
-		info "Installing system dependencies (apt)"
-		as_root apt-get update -qq
-		as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y \
+		apt_install_missing "Installing system dependencies (apt)" \
+			"System dependencies already installed (apt); skipping" \
 			cmake build-essential pkg-config libusb-1.0-0-dev libbluetooth-dev \
 			libfftw3-dev python3 python3-venv python3-usb1 git
 	elif [ "$PLATFORM" = fedora ]; then
