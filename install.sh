@@ -13,10 +13,10 @@
 #
 # When flashing is requested and ubertooth-util is already installed, which
 # board to flash is worked out FIRST (fail fast), before any dependency or
-# build work. A run that cannot flash, because
-# no board is attached, a board could not be read, or several are attached and
-# nothing says which, is then refused in seconds rather than after the whole
-# build. The flash itself comes last, after the host tools this run installs,
+# build work. A run that cannot flash, because no board is attached, the
+# board it names is not attached, or several are attached and nothing says
+# which, is then refused in seconds rather than after the whole build. A board
+# the installed tools could not read is left for this run's own tools. The flash itself comes last, after the host tools this run installs,
 # because a bootloader update drives ubertooth-dfu through several steps and
 # has to drive the one this run built rather than whatever was installed
 # before it.
@@ -768,8 +768,15 @@ resolve_flash_targets() { # <util>
 	elif [ -n "$FLASH_DEVICE" ]; then
 		sel_serial="$FLASH_DEVICE"
 		if printf '%s' "$FLASH_DEVICE" | grep -qE '^[0-9]+$'; then
+			[ "$FLASH_DEVICE" -lt "$n" ] ||
+				die "--flash-device $FLASH_DEVICE: there is no Ubertooth at that index ($n attached)"
 			sel_serial="$(printf '%s\n' "$devices" | awk -v i="$FLASH_DEVICE" '$1 == i { print $2 }')"
 			[ -n "$sel_serial" ] || sel_serial="?"
+		elif ! printf '%s\n' "$devices" | awk -v s="$FLASH_DEVICE" '$2 == s { found = 1 } END { exit !found }' &&
+			! printf '%s\n' "$devices" | grep -q ' ?$'; then
+			# A serial is checked only when every board could be read: an
+			# unread one may be the board it names.
+			die "--flash-device $FLASH_DEVICE: no attached Ubertooth has that serial"
 		fi
 		if [ "$sel_serial" = "?" ]; then
 			# An index still reaches the board; only the bootloader
@@ -940,16 +947,13 @@ step_flash_preflight() {
 			info "The installed ubertooth-util would not say how many Ubertooths are attached, so this run's own tools will check"
 			return 0 ;;
 	esac
-	# An older ubertooth-util lists only the first board's serial while still
-	# counting them all, so a board it cannot read may be one this run's own
-	# tools read fine. Only the tools this tree builds are trusted to say a
-	# board cannot be read.
-	local tv iv
-	tv="$(tree_version 2>/dev/null || true)"
-	iv="$(installed_host_version "$util" 2>/dev/null || true)"
-	if { [ -z "$tv" ] || [ "$tv" != "$iv" ]; } &&
-		list_devices "$util" | grep -q ' ?$'; then
-		info "The installed ubertooth-util is not this tree's and could not read every Ubertooth, so this run's own tools will check"
+	# A board the installed ubertooth-util could not read may be one this
+	# run's own tools read fine: an older ubertooth-util lists only the first
+	# board's serial while still counting them all. Which tree the installed
+	# tool came from cannot be told reliably, so an unread board is always
+	# left to the flash step, which asks with the tools this run installs.
+	if list_devices "$util" | grep -q ' ?$'; then
+		info "The installed ubertooth-util could not read every Ubertooth, so this run's own tools will check"
 		return 0
 	fi
 	resolve_flash_targets "$util"

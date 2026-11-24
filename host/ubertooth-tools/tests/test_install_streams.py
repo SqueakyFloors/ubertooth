@@ -448,14 +448,15 @@ for arguments in (["--flash-device"], ["--update-bootloader"]):
     absent(lines, "ran: ubertooth-dfu")
 
     # One attached, but its serial could not be read, and the flash goes by
-    # serial.
+    # serial. The installed tools may be older ones that cannot read it, so
+    # the pre-flight check leaves it to this run's own, which refuse it after
+    # the build.
     status, lines, stdout = run_with_fakes(arguments + ["--skip-deps"],
                                            unreadable)
     assert status == 1, (arguments, lines)
     assert stdout == "", (arguments, stdout)
-    assert any("the attached Ubertooth could not be read" in line
-               for line in lines), (arguments, lines)
-    absent(lines, BUILD_WORK)
+    in_order(lines, ["could not read every Ubertooth", BUILD_WORK,
+                     "the attached Ubertooth could not be read"])
     absent(lines, "ran: ubertooth-dfu")
 
 # One readable board attached: the run goes ahead and flashes it, with no
@@ -658,9 +659,18 @@ status, lines, stdout = run_with_fakes(
     ["--flash-device", "all", "--skip-deps"],
     dict(two_boards, FAKE_VERSION="2020-12-R1",
          FAKE_LISTING=f"Serial No: {ONE}\n"))
-in_order(lines, ["is not this tree's and could not read every Ubertooth",
-                 BUILD_WORK])
+in_order(lines, ["could not read every Ubertooth", BUILD_WORK])
 assert not any("a device could not be read" in line for line in lines), lines
+
+# A named board that is not attached is refused before the build: an index
+# past the last board, and a serial no board has.
+for selector, refusal in (("2", "there is no Ubertooth at that index"),
+                          ("ef" * 16, "no attached Ubertooth has that serial")):
+    status, lines, stdout = run_with_fakes(
+        ["--flash-device", selector, "--skip-deps"], two_boards)
+    assert status == 1, (selector, lines)
+    assert any(refusal in line for line in lines), (selector, lines)
+    absent(lines, BUILD_WORK)
 
 print("install.sh: --update-bootloader with no selector takes the one board, "
       "and the pre-flight check defers to this run's tools when the "
