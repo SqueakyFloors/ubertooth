@@ -27,7 +27,7 @@ Contents:
   ([#623](https://github.com/SqueakyFloors/ubertooth/issues/623), [#948](https://github.com/SqueakyFloors/ubertooth/issues/948), [#807](https://github.com/SqueakyFloors/ubertooth/issues/807))
 - **A board keeps answering, and recovers itself when it does not.** Opening by serial no longer kills about one capture in twenty, radio and USB waits are bounded, a stuck board usually resets within about three seconds (or `ubertooth-util -r` recovers it from the host), the firmware now has room for its stack, and a capture no longer picks up an interrupted run's settings.
   ([#505](https://github.com/SqueakyFloors/ubertooth/issues/505), [#509](https://github.com/SqueakyFloors/ubertooth/issues/509), [#1073](https://github.com/SqueakyFloors/ubertooth/pull/1073), [#872](https://github.com/SqueakyFloors/ubertooth/issues/872))
-- **Firmware you can install, identify, and get back from.** **Reflash required:** the firmware API version is now 1.58, which release host tools require. Images carry an info block, so `ubertooth-dfu` names what it will write and refuses a bad file before the board leaves its firmware.
+- **Firmware you can install, identify, and get back from.** **Reflash required:** the firmware API version is now 2.00, which release host tools require. Images carry an info block, so `ubertooth-dfu` names what it will write and refuses a bad file before the board leaves its firmware.
   ([#1064](https://github.com/SqueakyFloors/ubertooth/issues/1064), [#1062](https://github.com/SqueakyFloors/ubertooth/issues/1062))
 - **The bootloader updates over USB, no programmer needed.** `ubertooth-dfu --update-bootloader` (or `install.sh --update-bootloader`) installs this release's bootloader, which recovers a board from an interrupted firmware download, refuses to start a half-written image, and reports its own version to `ubertooth-util -B`. A board that keeps its old bootloader runs everything else in this release.
   ([#1056](https://github.com/SqueakyFloors/ubertooth/issues/1056), [#1123](https://github.com/SqueakyFloors/ubertooth/issues/1123), [#242](https://github.com/SqueakyFloors/ubertooth/issues/242))
@@ -89,7 +89,7 @@ Contents:
 
 #### Choosing a board, and what it is running
 
-- **Reflash required.** The firmware API version is now 1.58. A release build
+- **Reflash required.** The firmware API version is now 2.00. A release build
   refuses firmware of any other version; a development build warns.
   `ubertooth-dfu` reflashes any board, but only with an image from this tree
   (`2020-12-R1` firmware is refused). Each image carries an info block that
