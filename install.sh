@@ -16,7 +16,8 @@
 # build work. A run that cannot flash, because no board is attached, the
 # board it names is not attached, or several are attached and nothing says
 # which, is then refused in seconds rather than after the whole build. A board
-# the installed tools could not read is left for this run's own tools. The flash itself comes last, after the host tools this run installs,
+# the installed tools could not read is left for this run's own tools. The
+# flash itself comes last, after the host tools this run installs,
 # because a bootloader update drives ubertooth-dfu through several steps and
 # has to drive the one this run built rather than whatever was installed
 # before it.
@@ -768,7 +769,9 @@ resolve_flash_targets() { # <util>
 	elif [ -n "$FLASH_DEVICE" ]; then
 		sel_serial="$FLASH_DEVICE"
 		if printf '%s' "$FLASH_DEVICE" | grep -qE '^[0-9]+$'; then
-			[ "$FLASH_DEVICE" -lt "$n" ] ||
+			# Compared as text first, so an index too long for the shell's
+			# arithmetic is refused in the script's own words.
+			[ "${#FLASH_DEVICE}" -le 9 ] && [ "$FLASH_DEVICE" -lt "$n" ] ||
 				die "--flash-device $FLASH_DEVICE: there is no Ubertooth at that index ($n attached)"
 			sel_serial="$(printf '%s\n' "$devices" | awk -v i="$FLASH_DEVICE" '$1 == i { print $2 }')"
 			[ -n "$sel_serial" ] || sel_serial="?"
@@ -779,8 +782,8 @@ resolve_flash_targets() { # <util>
 			# may be the board it names; one that matches several is
 			# refused, as -U refuses it.
 			local matches
-			matches="$(printf '%s\n' "$devices" | awk -v s="$FLASH_DEVICE" \
-				'$2 != "?" && index(tolower($2), tolower(s)) == 1 { print $2 }')"
+			matches="$(printf '%s\n' "$devices" | FLASH_SELECTOR="$FLASH_DEVICE" awk \
+				'$2 != "?" && index(tolower($2), tolower(ENVIRON["FLASH_SELECTOR"])) == 1 { print $2 }')"
 			case "$(printf '%s' "$matches" | grep -c . || true)" in
 				0)
 					printf '%s\n' "$devices" | grep -q ' ?$' ||
