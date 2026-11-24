@@ -11,8 +11,9 @@
 # loudly. macOS needs no udev rules and has no BlueZ, so ubertooth-scan and
 # ubertooth-follow are not built there. Firmware build/flash is opt-in.
 #
-# When flashing is requested, which board to flash is worked out FIRST (fail
-# fast), before any dependency or build work. A run that cannot flash, because
+# When flashing is requested and ubertooth-util is already installed, which
+# board to flash is worked out FIRST (fail fast), before any dependency or
+# build work. A run that cannot flash, because
 # no board is attached, a board could not be read, or several are attached and
 # nothing says which, is then refused in seconds rather than after the whole
 # build. The flash itself comes last, after the host tools this run installs,
@@ -893,7 +894,7 @@ flash_firmware() {
 	fi
 
 	# --- Flash each target, saying which board each message is about ---
-	[ "$FLASH_DEVICE" != "all" ] || info "Flashing all $total attached Ubertooths"
+	[ "$FLASH_DEVICE" != "all" ] || [ "$total" -eq 1 ] || info "Flashing all $total attached Ubertooths"
 	at=0
 	for serial in "${FLASH_TARGETS[@]}"; do
 		# The index, as --flash-device takes it: the targets are in the
@@ -939,6 +940,18 @@ step_flash_preflight() {
 			info "The installed ubertooth-util would not say how many Ubertooths are attached, so this run's own tools will check"
 			return 0 ;;
 	esac
+	# An older ubertooth-util lists only the first board's serial while still
+	# counting them all, so a board it cannot read may be one this run's own
+	# tools read fine. Only the tools this tree builds are trusted to say a
+	# board cannot be read.
+	local tv iv
+	tv="$(tree_version 2>/dev/null || true)"
+	iv="$(installed_host_version "$util" 2>/dev/null || true)"
+	if { [ -z "$tv" ] || [ "$tv" != "$iv" ]; } &&
+		list_devices "$util" | grep -q ' ?$'; then
+		info "The installed ubertooth-util is not this tree's and could not read every Ubertooth, so this run's own tools will check"
+		return 0
+	fi
 	resolve_flash_targets "$util"
 }
 

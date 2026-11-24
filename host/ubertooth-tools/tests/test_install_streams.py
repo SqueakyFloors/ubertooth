@@ -624,3 +624,44 @@ in_order(lines, ["==> Flashing all 2 attached Ubertooths",
 print("install.sh: --update-bootloader writes one board at a time, never "
       "with --force, puts the firmware back and reads the bootloader off the "
       "board")
+
+
+# With one readable board and no selector, --update-bootloader takes that
+# board, by its serial, as a plain flash does.
+status, lines, stdout = run_with_fakes(
+    ["--update-bootloader", "--skip-deps"], one_board)
+assert status == 0, lines
+assert stdout == "", stdout
+in_order(lines, ["==> Checking which Ubertooth to flash",
+                 BUILD_WORK,
+                 "==> Installing the bootloader on " + ONE,
+                 "ran: ubertooth-dfu --update-bootloader -d ",
+                 f"==> Board {ONE}: bootloader installed"])
+update = next(line for line in lines
+              if "ubertooth-dfu --update-bootloader" in line)
+assert update.endswith("-U " + ONE), update
+
+# The pre-flight check stands aside, rather than refusing, when the installed
+# ubertooth-util cannot be relied on to answer: one that gives no count, and
+# one from another tree that could not read a board (an older one lists only
+# the first board's serial). The run's own tools decide, after the build.
+status, lines, stdout = run_with_fakes(["--flash-device", "--skip-deps"],
+                                       {"FAKE_COUNT": "x"})
+assert status == 1, lines
+in_order(lines, ["would not say how many Ubertooths are attached",
+                 BUILD_WORK,
+                 "==> Looking for the Ubertooth to flash"])
+assert any("no Ubertooth is attached to flash" in line for line in lines), \
+    lines
+
+status, lines, stdout = run_with_fakes(
+    ["--flash-device", "all", "--skip-deps"],
+    dict(two_boards, FAKE_VERSION="2020-12-R1",
+         FAKE_LISTING=f"Serial No: {ONE}\n"))
+in_order(lines, ["is not this tree's and could not read every Ubertooth",
+                 BUILD_WORK])
+assert not any("a device could not be read" in line for line in lines), lines
+
+print("install.sh: --update-bootloader with no selector takes the one board, "
+      "and the pre-flight check defers to this run's tools when the "
+      "installed one cannot answer")
