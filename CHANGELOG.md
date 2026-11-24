@@ -684,7 +684,12 @@ Contents:
   Ubuntu, Fedora, and macOS with Homebrew: virtual environments, `--prefix`,
   `--skip-deps`, udev rules, firmware builds, flashing chosen boards with
   `--flash-device <index|serial|all>`, and installing the bootloader with
-  `--update-bootloader` (a board that already has it is left alone).
+  `--update-bootloader` (a board that already has it is left alone). When
+  `ubertooth-util` is already installed, a flash run settles which board it
+  writes before any dependency or build work. A run is then refused in
+  seconds, not after the whole build, when no board is attached, the board
+  it names is not attached, or several are attached and nothing says which.
+  With one readable board attached the selector is optional.
   `install.sh --uninstall` removes what it installed, keeping libbtbb unless
   asked. It refuses Python older than 3.8 up front, rejects bad options in the
   tools' wording, and `install.sh --help` prints only the usage.
