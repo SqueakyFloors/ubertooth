@@ -156,8 +156,8 @@ Common options:
    print the version and end the command: the host tools, then the firmware
    version of the board `-U` names, or of each attached board. The
    same answer the other C tools give, including with no board attached; see
-   ubertooth(7), COMMON OPTIONS. Only `-U` and `-h` may stand beside it, being
-   the two it uses; any other option is refused, in either order, with
+   ubertooth(7), COMMON OPTIONS. Only `-U` and `-h`, the two options it uses,
+   may stand beside it; any other option is refused, in either order, with
    `error: -V cannot be combined with -<option>; -V prints the version and
    ends the command, so run them as separate commands`, exit 1, no version
    printed and no device opened. Where several such options are written, the

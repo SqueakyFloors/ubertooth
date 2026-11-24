@@ -110,7 +110,7 @@
     {"a": "role:help", "b": "any", "verdict": "help",
      "why": "-h ends the command whatever else the line asks for, once the whole line has parsed"},
     {"a": "role:report", "b": "any", "verdict": "report",
-     "why": "-V answers the version and ends the command, like -h. A KNOWN GAP recorded, not a settled contract: in every tool but ubertooth-util the rest of the line is then dropped without a word. ubertooth-util refuses those pairs instead (see its \"report_rejects\"), and this rule is what the tools that have not been given one yet still do. A tool fixed the same way gets a \"report_rejects\" entry and stops reaching this rule; when they all have one, this rule goes."}
+     "why": "-V answers the version and ends the command, like -h. A KNOWN GAP recorded, not a settled contract (#1258): in every tool but ubertooth-util the rest of the line is then dropped without a word. ubertooth-util refuses those pairs instead (see its \"report_rejects\"), and this rule is what the tools that have not been given one yet still do. A tool fixed the same way gets a \"report_rejects\" entry and stops reaching this rule; when they all have one, this rule goes."}
   ],
 
   "_device_lookup_messages": [
