@@ -292,7 +292,7 @@ debian_missing_packages() {
 			return 0
 		fi
 		if [ "$rc" -ne 0 ] ||
-			! printf '%s\n' "$status" | grep -qE "^install ok installed	($native|all)\$"; then
+			! grep -qE "^install ok installed	($native|all)\$" <<< "$status"; then
 			absent="${absent:+$absent }$package"
 		fi
 	done

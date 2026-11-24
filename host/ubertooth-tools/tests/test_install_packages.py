@@ -93,7 +93,8 @@ PACKAGE_MANAGERS = {
 }
 
 # What dpkg-query answers, in the forms that matter. The script calls it as
-# "dpkg-query -W -f=${Status} <package>", so the package is the last argument:
+# "dpkg-query -W -f='${Status}\t${Architecture}\n' <package>", so the
+# package is the last argument:
 # exit 1 with nothing printed is dpkg's own answer for a name it has never
 # heard of, and "install ok installed" is the one status that counts as
 # present. Each fake records the package it was asked about in QUERY_LOG, so a
