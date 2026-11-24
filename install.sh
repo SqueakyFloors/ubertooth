@@ -275,12 +275,16 @@ debian_missing_packages() {
 		return 0
 	fi
 	native="$(dpkg --print-architecture 2>/dev/null || true)"
+	if [ -z "$native" ]; then
+		warn "dpkg could not name this machine's architecture, so which packages are installed is unknown; installing them all"
+		echo "$*"
+		return 0
+	fi
 	for package in "$@"; do
 		# One line per architecture the package is known for (a Multi-Arch
 		# package can have several, and a foreign one can be left in
 		# config-files). It counts as installed when the copy apt would act
-		# on is: the native architecture's, or an "all" package. With no dpkg
-		# to name the native architecture, any installed copy counts.
+		# on is: the native architecture's, or an "all" package.
 		status="$(dpkg-query -W -f='${Status}\t${Architecture}\n' "$package" 2>&1)" && rc=0 || rc=$?
 		if [ "$rc" -gt 1 ]; then
 			warn "dpkg-query could not say which packages are installed (${status:-no reason given}); installing them all"
@@ -288,7 +292,7 @@ debian_missing_packages() {
 			return 0
 		fi
 		if [ "$rc" -ne 0 ] ||
-			! printf '%s\n' "$status" | grep -qE "^install ok installed	(${native:-[^	]*}|all)\$"; then
+			! printf '%s\n' "$status" | grep -qE "^install ok installed	($native|all)\$"; then
 			absent="${absent:+$absent }$package"
 		fi
 	done

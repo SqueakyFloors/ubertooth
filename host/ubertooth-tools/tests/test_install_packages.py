@@ -119,8 +119,7 @@ QUERY_BROKEN = QUERY_PREAMBLE + "exit 2"
 CONFIG_FILES_ONLY = QUERY_PREAMBLE + "printf 'deinstall ok config-files\\tamd64\\n'"
 # A Multi-Arch package known for two architectures, one status line each:
 # installed for both, and installed natively with a foreign copy left in
-# config-files. Both count as installed (dpkg is not on PATH here, so any
-# installed copy counts as the native one).
+# config-files. Both count as installed: the fake dpkg names amd64 as native.
 MULTIARCH_BOTH = QUERY_PREAMBLE + "printf 'install ok installed\\tamd64\\ninstall ok installed\\ti386\\n'"
 MULTIARCH_FOREIGN_STALE = QUERY_PREAMBLE + "printf 'install ok installed\\tamd64\\ndeinstall ok config-files\\ti386\\n'"
 
@@ -222,6 +221,9 @@ def run_with_fakes(arguments, package_managers, dpkg_query=NOTHING_INSTALLED,
             fakes[name] = PACKAGE_MANAGERS[name]
         if dpkg_query is not None:
             fakes["dpkg-query"] = dpkg_query
+            # The machine's own architecture, which the fakes' status lines
+            # are read against.
+            fakes["dpkg"] = "echo amd64"
         fakes.update(extra_fakes or {})
         for name, body in fakes.items():
             path = os.path.join(binaries, name)
@@ -404,6 +406,19 @@ assert run.apt_commands() == [APT_UPDATE, APT_DEPENDENCIES], run
 for query in (MULTIARCH_BOTH, MULTIARCH_FOREIGN_STALE):
     run = run_with_fakes([], ["apt-get"], query)
     assert run.apt_commands() == [], (query, run)
+
+# Installed only for a foreign architecture: the native copy apt would act on
+# is missing, so the package is installed.
+FOREIGN_ONLY = QUERY_PREAMBLE + "printf 'install ok installed\\ti386\\n'"
+run = run_with_fakes([], ["apt-get"], FOREIGN_ONLY)
+assert run.apt_commands() == [APT_UPDATE, APT_DEPENDENCIES], run
+
+# A dpkg that cannot name this machine's architecture: nothing can be judged,
+# so the whole list goes to apt with a warning, as when dpkg-query fails.
+run = run_with_fakes([], ["apt-get"], ALL_INSTALLED, {"dpkg": "exit 1"})
+assert run.apt_commands() == [APT_UPDATE, APT_DEPENDENCIES], run
+assert "warning: dpkg could not name this machine's architecture" \
+    in run.stderr, run
 
 # --skip-deps installs no packages and asks dpkg nothing: the user has said
 # the packages are there, and a query would only slow the run down.
