@@ -23,8 +23,8 @@
 # before it.
 #
 # This is the from-source "just works" path. It is NOT a replacement for distro
-# packaging (apt/dnf/brew). Idempotent: safe to re-run, and a re-run with
-# nothing to change does nothing. On Debian/Ubuntu, a run whose packages are
+# packaging (apt/dnf/brew). Idempotent: safe to re-run, and a re-run installs
+# nothing that is already there. On Debian/Ubuntu, a run whose packages are
 # all installed executes no apt command at all, not even an index refresh.
 #
 # Usage:
@@ -75,10 +75,8 @@
 #                     Homebrew prefix on macOS)
 #   --skip-deps       do not install system packages; assume they are present
 #   --force           rebuild and reinstall this tree even if it is already up
-#                     to date. System packages are left alone: a package that
-#                     is installed is installed, and upgrading it is the
-#                     package manager's business rather than this script's, so
-#                     --force refreshes no package indexes.
+#                     to date. System packages are not upgraded or
+#                     refreshed; use apt/dnf for that.
 #   --no-sudo         print the commands that need root instead of running them
 #                     (dry-run for the privileged steps)
 #   -h, --help        show this help
@@ -277,13 +275,19 @@ debian_missing_packages() {
 		return 0
 	fi
 	for package in "$@"; do
-		status="$(dpkg-query -W -f='${Status}' "$package" 2>/dev/null)" && rc=0 || rc=$?
+		# One status line per architecture the package is known for (a
+		# Multi-Arch package can have several); it counts as installed only
+		# when every line says so.
+		status="$(dpkg-query -W -f='${Status}\n' "$package" 2>&1)" && rc=0 || rc=$?
 		if [ "$rc" -gt 1 ]; then
-			warn "dpkg-query could not say which packages are installed; installing them all"
+			warn "dpkg-query could not say which packages are installed (${status:-no reason given}); installing them all"
 			echo "$*"
 			return 0
 		fi
-		[ "$status" = "install ok installed" ] || absent="${absent:+$absent }$package"
+		if [ "$rc" -ne 0 ] || [ -z "$status" ] ||
+			printf '%s\n' "$status" | grep -qvx 'install ok installed'; then
+			absent="${absent:+$absent }$package"
+		fi
 	done
 	printf '%s' "$absent"
 }

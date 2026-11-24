@@ -117,6 +117,9 @@ QUERY_BROKEN = QUERY_PREAMBLE + "exit 2"
 # A package that was removed and left its configuration behind: known to dpkg,
 # so the query succeeds, but not a package apt is finished with.
 CONFIG_FILES_ONLY = QUERY_PREAMBLE + "printf 'deinstall ok config-files'"
+# A Multi-Arch package known for two architectures: one status line each.
+MULTIARCH_BOTH = QUERY_PREAMBLE + "printf 'install ok installed\\ninstall ok installed\\n'"
+MULTIARCH_ONE = QUERY_PREAMBLE + "printf 'install ok installed\\ndeinstall ok config-files\\n'"
 
 
 # The system directories the runs below take their real tools from, and the
@@ -183,7 +186,7 @@ class Run(object):
         self.apt_log = apt_log
 
     def __str__(self):
-        return "status %d\n%s" % (self.status, self.stderr)
+        return f"status {self.status}\n{self.stderr}"
 
     def would_run(self):
         """The privileged commands the run printed instead of running."""
@@ -393,6 +396,13 @@ assert "==> Installing system dependencies (apt): libfftw3-dev" \
 run = run_with_fakes([], ["apt-get"], CONFIG_FILES_ONLY)
 assert run.apt_commands() == [APT_UPDATE, APT_DEPENDENCIES], run
 
+# A Multi-Arch package installed for every architecture dpkg lists counts as
+# installed; one with any architecture not fully installed counts as missing.
+run = run_with_fakes([], ["apt-get"], MULTIARCH_BOTH)
+assert run.apt_commands() == [], run
+run = run_with_fakes([], ["apt-get"], MULTIARCH_ONE)
+assert run.apt_commands() == [APT_UPDATE, APT_DEPENDENCIES], run
+
 # --skip-deps installs no packages and asks dpkg nothing: the user has said
 # the packages are there, and a query would only slow the run down.
 run = run_with_fakes(["--skip-deps", "--with-firmware"], ["apt-get"])
@@ -412,8 +422,8 @@ assert run.apt_commands() == [], run
 # is the one mistake this must not make.
 for query, warning in (
         (QUERY_BROKEN,
-         "warning: dpkg-query could not say which packages are installed;"
-         " installing them all"),
+         "warning: dpkg-query could not say which packages are installed"
+         " (no reason given); installing them all"),
         (None,
          "warning: dpkg-query is not here, so which packages are installed is"
          " unknown; installing them all")):

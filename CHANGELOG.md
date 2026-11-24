@@ -695,7 +695,7 @@ Contents:
   tools' wording, and `install.sh --help` prints only the usage. A re-run
   installs only what is missing: on Debian and Ubuntu it asks dpkg first, so a
   run whose packages are all there executes no apt command at all, not even an
-  index refresh.
+  index refresh. A re-run no longer upgrades packages that are installed.
 - **Current platforms.** macOS 15 (Sequoia) is the oldest macOS tested
   (macOS 14 should still build). Ubuntu 20.04 and 22.04 build again, CMake 4
   and current Homebrew work, and the host tools build with a strict C
