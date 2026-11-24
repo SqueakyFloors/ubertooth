@@ -2200,14 +2200,14 @@ MU_TEST(the_mismatch_note_names_the_board_it_is_about)
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "./install.sh --flash-device 1\n") != NULL, r.err);
 
-	/* No board named, so there is none to name: --flash takes the one that
-	 * is attached. */
+	/* No board named, so there is none to name: --flash-device with no
+	 * selector takes the one that is attached. */
 	reset_fake();
 	fake.api_version = UBERTOOTH_API_VERSION - 1;
 	r = RUN("-I");
 	mu_assert_int_eq(1, r.rc);
-	mu_assert(strstr(r.err, "./install.sh --flash\n") != NULL, r.err);
-	mu_assert(strstr(r.err, "--flash-device") == NULL,
+	mu_assert(strstr(r.err, "./install.sh --flash-device\n") != NULL, r.err);
+	mu_assert(strstr(r.err, "--flash-device ") == NULL,
 	          "and asks for no board in particular");
 }
 #endif

@@ -233,7 +233,7 @@ MU_TEST(the_note_names_the_side_to_replace_and_the_board)
 		run_mismatch(OLDER, NULL);
 		mu_assert(strstr(err, "note: flash the firmware built from the "
 		                 "same source tree, for example: ./install.sh "
-		                 "--flash\n") != NULL, err);
+		                 "--flash-device\n") != NULL, err);
 
 		run_mismatch(OLDER, "aa11");
 		mu_assert(strstr(err, "note: flash the firmware built from the "

@@ -122,9 +122,9 @@ int ubertooth_report_api_mismatch(uint16_t version, const char* selector)
 		/* The example reflashes the board this message is about and no
 		 * other: install.sh takes the same index or serial after
 		 * --flash-device as the tool took after -U. Where the user
-		 * named no board, --flash takes the one that is attached and
-		 * refuses when there is more than one, so neither form ever
-		 * reflashes a board nobody asked about. */
+		 * named no board, --flash-device with no selector takes the one
+		 * that is attached and refuses when there is more than one, so
+		 * neither form ever reflashes a board nobody asked about. */
 		if (selector != NULL && selector[0] != '\0')
 			fprintf(stderr, "note: flash the firmware built from the "
 			        "same source tree, for example: ./install.sh "
@@ -132,7 +132,7 @@ int ubertooth_report_api_mismatch(uint16_t version, const char* selector)
 		else
 			fprintf(stderr, "note: flash the firmware built from the "
 			        "same source tree, for example: ./install.sh "
-			        "--flash\n");
+			        "--flash-device\n");
 	} else {
 		fprintf(stderr, "note: install the host tools built from the "
 		        "same source tree as the firmware\n");

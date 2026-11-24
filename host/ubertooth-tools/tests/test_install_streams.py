@@ -124,6 +124,9 @@ for line in lines[2 + len(block):]:
 # against the fakes further down.
 REFUSALS = {
     "--bogus": "error: unrecognized option '--bogus'\n",
+    # One spelling writes to a board, and it is --flash-device, so any other
+    # spelling of it is an option the script does not know, like any other.
+    "--flash": "error: unrecognized option '--flash'\n",
     "--prefix": "error: option '--prefix' requires a value\n",
     "--venv": "error: option '--venv' requires a value\n",
     "--libbtbb-url": "error: option '--libbtbb-url' requires a value\n",
@@ -523,7 +526,7 @@ print("install.sh: --help on stdout, refusals and progress on stderr, "
 # Nothing is built or written: the images come from a fake make and the boards
 # from a fake ubertooth-dfu.
 #
-# Standard output stays empty throughout, unlike the plain --flash run above:
+# Standard output stays empty throughout, unlike the plain --flash-device run above:
 # this option drives a procedure of several commands and reports one line per
 # board itself, so every tool's answer is kept beside that report rather than
 # leaving a board's result split across the two streams.
