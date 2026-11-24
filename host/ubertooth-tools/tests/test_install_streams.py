@@ -665,12 +665,35 @@ assert not any("a device could not be read" in line for line in lines), lines
 # A named board that is not attached is refused before the build: an index
 # past the last board, and a serial no board has.
 for selector, refusal in (("2", "there is no Ubertooth at that index"),
-                          ("ef" * 16, "no attached Ubertooth has that serial")):
+                          ("ef" * 16, "no attached Ubertooth has a serial"),
+                          ("", "matches more than one Ubertooth")):
+    if not selector:
+        # Two boards whose serials start the same way, and a prefix both
+        # share: -U would refuse it, so the pre-flight check does too.
+        status, lines, stdout = run_with_fakes(
+            ["--flash-device", "abab", "--skip-deps"],
+            {"FAKE_COUNT": "2",
+             "FAKE_LISTING": f"Serial No (0): {ONE}\nSerial No (1): "
+                             f"{'ab' * 8 + 'cd' * 8}\n"})
+        assert status == 1, lines
+        assert any(refusal in line for line in lines), lines
+        absent(lines, BUILD_WORK)
+        continue
     status, lines, stdout = run_with_fakes(
         ["--flash-device", selector, "--skip-deps"], two_boards)
     assert status == 1, (selector, lines)
     assert any(refusal in line for line in lines), (selector, lines)
     absent(lines, BUILD_WORK)
+
+# A serial is matched as -U matches it: its start, in either case, names the
+# board, and the flash goes to that board's full serial.
+for selector in ("ABAB", ONE.upper(), "cd"):
+    status, lines, stdout = run_with_fakes(
+        ["--flash-device", selector, "--skip-deps"], two_boards)
+    assert status == 0, (selector, lines)
+    target = TWO if selector == "cd" else ONE
+    in_order(lines, ["==> Flashing bluetooth_rxtx to Ubertooth " + target,
+                     "ran: ubertooth-dfu -U " + target])
 
 print("install.sh: --update-bootloader with no selector takes the one board, "
       "and the pre-flight check defers to this run's tools when the "

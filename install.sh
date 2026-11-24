@@ -772,11 +772,22 @@ resolve_flash_targets() { # <util>
 				die "--flash-device $FLASH_DEVICE: there is no Ubertooth at that index ($n attached)"
 			sel_serial="$(printf '%s\n' "$devices" | awk -v i="$FLASH_DEVICE" '$1 == i { print $2 }')"
 			[ -n "$sel_serial" ] || sel_serial="?"
-		elif ! printf '%s\n' "$devices" | awk -v s="$FLASH_DEVICE" '$2 == s { found = 1 } END { exit !found }' &&
-			! printf '%s\n' "$devices" | grep -q ' ?$'; then
-			# A serial is checked only when every board could be read: an
-			# unread one may be the board it names.
-			die "--flash-device $FLASH_DEVICE: no attached Ubertooth has that serial"
+		else
+			# Matched the way -U matches: the whole serial or its start,
+			# in either case. A string that no board matches is refused
+			# only when every board could be read, because an unread one
+			# may be the board it names; one that matches several is
+			# refused, as -U refuses it.
+			local matches
+			matches="$(printf '%s\n' "$devices" | awk -v s="$FLASH_DEVICE" \
+				'$2 != "?" && index(tolower($2), tolower(s)) == 1 { print $2 }')"
+			case "$(printf '%s' "$matches" | grep -c . || true)" in
+				0)
+					printf '%s\n' "$devices" | grep -q ' ?$' ||
+						die "--flash-device $FLASH_DEVICE: no attached Ubertooth has a serial that starts that way" ;;
+				1) sel_serial="$matches" ;;
+				*) die "--flash-device $FLASH_DEVICE matches more than one Ubertooth: $(printf '%s' "$matches" | tr '\n' ' ')- give more of the serial" ;;
+			esac
 		fi
 		if [ "$sel_serial" = "?" ]; then
 			# An index still reaches the board; only the bootloader
