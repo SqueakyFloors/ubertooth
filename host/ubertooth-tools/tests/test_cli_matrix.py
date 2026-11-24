@@ -681,7 +681,8 @@ def check_the_spec_lists_every_option():
     # quietly stop generating the cases it is there to generate. The error
     # line is checked for taking exactly one option name, because a second
     # one, or none, would otherwise come back as a TypeError from the case
-    # generator rather than as a problem with a name on it.    for tool, contract in sorted(SPEC["tools"].items()):
+    # generator rather than as a problem with a name on it.
+    for tool, contract in sorted(SPEC["tools"].items()):
         rejects = contract.get("report_rejects")
         if rejects is None:
             continue
