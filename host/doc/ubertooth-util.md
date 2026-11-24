@@ -126,7 +126,7 @@ from (`./install.sh --flash`).
 `-U`, which says which board's firmware version to report, and `-h`, whose
 usage text is printed after the version. Every other option is refused, in
 either order, before the version is printed and before a device is opened:
-such a command line asks for something `-V` would never get round to, and the
+such a command line asks for something `-V` would never get around to, and the
 version used to be printed and the rest dropped without a word.
 
     $ ubertooth-util -V -b
