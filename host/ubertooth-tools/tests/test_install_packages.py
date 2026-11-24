@@ -103,12 +103,12 @@ for argument in "$@"; do package="$argument"; done
 if [ -n "${QUERY_LOG:-}" ]; then echo "$package" >> "$QUERY_LOG"; fi
 """
 NOTHING_INSTALLED = QUERY_PREAMBLE + "exit 1"
-ALL_INSTALLED = QUERY_PREAMBLE + "printf 'install ok installed'"
+ALL_INSTALLED = QUERY_PREAMBLE + "printf 'install ok installed\\tamd64\\n'"
 # A package name the case names is missing; every other one is installed.
 MISSING_ONE = QUERY_PREAMBLE + """
 case "$package" in
 	%s) exit 1 ;;
-	*) printf 'install ok installed' ;;
+	*) printf 'install ok installed\\tamd64\\n' ;;
 esac
 """
 # Exit 2 is dpkg-query's "something went wrong", as opposed to the 1 that
@@ -116,10 +116,13 @@ esac
 QUERY_BROKEN = QUERY_PREAMBLE + "exit 2"
 # A package that was removed and left its configuration behind: known to dpkg,
 # so the query succeeds, but not a package apt is finished with.
-CONFIG_FILES_ONLY = QUERY_PREAMBLE + "printf 'deinstall ok config-files'"
-# A Multi-Arch package known for two architectures: one status line each.
-MULTIARCH_BOTH = QUERY_PREAMBLE + "printf 'install ok installed\\ninstall ok installed\\n'"
-MULTIARCH_ONE = QUERY_PREAMBLE + "printf 'install ok installed\\ndeinstall ok config-files\\n'"
+CONFIG_FILES_ONLY = QUERY_PREAMBLE + "printf 'deinstall ok config-files\\tamd64\\n'"
+# A Multi-Arch package known for two architectures, one status line each:
+# installed for both, and installed natively with a foreign copy left in
+# config-files. Both count as installed (dpkg is not on PATH here, so any
+# installed copy counts as the native one).
+MULTIARCH_BOTH = QUERY_PREAMBLE + "printf 'install ok installed\\tamd64\\ninstall ok installed\\ti386\\n'"
+MULTIARCH_FOREIGN_STALE = QUERY_PREAMBLE + "printf 'install ok installed\\tamd64\\ndeinstall ok config-files\\ti386\\n'"
 
 
 # The system directories the runs below take their real tools from, and the
@@ -396,12 +399,11 @@ assert "==> Installing system dependencies (apt): libfftw3-dev" \
 run = run_with_fakes([], ["apt-get"], CONFIG_FILES_ONLY)
 assert run.apt_commands() == [APT_UPDATE, APT_DEPENDENCIES], run
 
-# A Multi-Arch package installed for every architecture dpkg lists counts as
-# installed; one with any architecture not fully installed counts as missing.
-run = run_with_fakes([], ["apt-get"], MULTIARCH_BOTH)
-assert run.apt_commands() == [], run
-run = run_with_fakes([], ["apt-get"], MULTIARCH_ONE)
-assert run.apt_commands() == [APT_UPDATE, APT_DEPENDENCIES], run
+# A Multi-Arch package installed natively counts as installed, whatever a
+# foreign architecture's copy says: apt would act on the native one.
+for query in (MULTIARCH_BOTH, MULTIARCH_FOREIGN_STALE):
+    run = run_with_fakes([], ["apt-get"], query)
+    assert run.apt_commands() == [], (query, run)
 
 # --skip-deps installs no packages and asks dpkg nothing: the user has said
 # the packages are there, and a query would only slow the run down.
