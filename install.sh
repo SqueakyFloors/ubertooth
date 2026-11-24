@@ -771,8 +771,9 @@ resolve_flash_targets() { # <util>
 		if printf '%s' "$FLASH_DEVICE" | grep -qE '^[0-9]+$'; then
 			# Compared as text first, so an index too long for the shell's
 			# arithmetic is refused in the script's own words.
-			[ "${#FLASH_DEVICE}" -le 9 ] && [ "$FLASH_DEVICE" -lt "$n" ] ||
+			if [ "${#FLASH_DEVICE}" -gt 9 ] || [ "$FLASH_DEVICE" -ge "$n" ]; then
 				die "--flash-device $FLASH_DEVICE: there is no Ubertooth at that index ($n attached)"
+			fi
 			sel_serial="$(printf '%s\n' "$devices" | awk -v i="$FLASH_DEVICE" '$1 == i { print $2 }')"
 			[ -n "$sel_serial" ] || sel_serial="?"
 		else
