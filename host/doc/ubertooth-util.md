@@ -120,7 +120,7 @@ board rather than using it and a development build warns about it, unless
 ENVIRONMENT). So the number does not pin down a commit, and many commits
 share one: the firmware revision shown by `-v` beside the API version is what
 identifies the build. Flash the firmware from the commit the tools were built
-from (`./install.sh --flash`).
+from (`./install.sh --flash-device`).
 
 `-V` answers and ends the command, so it takes only the two options it uses:
 `-U`, which says which board's firmware version to report, and `-h`, whose

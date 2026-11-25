@@ -64,7 +64,7 @@ so that option installs it. Install it by hand if you are going to build the
 bootloader on its own (`make -C firmware bootloader`).
 
 ```sh
-./install.sh            # see ./install.sh --help for options (venv, flash, ...)
+./install.sh            # ./install.sh --help lists every option
 ```
 
 It picks the package manager from the machine: `apt-get` on Debian/Ubuntu,
