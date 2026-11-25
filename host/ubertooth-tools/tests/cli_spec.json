@@ -110,7 +110,7 @@
     {"a": "role:help", "b": "any", "verdict": "help",
      "why": "-h ends the command whatever else the line asks for, once the whole line has parsed"},
     {"a": "role:report", "b": "any", "verdict": "report",
-     "why": "-V answers the version and ends the command, like -h"}
+     "why": "-V answers the version and ends the command, like -h. A KNOWN GAP recorded, not a settled contract (#1258): in every tool but ubertooth-util the rest of the line is then dropped without a word. ubertooth-util refuses those pairs instead (see its \"report_rejects\"), and this rule is what the tools that have not been given one yet still do. A tool fixed the same way gets a \"report_rejects\" entry and stops reaching this rule; when they all have one, this rule goes."}
   ],
 
   "_device_lookup_messages": [
@@ -737,6 +737,12 @@
                        ["ubertooth.md", "resets about {words:UBERTOOTH_WATCHDOG_TIMEOUT_MS} after it stops servicing USB"],
                        ["ubertooth.md", "resets itself about {words:UBERTOOTH_WATCHDOG_TIMEOUT_MS} later"]],
       "removed_options": ["-9", "-f", "-H"],
+      "report_rejects": {
+        "report": "-V",
+        "keeps": ["-U", "-h"],
+        "error": "error: -V cannot be combined with %s; -V prints the version and ends the command, so run them as separate commands",
+        "source": "ubertooth-util.md OPTIONS, -V: -V answers and ends the command, so every other option on the line would be dropped without a word. -U scopes its report and -h is printed beside it; anything else is refused, in either order, before any version is printed or any device opened."
+      },
       "options": {
         "-h": {"value": "none", "role": "help"},
         "-N": {"value": "none", "role": "count",
@@ -803,7 +809,18 @@
          "error": "error: -c cannot be combined with -C; they are the same channel setting written two ways",
          "source": "ubertooth-util.md ARGUMENTS: the other order says the same thing, naming the options as the user wrote them"},
         {"args": ["-C", "24", "-c"], "verdict": "device",
-         "source": "ubertooth-util.md ARGUMENTS: a set written one way and a read written the other is one setting and one read, so the command line does both"}
+         "source": "ubertooth-util.md ARGUMENTS: a set written one way and a read written the other is one setting and one read, so the command line does both"},
+        {"args": ["-V", "-U", "all"], "verdict": "report",
+         "source": "ubertooth-util.md OPTIONS, -V: -U all is still a selector, and -V reports every attached board for it, which is what it does with no -U at all"},
+        {"args": ["-V", "-h", "-b"], "verdict": "refused",
+         "error": "error: -V cannot be combined with -b; -V prints the version and ends the command, so run them as separate commands",
+         "source": "ubertooth-util.md OPTIONS, -V: -h is printed beside the version, so what is left to refuse is -b"},
+        {"args": ["-V", "-N", "-b"], "verdict": "refused",
+         "error": "error: -V cannot be combined with -N; -V prints the version and ends the command, so run them as separate commands",
+         "source": "ubertooth-util.md OPTIONS, -V: the refusal names the first option written that -V does not use, and no count is printed before it"},
+        {"args": ["-b", "-s", "-V"], "verdict": "refused",
+         "error": "error: -V cannot be combined with -b; -V prints the version and ends the command, so run them as separate commands",
+         "source": "ubertooth-util.md OPTIONS, -V: the first option written is the one named, whichever order -V came in"}
       ],
       "pair_rules": [
         {"a": "role:mode", "b": "role:mode", "verdict": "refused",
@@ -812,8 +829,8 @@
         {"a": "-z", "b": "role:mode", "verdict": "refused",
          "error_contains": "-z cannot be combined with", "names_the_other": true,
          "source": "ubertooth-util.md OPTIONS, -z"},
-        {"a": "-V", "b": "any", "verdict": "report",
-         "why": "-V ends the command before every other option, as -h does"},
+        {"a": "-V", "b": "role:selector", "verdict": "report",
+         "why": "-U scopes the -V report, so the pair answers and ends the command; every other option is refused (see report_rejects)"},
         {"a": "-N", "b": "role:selector", "verdict": "refused",
          "error": "error: nothing to do: -U '0' selects a device but no option asks anything of it",
          "source": "ubertooth-util.md OPTIONS, -N: a selector with only -N beside it selects a device nothing acts on"},

@@ -2,11 +2,12 @@
 
 ## SYNOPSIS
 
-    ubertooth-util [-V] [-v] [-I] [-d [0-1]] [-l [0-1]]
+    ubertooth-util [-v] [-I] [-d [0-1]] [-l [0-1]]
     [-S] [-r] [-U <index|serial|all>] [-a [0-7]] [-c [2402-2480]] [-C [0-78]]
     [-q [20-120]] [-t] [-z [-128..127]] [-e] [-m] [-n [seconds]] [-i] [-b]
     [-B] [-p] [-s]
     [-w] [-N] [-x] [-h]
+    ubertooth-util -V [-U <index|serial|all>] [-h]
 
 ## DESCRIPTION
 
@@ -121,6 +122,16 @@ share one: the firmware revision shown by `-v` beside the API version is what
 identifies the build. Flash the firmware from the commit the tools were built
 from (`./install.sh --flash`).
 
+`-V` answers and ends the command, so it takes only the two options it uses:
+`-U`, which says which board's firmware version to report, and `-h`, whose
+usage text is printed after the version. Every other option is refused, in
+either order, before the version is printed and before a device is opened:
+such a command line asks for something `-V` would never get around to, and the
+version used to be printed and the rest dropped without a word.
+
+    $ ubertooth-util -V -b
+    error: -V cannot be combined with -b; -V prints the version and ends the command, so run them as separate commands
+
 Only one mode option can be given per command: `-q`, `-n`, `-e`, `-t`, `-x`,
 `-I` and `-i` (In-System Programming, ISP) each end the command, so a command
 with two or more of them is refused before any device is opened, nothing is
@@ -145,7 +156,15 @@ Common options:
    print the version and end the command: the host tools, then the firmware
    version of the board `-U` names, or of each attached board. The
    same answer the other C tools give, including with no board attached; see
-   ubertooth(7), COMMON OPTIONS
+   ubertooth(7), COMMON OPTIONS. Only `-U` and `-h`, the two options it uses,
+   may stand beside it; any other option is refused, in either order, with
+   `error: -V cannot be combined with -<option>; -V prints the version and
+   ends the command, so run them as separate commands`, exit 1, no version
+   printed and no device opened. Where several such options are written, the
+   first one is the one named. The refusal comes once the whole command line
+   has parsed, so any problem the option parser finds first is reported
+   instead: a bad option value, a stray word, an option given twice, or the
+   `-c`/`-C` clash
  - `-v` :
    get the image and revision the firmware was built from, as the
    `Firmware version:` line alone; exits non-zero if the read fails.
@@ -190,8 +209,9 @@ Common options:
    report the read-only queries `-b`, `-v`, `-p` and `-s` for every
    attached Ubertooth; refused with any other option, `-N` excepted, and
    refused with no query to list, `-N` included: a count is not something the
-   listing can show. `-h` and `-V` end the command before any of that, as
-   they do before every other option. See SELECTING A DEVICE.
+   listing can show. `-h` ends the command before any of that, and `-V`
+   reports every attached board itself, which is also what it does with no
+   `-U` at all. See SELECTING A DEVICE.
  - `-N` :
    print the number of attached Ubertooths, as a single decimal number on
    standard output, then run the rest of the command. The number comes from
@@ -200,17 +220,19 @@ Common options:
    other options report. `-N` is neither a selector nor a per-device query, so
    it combines with everything else, in either order — reads, setters, modes,
    `-r`, `-S`, `-U <index|serial>` and the `-U all` listing — and a count that
-   succeeds leaves the exit status to the rest of the command. On its own it
+   succeeds leaves the exit status to the rest of the command. `-V` is the one
+   exception: it answers and ends the command, so the count would never be
+   printed, and the pair is refused in either order. On its own `-N`
    prints the count, opens no device and exits 0, unless the count itself
    fails. A `-U` selector and nothing else beside it is refused, because `-N`
    asks nothing of the board the selector names:
    `error: nothing to do: -U '0' selects a device but no option asks anything
    of it`, and `-U all` with only `-N` beside it has nothing to list. A
    command line refused
-   before anything runs (two modes, `-z` with a mode, `-U all` with an option
+   before anything runs (two modes, `-z` with a mode, `-V` with an option it
+   does not use, `-U all` with an option
    it does not support, a bad option value, an unknown option or a stray word)
-   prints no count, and `-h` and `-V` end the command before it, as they do
-   before every other option.
+   prints no count, and `-h` ends the command before it.
 
 Radio options:
 
@@ -294,7 +316,9 @@ Miscellaneous:
  - `-h` :
    print the usage text on standard output. It takes effect once the whole
    command line has parsed, so a bad option value, a stray word or an option
-   given twice is still reported. It exits 0, except beside a `-V` that could
+   given twice is still reported, as is a `-V` on the same line with an
+   option `-V` does not take (`-h -b -V` is that refusal, and prints no usage
+   text). It exits 0, except beside a `-V` that could
    not read a board, whose status the command then carries.
 
 ## WATCHDOG
@@ -656,8 +680,10 @@ the same enumeration:
     Serial No (0): aa1100112233445566778899aabbccdd
     Serial No (1): 19bb00112233445566778899aabbccdd
 
-`-h` and `-V` are not refused either, because they end the command before the
-listing is reached; `-V` then reports every attached board itself.
+`-h` is not refused either, because it ends the command before the listing is
+reached. `-V` reports every attached board itself, so `-U all -V` prints its
+own answer; beside a query it is refused like any other combination, because
+the listing it would suppress is what was asked for.
 
 `-U all -N` with no query has nothing to list, so it is refused like `-U all`
 on its own: the count is not a per-device query, and a listing is what `-U all`
@@ -1000,6 +1026,21 @@ status is 1.
 `-h` and `-V` both end the command and both answer on standard output, so a
 command line with both prints both, the version first and the usage text
 last; the order they were written in makes no difference.
+
+`-V` takes nothing else. It answers and ends the command, so every option
+beside it other than `-U` and `-h` is refused before the version is printed
+and before a device is opened, in either order, with the first such option
+written named:
+
+    $ ubertooth-util -s -V
+    error: -V cannot be combined with -s; -V prints the version and ends the command, so run them as separate commands
+
+That covers every report, setter, mode and action this tool has, `-B` and
+`-N` included: each would be dropped in silence otherwise, which is what
+`-V -b` and `-b -V` used to do while exiting 0. The check comes once the
+whole command line has parsed, so any problem the option parser finds first
+is reported in its place: a bad option value, a stray word, an option given
+twice, or the `-c`/`-C` clash below.
 
 `-c` and `-C` are the same channel setting written two ways, so a command line
 that gives a value to both names two channels for one setting and is refused

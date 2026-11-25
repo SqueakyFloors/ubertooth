@@ -5,11 +5,12 @@
 \fBubertooth\-util\fR \- general purpose Ubertooth utility
 .SH "SYNOPSIS"
 .nf
-ubertooth\-util [\-V] [\-v] [\-I] [\-d [0\-1]] [\-l [0\-1]]
+ubertooth\-util [\-v] [\-I] [\-d [0\-1]] [\-l [0\-1]]
 [\-S] [\-r] [\-U <index|serial|all>] [\-a [0\-7]] [\-c [2402\-2480]] [\-C [0\-78]]
 [\-q [20\-120]] [\-t] [\-z [\-128\.\.127]] [\-e] [\-m] [\-n [seconds]] [\-i] [\-b]
 [\-B] [\-p] [\-s]
 [\-w] [\-N] [\-x] [\-h]
+ubertooth\-util \-V [\-U <index|serial|all>] [\-h]
 .fi
 .SH "DESCRIPTION"
 ubertooth\-util(1) is a catch\-all tool for doing generally useful things with, to, and about Ubertooth\. To get the host tools' version and the firmware version of each attached board, run:
@@ -79,6 +80,14 @@ The API version beside the revision is not from the block: it is the USB \fBbcdD
 .P
 During development the API version stays where it is through an ordinary firmware change, because host tools and firmware are built and flashed together, and moves for a change that breaks older host tools: a request removed or renumbered, or a reply layout an older host would misread\. A release takes a version of its own, to mark that its tools and firmware work only with each other; \fBCOMPATIBILITY\.md\fR has the whole rule\. Where the two numbers do disagree, a release build refuses the board rather than using it and a development build warns about it, unless \fBUBERTOOTH_ALLOW_API_MISMATCH\fR says otherwise (see ubertooth(7), ENVIRONMENT)\. So the number does not pin down a commit, and many commits share one: the firmware revision shown by \fB\-v\fR beside the API version is what identifies the build\. Flash the firmware from the commit the tools were built from (\fB\./install\.sh \-\-flash\fR)\.
 .P
+\fB\-V\fR answers and ends the command, so it takes only the two options it uses: \fB\-U\fR, which says which board's firmware version to report, and \fB\-h\fR, whose usage text is printed after the version\. Every other option is refused, in either order, before the version is printed and before a device is opened: such a command line asks for something \fB\-V\fR would never get around to, and the version used to be printed and the rest dropped without a word\.
+.IP "" 4
+.nf
+$ ubertooth\-util \-V \-b
+error: \-V cannot be combined with \-b; \-V prints the version and ends the command, so run them as separate commands
+.fi
+.IP "" 0
+.P
 Only one mode option can be given per command: \fB\-q\fR, \fB\-n\fR, \fB\-e\fR, \fB\-t\fR, \fB\-x\fR, \fB\-I\fR and \fB\-i\fR (In\-System Programming, ISP) each end the command, so a command with two or more of them is refused before any device is opened, nothing is sent to the device, and the exit status is 1:
 .IP "" 4
 .nf
@@ -92,7 +101,7 @@ To put a board into the DFU bootloader and reflash it, use ubertooth\-dfu(1), wh
 Common options:
 .TP
 \fB\-V\fR
-print the version and end the command: the host tools, then the firmware version of the board \fB\-U\fR names, or of each attached board\. The same answer the other C tools give, including with no board attached; see ubertooth(7), COMMON OPTIONS
+print the version and end the command: the host tools, then the firmware version of the board \fB\-U\fR names, or of each attached board\. The same answer the other C tools give, including with no board attached; see ubertooth(7), COMMON OPTIONS\. Only \fB\-U\fR and \fB\-h\fR, the two options it uses, may stand beside it; any other option is refused, in either order, with \fBerror: \-V cannot be combined with \-<option>; \-V prints the version and ends the command, so run them as separate commands\fR, exit 1, no version printed and no device opened\. Where several such options are written, the first one is the one named\. The refusal comes once the whole command line has parsed, so any problem the option parser finds first is reported instead: a bad option value, a stray word, an option given twice, or the \fB\-c\fR/\fB\-C\fR clash
 .TP
 \fB\-v\fR
 get the image and revision the firmware was built from, as the \fBFirmware version:\fR line alone; exits non\-zero if the read fails\. \fBDeprecated\fR: use \fB\-V\fR, which prints that line among the others\. \fB\-v\fR keeps working, and prints no warning, so scripts that parse it are left alone
@@ -118,10 +127,10 @@ A board that answers nothing has its USB connection reset first, because it woul
 select which Ubertooth to use, either by USB enumeration index or by its serial number string\. See SELECTING A DEVICE\.
 .TP
 \fB\-U all\fR
-report the read\-only queries \fB\-b\fR, \fB\-v\fR, \fB\-p\fR and \fB\-s\fR for every attached Ubertooth; refused with any other option, \fB\-N\fR excepted, and refused with no query to list, \fB\-N\fR included: a count is not something the listing can show\. \fB\-h\fR and \fB\-V\fR end the command before any of that, as they do before every other option\. See SELECTING A DEVICE\.
+report the read\-only queries \fB\-b\fR, \fB\-v\fR, \fB\-p\fR and \fB\-s\fR for every attached Ubertooth; refused with any other option, \fB\-N\fR excepted, and refused with no query to list, \fB\-N\fR included: a count is not something the listing can show\. \fB\-h\fR ends the command before any of that, and \fB\-V\fR reports every attached board itself, which is also what it does with no \fB\-U\fR at all\. See SELECTING A DEVICE\.
 .TP
 \fB\-N\fR
-print the number of attached Ubertooths, as a single decimal number on standard output, then run the rest of the command\. The number comes from the USB device list, so it needs no board and opens none, and it is taken before any device is opened: it is printed first, ahead of anything the other options report\. \fB\-N\fR is neither a selector nor a per\-device query, so it combines with everything else, in either order \(em reads, setters, modes, \fB\-r\fR, \fB\-S\fR, \fB\-U <index|serial>\fR and the \fB\-U all\fR listing \(em and a count that succeeds leaves the exit status to the rest of the command\. On its own it prints the count, opens no device and exits 0, unless the count itself fails\. A \fB\-U\fR selector and nothing else beside it is refused, because \fB\-N\fR asks nothing of the board the selector names: \fBerror: nothing to do: \-U '0' selects a device but no option asks anything of it\fR, and \fB\-U all\fR with only \fB\-N\fR beside it has nothing to list\. A command line refused before anything runs (two modes, \fB\-z\fR with a mode, \fB\-U all\fR with an option it does not support, a bad option value, an unknown option or a stray word) prints no count, and \fB\-h\fR and \fB\-V\fR end the command before it, as they do before every other option\.
+print the number of attached Ubertooths, as a single decimal number on standard output, then run the rest of the command\. The number comes from the USB device list, so it needs no board and opens none, and it is taken before any device is opened: it is printed first, ahead of anything the other options report\. \fB\-N\fR is neither a selector nor a per\-device query, so it combines with everything else, in either order \(em reads, setters, modes, \fB\-r\fR, \fB\-S\fR, \fB\-U <index|serial>\fR and the \fB\-U all\fR listing \(em and a count that succeeds leaves the exit status to the rest of the command\. \fB\-V\fR is the one exception: it answers and ends the command, so the count would never be printed, and the pair is refused in either order\. On its own \fB\-N\fR prints the count, opens no device and exits 0, unless the count itself fails\. A \fB\-U\fR selector and nothing else beside it is refused, because \fB\-N\fR asks nothing of the board the selector names: \fBerror: nothing to do: \-U '0' selects a device but no option asks anything of it\fR, and \fB\-U all\fR with only \fB\-N\fR beside it has nothing to list\. A command line refused before anything runs (two modes, \fB\-z\fR with a mode, \fB\-V\fR with an option it does not use, \fB\-U all\fR with an option it does not support, a bad option value, an unknown option or a stray word) prints no count, and \fB\-h\fR ends the command before it\.
 .P
 Radio options:
 .TP
@@ -178,7 +187,7 @@ start xmas lights on the board: the LEDs run a pattern, the command returns at o
 get the watchdog state, why the board last reset itself, how deep its stack has been, and how many of the firmware's waits on the radio gave up\. See \fIWATCHDOG\fR; exits non\-zero if either read fails
 .TP
 \fB\-h\fR
-print the usage text on standard output\. It takes effect once the whole command line has parsed, so a bad option value, a stray word or an option given twice is still reported\. It exits 0, except beside a \fB\-V\fR that could not read a board, whose status the command then carries\.
+print the usage text on standard output\. It takes effect once the whole command line has parsed, so a bad option value, a stray word or an option given twice is still reported, as is a \fB\-V\fR on the same line with an option \fB\-V\fR does not take (\fB\-h \-b \-V\fR is that refusal, and prints no usage text)\. It exits 0, except beside a \fB\-V\fR that could not read a board, whose status the command then carries\.
 .SH "WATCHDOG"
 The firmware resets the board if it goes three seconds without servicing USB, or without its mode getting back round its own loop\. A board that stops answering the host is useless to it and cannot be recovered from it \(em the reset request travels over USB too \(em so the board recovers itself, re\-enumerates, and comes back idle\. A capture running at the time sees the board disappear and come back; the tools treat a board that has gone as lost and exit\.
 .P
@@ -390,7 +399,7 @@ Serial No (1): 19bb00112233445566778899aabbccdd
 .fi
 .IP "" 0
 .P
-\fB\-h\fR and \fB\-V\fR are not refused either, because they end the command before the listing is reached; \fB\-V\fR then reports every attached board itself\.
+\fB\-h\fR is not refused either, because it ends the command before the listing is reached\. \fB\-V\fR reports every attached board itself, so \fB\-U all \-V\fR prints its own answer; beside a query it is refused like any other combination, because the listing it would suppress is what was asked for\.
 .P
 \fB\-U all \-N\fR with no query has nothing to list, so it is refused like \fB\-U all\fR on its own: the count is not a per\-device query, and a listing is what \fB\-U all\fR asks for\.
 .IP "" 4
@@ -589,6 +598,16 @@ error: nothing to do: \-U '0' selects a device but no option asks anything of it
 \fB\-U\fR only says which board the rest of the command line acts on, so it is not an operation of its own; \fB\-N\fR, \fB\-h\fR and \fB\-V\fR are, and each works on its own\. The usage text follows the \fBerror:\fR line on standard error, and the exit status is 1\.
 .P
 \fB\-h\fR and \fB\-V\fR both end the command and both answer on standard output, so a command line with both prints both, the version first and the usage text last; the order they were written in makes no difference\.
+.P
+\fB\-V\fR takes nothing else\. It answers and ends the command, so every option beside it other than \fB\-U\fR and \fB\-h\fR is refused before the version is printed and before a device is opened, in either order, with the first such option written named:
+.IP "" 4
+.nf
+$ ubertooth\-util \-s \-V
+error: \-V cannot be combined with \-s; \-V prints the version and ends the command, so run them as separate commands
+.fi
+.IP "" 0
+.P
+That covers every report, setter, mode and action this tool has, \fB\-B\fR and \fB\-N\fR included: each would be dropped in silence otherwise, which is what \fB\-V \-b\fR and \fB\-b \-V\fR used to do while exiting 0\. The check comes once the whole command line has parsed, so any problem the option parser finds first is reported in its place: a bad option value, a stray word, an option given twice, or the \fB\-c\fR/\fB\-C\fR clash below\.
 .P
 \fB\-c\fR and \fB\-C\fR are the same channel setting written two ways, so a command line that gives a value to both names two channels for one setting and is refused before any device is opened: \fBerror: \-C cannot be combined with \-c; they are the same channel setting written two ways\fR\. A value written one way and a read written the other is still one setting and one read, so \fB\-C 24 \-c\fR sets the channel and then reports it\.
 .P
