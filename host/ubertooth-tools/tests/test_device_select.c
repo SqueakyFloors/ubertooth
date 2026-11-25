@@ -26,6 +26,12 @@
 #include "ubertooth.h"
 #include "ubertooth_fifo.h"
 
+/* An older firmware API version for the mismatch cases. Written out rather
+ * than UBERTOOTH_API_VERSION - 1: the number is binary-coded decimal, and
+ * 0x0200 - 1 is 0x01ff, which no firmware can report. 0x0158 is the last
+ * development version before 2.00. */
+#define OLDER_API_VERSION 0x0158
+
 #define FAKE_MAX 8
 
 /* One faked USB device: its descriptor, the serial number it reports, and a
@@ -74,7 +80,7 @@ static void bus_with_ubertooths(int n)
 		fake.devs[1 + i].pid = U1_PRODUCTID;
 		/* One version behind this tree, the state a development build
 		 * exists for. */
-		fake.devs[1 + i].bcd = UBERTOOTH_API_VERSION - 1;
+		fake.devs[1 + i].bcd = OLDER_API_VERSION;
 		fake.devs[1 + i].image = "bluetooth_rxtx";
 	}
 	fake.n = n + 1;
@@ -420,7 +426,7 @@ MU_TEST(an_open_keeps_the_boards_api_version_for_later_reports)
 {
 	char msg[256], expected[128];
 	ubertooth_t *ut;
-	uint16_t board = UBERTOOTH_API_VERSION - 1;
+	uint16_t board = OLDER_API_VERSION;
 
 	snprintf(expected, sizeof(expected),
 	         "note: the board reports firmware API version %x.%02x,",
@@ -580,7 +586,7 @@ MU_TEST(the_image_check_alone_ignores_the_firmware_version)
 	ubertooth_t *ut;
 
 	bus_with_ubertooths(1);
-	fake.devs[1].bcd = UBERTOOTH_API_VERSION - 1;
+	fake.devs[1].bcd = OLDER_API_VERSION;
 	fake.devs[1].image = "btbr";
 	ut = select_capturing(NULL, msg, sizeof(msg));
 	mu_assert_fatal(ut != NULL, "the only device opens");
@@ -596,7 +602,7 @@ MU_TEST(the_image_check_alone_ignores_the_firmware_version)
 	ubertooth_free(ut);
 
 	bus_with_ubertooths(1);
-	fake.devs[1].bcd = UBERTOOTH_API_VERSION - 1;
+	fake.devs[1].bcd = OLDER_API_VERSION;
 	ut = select_capturing(NULL, msg, sizeof(msg));
 	mu_assert_fatal(ut != NULL, "the only device opens");
 	mu_assert_int_eq(0, check_image_capturing(ut, msg, sizeof(msg)));

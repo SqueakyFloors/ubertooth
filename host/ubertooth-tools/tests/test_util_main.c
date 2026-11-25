@@ -20,6 +20,12 @@
 
 #include "run_main.h"
 
+/* An older firmware API version for the mismatch cases. Written out rather
+ * than UBERTOOTH_API_VERSION - 1: the number is binary-coded decimal, and
+ * 0x0200 - 1 is 0x01ff, which no firmware can report. 0x0158 is the last
+ * development version before 2.00. */
+#define OLDER_API_VERSION 0x0158
+
 /* ---- scripted device -------------------------------------------------- */
 
 static struct {
@@ -752,7 +758,7 @@ static struct run_result run_util(const char *const *args)
 /* Exact expected report lines, in the order ubertooth-util prints them. */
 #define BOARD_LINE "Board ID Number: 1 (Ubertooth One)\n"
 #define CHANNEL_LINE "Current frequency: 2441 MHz (Bluetooth channel 39)\n"
-#define FIRMWARE_LINE "Firmware version: bluetooth_rxtx 2026-11-DEV1 (API:1.58)\n"
+#define FIRMWARE_LINE "Firmware version: bluetooth_rxtx 2026-11-DEV1 (API:2.00)\n"
 /* The host line is faked above, so it is this. */
 #define HOST_LINE "libubertooth fake\n"
 /* The whole -V answer for the scripted board, which is libubertooth's and the
@@ -769,7 +775,7 @@ static struct run_result run_util(const char *const *args)
 /* The same lines as the multi-device listing prints them: the report's own
  * label with the board's index in it. i is the index, as a string. */
 #define LISTED_BOARD(i)    "Board ID Number (" i "): 1 (Ubertooth One)\n"
-#define LISTED_FIRMWARE(i) "Firmware version (" i "): bluetooth_rxtx 2026-11-DEV1 (API:1.58)\n"
+#define LISTED_FIRMWARE(i) "Firmware version (" i "): bluetooth_rxtx 2026-11-DEV1 (API:2.00)\n"
 #define LISTED_PART(i)     "Part ID (" i "): 25011723\n"
 #define LISTED_SERIAL(i)   "Serial No (" i "): " FAKE_SERIAL "\n"
 
@@ -922,7 +928,7 @@ MU_TEST(a_board_without_an_info_block_is_still_identified)
 	fake.fw_info_rc = LIBUSB_ERROR_PIPE;
 	r = RUN("-v");
 	mu_assert_int_eq(0, r.rc);
-	mu_assert(strcmp(r.out, "Firmware version: 2026-11-DEV1 (API:1.58)\n") == 0,
+	mu_assert(strcmp(r.out, "Firmware version: 2026-11-DEV1 (API:2.00)\n") == 0,
 	          r.out);
 	mu_assert_int_eq(0, (long)strlen(r.err));
 
@@ -2060,7 +2066,7 @@ MU_TEST(identify_starts_the_blink_on_the_board_and_returns)
  */
 MU_TEST(identify_refuses_firmware_of_another_api_version)
 {
-	const uint16_t versions[] = { UBERTOOTH_API_VERSION - 1, UBERTOOTH_API_VERSION + 1 };
+	const uint16_t versions[] = { OLDER_API_VERSION, UBERTOOTH_API_VERSION + 1 };
 	struct run_result r;
 	size_t i;
 
@@ -2105,14 +2111,14 @@ MU_TEST(identify_prints_the_librarys_mismatch_message)
 
 	written = snprintf(expected, sizeof(expected),
 	         "error: Ubertooth firmware API version %x.%02x found, libubertooth %s requires %x.%02x.\n",
-	         ((UBERTOOTH_API_VERSION - 1) >> 8) & 0xFF, (UBERTOOTH_API_VERSION - 1) & 0xFF,
+	         (OLDER_API_VERSION >> 8) & 0xFF, OLDER_API_VERSION & 0xFF,
 	         VERSION,
 	         (UBERTOOTH_API_VERSION >> 8) & 0xFF, UBERTOOTH_API_VERSION & 0xFF);
 	mu_assert(written > 0 && (size_t)written < sizeof(expected),
 	          "the expected line fits");
 
 	reset_fake();
-	fake.api_version = UBERTOOTH_API_VERSION - 1;
+	fake.api_version = OLDER_API_VERSION;
 	r = RUN("-I");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, expected) != NULL, "names both versions");
@@ -2160,7 +2166,7 @@ MU_TEST(identify_runs_on_when_a_mismatch_is_allowed)
 
 	setenv(UBERTOOTH_ALLOW_API_MISMATCH_VAR, "1", 1);
 	reset_fake();
-	fake.api_version = UBERTOOTH_API_VERSION - 1;
+	fake.api_version = OLDER_API_VERSION;
 	r = RUN("-I");
 	setenv(UBERTOOTH_ALLOW_API_MISMATCH_VAR, "0", 1);
 
@@ -2183,7 +2189,7 @@ MU_TEST(the_mismatch_note_names_the_board_it_is_about)
 	struct run_result r;
 
 	reset_fake();
-	fake.api_version = UBERTOOTH_API_VERSION - 1;
+	fake.api_version = OLDER_API_VERSION;
 	r = RUN("-I", "-U", serial);
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "./install.sh --flash-device "
@@ -2195,7 +2201,7 @@ MU_TEST(the_mismatch_note_names_the_board_it_is_about)
 	/* An index is named the same way: install.sh takes one after
 	 * --flash-device just as the tool takes one after -U. */
 	reset_fake();
-	fake.api_version = UBERTOOTH_API_VERSION - 1;
+	fake.api_version = OLDER_API_VERSION;
 	r = RUN("-I", "-U", "1");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "./install.sh --flash-device 1\n") != NULL, r.err);
@@ -2203,7 +2209,7 @@ MU_TEST(the_mismatch_note_names_the_board_it_is_about)
 	/* No board named, so there is none to name: --flash-device with no
 	 * selector takes the one that is attached. */
 	reset_fake();
-	fake.api_version = UBERTOOTH_API_VERSION - 1;
+	fake.api_version = OLDER_API_VERSION;
 	r = RUN("-I");
 	mu_assert_int_eq(1, r.rc);
 	mu_assert(strstr(r.err, "./install.sh --flash-device\n") != NULL, r.err);

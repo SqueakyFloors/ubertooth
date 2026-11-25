@@ -26,8 +26,11 @@
 
 /* A version either side of the one these tools require, so both directions of
  * mismatch are covered: an older board is reflashed, a newer one means the
- * host tools are the old half. */
-#define OLDER (UBERTOOTH_API_VERSION - 1)
+ * host tools are the old half. OLDER is written out rather than
+ * UBERTOOTH_API_VERSION - 1: the number is binary-coded decimal, and 0x0200 - 1
+ * is 0x01ff, which no firmware can report. 0x0158 is the last development
+ * version before 2.00. */
+#define OLDER 0x0158
 #define NEWER (UBERTOOTH_API_VERSION + 1)
 
 /* ---- helpers ------------------------------------------------------------ */

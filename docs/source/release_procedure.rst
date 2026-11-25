@@ -3,7 +3,6 @@ Release Procedure
 =================
 
 
-
 Release names
 -------------
 
@@ -26,6 +25,21 @@ Procedure
 
 An Ubertooth release is not as simple as a standard GitHub release, there are a few extra tasks, as listed below.
 
+    * Bump the firmware API version to the release's own number, before the
+      first release candidate is tagged, so every candidate tests the number
+      that ships and a later candidate or the release does not move it again.
+      ``UBERTOOTH_API_VERSION`` in
+      ``host/libubertooth/src/ubertooth_interface.h`` moves during development
+      only for a change that breaks an older host tool; the release moves it
+      to the next major version to mark that its host tools and firmware only
+      work with each other, whether or not this cycle changed the firmware.
+      The first fork release takes ``0x0200``. It is binary-coded decimal
+      (``0x0200`` reads as 2.00), and the host tools require firmware of
+      exactly this version, so every board has to be reflashed from the first
+      release candidate on. Update the firmware row of ``COMPATIBILITY.md``,
+      the expected ``API:`` string in ``validation/TEST_PLAN.md``, the pinned
+      strings in the host tests, and note the reflash in ``CHANGELOG.md``.
+
     * Tag both libbtbb and ubertooth with the release version. Use an annotated tag. e.g.
 
     * git tag -a yyyy-mm-Rx
@@ -44,19 +58,6 @@ An Ubertooth release is not as simple as a standard GitHub release, there are a 
       pre-release is …", to name the new tag. Leave the upstream pointer above
       it alone: it names Great Scott Gadgets' most recent release, not ours.
 
-    * Bump the firmware API version to the release's own number.
-      ``UBERTOOTH_API_VERSION`` in
-      ``host/libubertooth/src/ubertooth_interface.h`` already moves in every
-      development pull request that changes firmware behavior the host relies
-      on; the release moves it to the next major version to mark that its host
-      tools and firmware only work with each other, whether or not this cycle
-      changed the firmware. The first fork release takes ``0x0200``. It is
-      binary-coded decimal (``0x0200`` reads as 2.00), and the host tools
-      require firmware of exactly this version, so the move means every board
-      has to be reflashed after the release. Update the firmware row of
-      ``COMPATIBILITY.md``, the expected ``API:`` string in
-      ``validation/TEST_PLAN.md``, the pinned strings in the host tests, and
-      note the reflash in ``CHANGELOG.md``.
 
     * Configure the host tools with ``-DUBERTOOTH_RELEASE=ON``. Without it the
       build works the build type out from the tree: an archive with no ``.git``
